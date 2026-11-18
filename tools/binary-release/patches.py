@@ -98,6 +98,39 @@ def apply(elf_bytes: bytes) -> bytes:
         "exit checkpoint timeout log message (1500 ms -> 30000ms)",
     )
 
+    # 8. Async shaders: wait for the real pipeline on the draws whose stand-in
+    #    output is visible or kept, keep the stand-in for the rest.
+    #    v1.0.2 waits only with readback "full". Now IssueDrawInner also waits
+    #    (the existing wait path at 0x5bafea) when the draw writes colour
+    #    (normalized_color_mask at [rsp+0xa0] != 0; colourless kill/alpha-test
+    #    and occlusion draws have the lowest queue priority and gain nothing)
+    #    and it has <= 6 indices (full-screen composite/post-processing/tone-
+    #    mapping quads) or renders into a target at most 256 pixels wide
+    #    (reflection cube faces, the HDR luminance chain). Battlefield: Bad Company showed purple surfaces and
+    #    baked a purple reflection cube while ~470 pipelines compiled on a first
+    #    run; skipping stand-in draws instead did not help (tested 2026-11-18).
+    #    Reads this->register_file_ (this at [rsp+0x18], file at +0x38):
+    #    VGT_DRAW_INITIATOR (reg 0x21FC, num_indices = bits 16..31) and
+    #    RB_SURFACE_INFO (reg 0x2000, surface_pitch = bits 0..13).
+    patch_vaddr(
+        0x1507108,
+        "cc" * 56,
+        "e80359b9fe83f8020f84d43e0bff83bc24a0000000000f84f63e0bff488b442418488b40386683b8f2870000060f86af3e0bffe9171d59ff",
+        "Code cave 1 (int3 padding after ret): readback full -> wait; no colour -> no wait; <=6 indices -> wait",
+    )
+    patch_vaddr(
+        0xA98E57,
+        "cc" * 33,
+        "8b800080000025ff3f00000f84b221b2ff3d000100000f867721b2ffe9a221b2ff",
+        "Code cave 2 (int3 padding after jmp): render target pitch <= 256 -> wait",
+    )
+    patch_vaddr(
+        0x5BAFDF,
+        "67e82b1aaeff83f8027530",
+        "e924c1f400660f1f440000",
+        "IssueDrawInner: stand-in decision goes through the selective wait caves",
+    )
+
     return bytes(elf)
 
 
