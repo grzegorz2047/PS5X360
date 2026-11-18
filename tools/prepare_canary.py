@@ -41,14 +41,17 @@ def main():
         PATCH.write_text(git("diff", "--", *changed()), encoding="utf-8", newline="\n")
         print(f"{PATCH.relative_to(ROOT)}: {len(changed())} files")
         return
-    if not SOURCE.exists():
+    fresh = not SOURCE.exists()
+    if fresh:
         subprocess.check_call(["git", "clone", "--filter=blob:none", "--no-checkout", dep["url"], str(SOURCE)])
     if subprocess.run(["git", "-C", str(SOURCE), "cat-file", "-e", dep["revision"]],
                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode:
         git("fetch", "origin", dep["revision"])
     # Back to the pinned tree, then the patch: the result does not depend on
     # what an earlier version of the patch left behind.
-    names = changed()
+    # A fresh --no-checkout clone has no index, so status lists every file of
+    # the default branch as deleted; there is nothing of ours to undo there.
+    names = [] if fresh else changed()
     if names:
         git("checkout", dep["revision"], "--", *names)
     git("checkout", "--detach", dep["revision"])
