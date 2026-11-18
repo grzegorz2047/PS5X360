@@ -1,0 +1,81 @@
+name: Optimized PS5 package (from official v1.0.2)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version written to RELEASE.json (artifacts only; tags publish a release)
+        default: 1.0.2-opt
+  push:
+    # A tag publishes a release; a branch push that touches what goes into the
+    # package only builds the artifacts.
+    tags:
+      - 'v*-opt*'
+    branches:
+      - '**'
+    paths:
+      - 'assets/**'
+      - 'tools/binary-release/**'
+      - '.github/workflows/release-binary.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout PS5X360
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8 for UFS2Tool (.ffpkg)
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Download the official v1.0.2 PPSA50011.zip
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 5 --retry-all-errors -o "$RUNNER_TEMP/PPSA50011-v1.0.2.zip" \
+            https://github.com/BrinooTk/PS5X360/releases/download/v1.0.2/PPSA50011.zip
+          echo "230359c2638f99add3972147e1690e62d8984a37c00181501680bdda7c1096c8  $RUNNER_TEMP/PPSA50011-v1.0.2.zip" | sha256sum --check --strict
+
+      - name: Patch eboot.bin and build PPSA50011.zip
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ $GITHUB_REF_TYPE == tag ]]; then version=${GITHUB_REF_NAME#v}; else version=${INPUT_VERSION:-1.0.2-opt}; fi
+          python3 tools/binary-release/build_package.py \
+            --base-zip "$RUNNER_TEMP/PPSA50011-v1.0.2.zip" --out-dir dist/binary-release \
+            --version "$version" --source "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/tree/$GITHUB_SHA"
+
+      - name: Make PPSA50011.ffpkg and PPSA50011.ffpfsc
+        run: bash tools/binary-release/make_images.sh dist/binary-release/stage/PPSA50011 dist/binary-release
+
+      - name: Collect release files
+        run: |
+          set -euo pipefail
+          mkdir -p dist/release
+          cp dist/binary-release/PPSA50011.zip dist/binary-release/PPSA50011.zip.sha256 \
+             dist/binary-release/PPSA50011.ffpkg dist/binary-release/PPSA50011.ffpfsc dist/release/
+          cp assets/patches/*.patch.toml dist/release/ 2>/dev/null || true
+          (cd dist/release && sha256sum -- * > SHA256SUMS.txt && cat SHA256SUMS.txt)
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: PS5X360-optimized-PPSA50011
+          path: dist/release/
+
+      - name: Publish GitHub release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag=$GITHUB_REF_NAME
+          if ! gh release view "$tag" > /dev/null 2>&1; then
+            gh release create "$tag" --title "PS5X360 ${tag#v}" --notes "Optimized build of the official PS5X360 v1.0.2 package: patched eboot.bin and updated presets, game configs and patches. What changed and where the source is: licenses/PS5X360-OPT-NOTICE.txt in the package and tools/binary-release in this repository at $GITHUB_SHA."
+          fi
+          gh release upload "$tag" dist/release/* --clobber

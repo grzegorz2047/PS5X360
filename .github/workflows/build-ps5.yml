@@ -1,17 +1,18 @@
-name: Build PS5 Package (PPSA50011)
+name: Source build check (not for release)
 
+# Compiles the C++ in this repository for the PS5. The repository's C++ is older
+# than the released v1.0.2 executable (no online play, per-game FSI, frame
+# generation or Kinect), so the eboot.bin made here is only uploaded as a check
+# artifact. Releases are made by release-binary.yml from the official package.
 on:
   workflow_dispatch:
-  push:
-    tags:
-      - 'v*'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build-ps5:
-    name: Build PS5 Native Title & FFPKG
+    name: Compile eboot.bin from source
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout PS5X360
@@ -51,11 +52,6 @@ jobs:
           "$HOME/shader-tools/spirv-opt" --version
           help=$("$HOME/shader-tools/spirv-opt" --help)
           grep -q -- --canonicalize-ids <<< "$help"
-
-      - name: Setup .NET 8 for UFS2Tool (.ffpkg)
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '8.0.x'
 
       - name: Fetch PS5_Vulkan, PS5_Mesa, and PS5_PayloadSDK references
         # The pinned PS5_Mesa and PS5_PayloadSDK commits are no longer on any
@@ -99,26 +95,8 @@ jobs:
           PS5_PAYLOAD_SDK="$(pwd)/.deps/references/PS5_Vulkan/.deps/native/ps5-payload-sdk" \
             bash tools/build-canary-game.sh
 
-      - name: Assemble PPSA50011.zip and PPSA50011.ffpkg
-        run: |
-          mkdir -p dist/PPSA50011/sce_sys dist/PPSA50011/sce_module dist/PPSA50011/assets/roms dist/PPSA50011/assets/config dist/PPSA50011/assets/patches
-          cp build/canary-game/eboot.bin dist/PPSA50011/eboot.bin
-          cp assets/presets.txt dist/PPSA50011/assets/presets.txt
-          cp -r assets/config/* dist/PPSA50011/assets/config/ || true
-          cp -r assets/patches/* dist/PPSA50011/assets/patches/ || true
-          cp assets/branding/* dist/PPSA50011/sce_sys/
-          cp .deps/references/PS5_Vulkan/runtime/libc.prx dist/PPSA50011/sce_module/libc.prx
-          printf "1\n" > dist/PPSA50011/readback-auto.off
-          ufs2tool=$(bash .deps/references/PS5_Vulkan/tools/setup-packaging-dependencies.sh ffpkg)
-          "$ufs2tool" makefs -S 4096 -b 20% -t ffs \
-            -o version=2,bsize=32768,fsize=4096,minfree=0,softupdates=0,optimization=space \
-            dist/PPSA50011.ffpkg dist/PPSA50011
-          (cd dist && zip -r PPSA50011.zip PPSA50011)
-
-      - name: Upload PS5 Artifacts
+      - name: Upload the compiled eboot.bin (not for release)
         uses: actions/upload-artifact@v4
         with:
-          name: PS5X360-PPSA50011-Packages
-          path: |
-            dist/PPSA50011.zip
-            dist/PPSA50011.ffpkg
+          name: eboot-source-build-NOT-FOR-RELEASE
+          path: build/canary-game/eboot.bin
