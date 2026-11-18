@@ -37,6 +37,10 @@ inline const char* dump_folder = nullptr;
 // (their real pipeline was still being compiled), and draws that waited for
 // the real one instead. For the periodic performance line.
 inline std::atomic<unsigned long long> stand_in_draws{0}, pipeline_waits{0};
+// Active vkCreateGraphicsPipelines calls and total completed compiles across
+// sync/async modes, read by the UI thread for the on-screen shader notice.
+inline std::atomic<uint32_t> pipelines_compiling{0};
+inline std::atomic<unsigned long long> pipeline_compiles{0};
 // True when bits first..last of a bitmap of 64-bit words are all set. The words
 // are written by other threads under a lock and only read here: a request that
 // sees a page valid just before a guest write invalidates it is a draw ordered
@@ -98,8 +102,24 @@ class Scope {
   std::chrono::steady_clock::time_point started_{};
 };
 
+struct PipelineScope {
+  explicit PipelineScope(bool active) : active_(active) {
+    if (active_) pipelines_compiling.fetch_add(1, std::memory_order_relaxed);
+  }
+  ~PipelineScope() {
+    if (active_) {
+      pipelines_compiling.fetch_sub(1, std::memory_order_relaxed);
+      pipeline_compiles.fetch_add(1, std::memory_order_relaxed);
+    }
+  }
+  PipelineScope(const PipelineScope&) = delete;
+  PipelineScope& operator=(const PipelineScope&) = delete;
+  bool active_;
+};
+
 template<class Fn, class... Args>
 auto Call(Kind kind, Fn fn, Args&&... args) {
+  PipelineScope pipeline_scope(kind == Kind::pipeline);
   if (!enabled.load(std::memory_order_relaxed) || !stages_enabled.load(std::memory_order_relaxed)) return fn(std::forward<Args>(args)...);
   const auto started = std::chrono::steady_clock::now();
   const auto result = fn(std::forward<Args>(args)...);

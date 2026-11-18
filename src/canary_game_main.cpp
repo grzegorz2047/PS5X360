@@ -85,12 +85,13 @@ extern std::atomic<unsigned long long> open_syscalls, open_nanoseconds, protect_
 }
 namespace {
 using xbox360ps5::Tr;
-// The frame counter drawn over a game when the setting asks for it.
+// The frame counter and shader/stall notices drawn over a game.
 class FpsOverlay final : public xe::ui::ImGuiDialog {
  public:
   FpsOverlay(xe::ui::ImGuiDrawer* drawer,const float& fps,const int& shown,const bool& stalled,
-             const int& touchpad_menu)
-      : ImGuiDialog(drawer),fps_(fps),shown_(shown),stalled_(stalled),touchpad_menu_(touchpad_menu) {}
+             const int& touchpad_menu,const int& shader_notice_enabled,const bool& shader_compiling)
+      : ImGuiDialog(drawer),fps_(fps),shown_(shown),stalled_(stalled),touchpad_menu_(touchpad_menu),
+        shader_notice_enabled_(shader_notice_enabled),shader_compiling_(shader_compiling) {}
  protected:
   void OnDraw(ImGuiIO& io) override {
     if (xbox360ps5::motion::enabled.load()) {
@@ -109,7 +110,8 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
         draw->PopClipRect();
       }
     }
-    if (!shown_ && !stalled_) return;
+    const bool shader_notice = shader_notice_enabled_ && shader_compiling_;
+    if (!shown_ && !stalled_ && !shader_notice) return;
     char text[32];
     std::snprintf(text, sizeof(text), "%.0f FPS", fps_);
     ImDrawList* list = ImGui::GetForegroundDrawList();
@@ -120,6 +122,14 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
       list->AddRectFilled(ImVec2(24*scale,1000*scale),ImVec2((60+size.x/scale)*scale,1048*scale),IM_COL32(0,0,0,180),8*scale);
       list->AddText(ImGui::GetFont(),24*scale,ImVec2(42*scale,1010*scale),IM_COL32(245,204,137,255),notice);
     }
+    if(shader_notice) {
+      const char* notice = Tr("Compilando shaders... aguarde");
+      const ImVec2 size = ImGui::GetFont()->CalcTextSizeA(24 * scale, 4096, 0, notice);
+      const float top = stalled_ ? 942.0f : 1000.0f;
+      list->AddRectFilled(ImVec2(24 * scale, top * scale), ImVec2((60 + size.x / scale) * scale, (top + 48) * scale),
+                          IM_COL32(0, 0, 0, 180), 8 * scale);
+      list->AddText(ImGui::GetFont(), 24 * scale, ImVec2(42 * scale, (top + 10) * scale), IM_COL32(150, 220, 255, 255), notice);
+    }
     if(!shown_) return;
     list->AddRectFilled(ImVec2(24 * scale, 24 * scale), ImVec2(150 * scale, 64 * scale), IM_COL32(0, 0, 0, 150), 8 * scale);
     list->AddText(ImGui::GetFont(), 28 * scale, ImVec2(36 * scale, 30 * scale), IM_COL32(120, 230, 140, 255), text);
@@ -129,6 +139,8 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
   const int& shown_;
   const bool& stalled_;
   const int& touchpad_menu_;
+  const int& shader_notice_enabled_;
+  const bool& shader_compiling_;
 };
 // The emulator's guide over a running game, after the Xbox 360's: a light
 // panel that unfolds from the middle of the screen, a page of actions and a page
@@ -1436,7 +1448,15 @@ int main(int argc, char** argv) {
         xbox360ps5::gpu_diag::Reset();
         float fps = 0.0f;
         bool stalled_notice=false;
-        new FpsOverlay(&drawer,fps,settings.show_fps,stalled_notice,settings.touchpad_menu);
+        bool shader_compiling_notice = false;
+        auto first_shader_activity = std::chrono::steady_clock::time_point::max();
+        auto last_shader_activity = std::chrono::steady_clock::time_point::min();
+        unsigned long long prev_shader_counter =
+            xbox360ps5::gpu_diag::pipeline_compiles.load(std::memory_order_relaxed) +
+            xbox360ps5::gpu_diag::stand_in_draws.load(std::memory_order_relaxed) +
+            xbox360ps5::gpu_diag::pipeline_waits.load(std::memory_order_relaxed);
+        new FpsOverlay(&drawer,fps,settings.show_fps,stalled_notice,settings.touchpad_menu,
+                       settings.shader_notice,shader_compiling_notice);
         // The emulator's guide over the game.
         GuideState guide;
         if (autotest.active) guide.hint = 0.0f;
@@ -1590,6 +1610,26 @@ int main(int argc, char** argv) {
           if (std::chrono::steady_clock::now() < back_until) sample.buttons |= 0x100000;
           if (apply_web(true) || ++web_tick % 600 == 0) publish_web(settings_title, game_name);
           xbox360ps5::motion::SetEnabled(settings.motion_phone != 0);
+          {
+            const auto now = std::chrono::steady_clock::now();
+            const unsigned long long counter =
+                xbox360ps5::gpu_diag::pipeline_compiles.load(std::memory_order_relaxed) +
+                xbox360ps5::gpu_diag::stand_in_draws.load(std::memory_order_relaxed) +
+                xbox360ps5::gpu_diag::pipeline_waits.load(std::memory_order_relaxed);
+            const bool busy =
+                xbox360ps5::gpu_diag::pipelines_compiling.load(std::memory_order_relaxed) > 0 ||
+                counter != prev_shader_counter;
+            prev_shader_counter = counter;
+            if (busy) {
+              if (first_shader_activity == std::chrono::steady_clock::time_point::max()) first_shader_activity = now;
+              last_shader_activity = now;
+              if (now - first_shader_activity >= std::chrono::milliseconds(150)) shader_compiling_notice = true;
+            } else if (last_shader_activity != std::chrono::steady_clock::time_point::min() &&
+                       now - last_shader_activity >= std::chrono::milliseconds(1500)) {
+              first_shader_activity = std::chrono::steady_clock::time_point::max();
+              shader_compiling_notice = false;
+            }
+          }
           input->Submit(sample);
           window.SubmitUiPad(sample);
           context.Tick(); window.Paint();

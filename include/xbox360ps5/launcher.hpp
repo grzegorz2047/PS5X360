@@ -41,6 +41,7 @@ struct Settings {
   int mute = 0;
   int detailed_logs = 0;
   int show_fps = 0;       // A frame counter over the game.
+  int shader_notice = 1;  // On-screen notice while shaders compile or prewarm.
   int vsync = 1;          // Applied before graphics setup; changes restart the title.
   int resolution_scale = 1;   // Games render at 1, 2 or 3 times their resolution. Read when the title starts.
   int image_filter = 0;       // How a game's picture is stretched to the screen: 0 plain, 1 CAS, 2 FSR.
