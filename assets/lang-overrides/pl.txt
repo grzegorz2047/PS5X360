@@ -2,3 +2,6 @@
 # The banner now shows after 2 s without a new frame, typically while shaders compile.
 Sem\sframes\snovos.\sTouchpad:\sguia = Brak\snowych\sklatek\s(kompilacja\sshaderów\slub\swczytywanie).\sTouchpad:\sprzewodnik
 Sem\sframes\snovos.\sOPTIONS\s+\stouchpad:\sguia = Brak\snowych\sklatek\s(kompilacja\sshaderów\slub\swczytywanie).\sOPTIONS\s+\stouchpad:\sprzewodnik
+# VSync now caps games at 60 frames a second (binary patch 10).
+Controla\sa\ssincronização\svertical\semulada.\sO\sritmo\sautomático\spermanece\sem\s60\sHz\smesmo\squando\sdesligado,\spara\sevitar\sacelerar\so\sjogo. = Steruje\semulowaną\ssynchronizacją\spionową.\sWłączona:\sgra\spokazuje\snajwyżej\s60\sklatek\sna\ssekundę,\swięc\sgry\sz\słatką\s60\sFPS\snie\sprzyspieszają.\sWyłączona:\sbez\sogranicznika\sklatek.
+Controla\sa\ssincronização\svertical\semulada.\sO\sritmo\sautomático\spermanece\sem\s60\sHz\smesmo\squando\sdesligado,\spara\sevitar\sacelerar\so\sjogo.\sAo\sfechar\seste\spainel,\so\semulador\sreinicia\spara\saplicar\sa\smudança. = Steruje\semulowaną\ssynchronizacją\spionową.\sWłączona:\sgra\spokazuje\snajwyżej\s60\sklatek\sna\ssekundę,\swięc\sgry\sz\słatką\s60\sFPS\snie\sprzyspieszają.\sWyłączona:\sbez\sogranicznika\sklatek.\sZamknięcie\stego\spanelu\suruchamia\semulator\sponownie,\saby\szastosować\szmiany.

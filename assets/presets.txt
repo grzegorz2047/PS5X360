@@ -760,10 +760,6 @@ readback=1
 [4D5307F1]
 clear_pages=1
 readback=1
-fast_locks=1
-memory_boost=1
-dynamic_buffers=1
-fast_dot=1
 
 # Lost Odyssey - https://github.com/xenia-canary/game-compatibility/issues/4
 [4D5307FA]

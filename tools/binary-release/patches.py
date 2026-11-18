@@ -153,6 +153,79 @@ def apply(elf_bytes: bytes) -> bytes:
         "ConfigurePipeline: queue priority goes through the boost cave before the push",
     )
 
+    # 10. VSync on = at most 60 frames a second. On the PS5 the guest gets 60
+    #     vblanks a second whatever the VSync option says, so it changed only the
+    #     host presentation. Games unlocked by a 60 FPS patch with a fixed 1/60 s
+    #     step (Battlefield: Bad Company) then ran at 80+ frames and too fast.
+    #     VdSwap (0x7712a0) now paces swaps on a 16.60 ms grid (about 60.2 Hz, a
+    #     little faster than the 60 Hz vblank so vblank-paced games never wait)
+    #     when cvars::vsync (0x3926570) is set and no patch asked for VSync off
+    #     (patch_vsync_off, 0x3955818). An early swap sleeps to its deadline; a
+    #     swap late by less than one period keeps the grid (the next frames may
+    #     catch up, so a fixed-step game keeps its average speed); a swap further
+    #     behind, or the first one, restarts the grid at now + 16.60 ms.
+    #     The deadline is kept in gpu_diag's protect_nanoseconds (0x395cf10):
+    #     patch 2 left it receiving only `lock add 0` and the performance reports
+    #     only read it, so their "memory watches ... ms/s" figures are meaningless
+    #     in this build. Uses steady_clock::now (0x19a3690) and
+    #     xe::threading::NanoSleep (0x57bf50), which returns at once for <= 0 ns.
+    patch_vaddr(
+        0x7713DE,
+        "4883c4205b415e5dc5f877c3",
+        "c5f877e9ae8bd900cccccccc",
+        "VdSwap epilogue: vzeroupper, then the 60 FPS cap",
+    )
+    patch_vaddr(
+        0x1509F94,
+        "cc" * 43,
+        "803dd5c54102000f84617426fff60570b84402010f85547426ffe8dd964900488b0d562f4502e95a290000",
+        "Code cave 4 (int3 after ret): VSync off or patch_vsync_off -> no cap; now(); load deadline",
+    )
+    patch_vaddr(
+        0x150C919,
+        "cc" * 37,
+        "4889cf4829c7488d91c04bfd004839d07207488d90c04bfd00488915d7054502e9e3ba0aff",
+        "Code cave 5 (int3 after ret): sleep = deadline-now; next = deadline+P unless behind by >= P (then now+P)",
+    )
+    patch_vaddr(
+        0x5B8421,
+        "cc" * 10,
+        "e82a3bfcffe9d78f1b00",
+        "Code cave 6 (int3 after ud2): NanoSleep(deadline-now), then the epilogue",
+    )
+    patch_vaddr(
+        0x771402,
+        "cc" * 9,
+        "4883c4205b415e5dc3",
+        "VdSwap epilogue moved into the padding after the function (int3 after jmp)",
+    )
+
+    # 11. Frame generation settings on read-only .ffpkg installs. The launcher
+    #     writes the choice to /app0/framegen.conf.new and renames it over
+    #     /app0/framegen.conf; on a .ffpkg /app0 is read-only, so the choice was
+    #     never saved and the presenter kept reading the packaged
+    #     "ps5_frame_interpolation=false". Both strings now live in the unused
+    #     rest of the RenderDoc help text slot that patch 6 reused (zeroed after
+    #     its cache path), and the six lea that named them point there. Missing
+    #     file: the menu shows Off and the presenter falls back to
+    #     /data/homebrew/PPSA50011/framegen.conf, as v1.0.2 already does.
+    patch_vaddr(
+        0x1DA8036,
+        "00" * 76,
+        "2f646f776e6c6f6164302f78626f783336307073352f6672616d6567656e2e636f6e6600"
+        "2f646f776e6c6f6164302f78626f783336307073352f6672616d6567656e2e636f6e662e6e657700",
+        "strings /download0/xbox360ps5/framegen.conf and .new in the reused help-text slot",
+    )
+    for vaddr, old, new, desc in (
+        (0x1D9851, "488d359b08bb01", "488d35dee7bc01", "launcher FramegenChoice reads framegen.conf"),
+        (0x613319, "488d3dd36d7701", "488d3d164d7901", "presenter reads framegen.conf first"),
+        (0x1D9FA3, "488d354901bb01", "488d358ce0bc01", "WriteFramegen rename target framegen.conf"),
+        (0x1D9F12, "488d35ad34bc01", "488d3541e1bc01", "WriteFramegen writes framegen.conf.new"),
+        (0x1D9F9C, "488d3d2334bc01", "488d3db7e0bc01", "WriteFramegen rename source framegen.conf.new"),
+        (0x1D9FB4, "488d3d0b34bc01", "488d3d9fe0bc01", "WriteFramegen removes framegen.conf.new"),
+    ):
+        patch_vaddr(vaddr, old, new, f"framegen path -> /download0/xbox360ps5: {desc}")
+
     # 9. On-screen notice while the picture stops (shader compilation, loading):
     #    FrameWatch::Notice() in the title's main loop shows the "no new frames"
     #    banner after 45 s without a refreshed output. Point its compare at an
