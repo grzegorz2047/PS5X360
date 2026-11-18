@@ -964,23 +964,29 @@ int main(int argc, char** argv) {
     // title aborted. What can be made again goes to the installation folder
     // when that is writable (the console's whole disk), and the copies in the
     // save storage are removed to give the room back to saves.
+    // On .ffpkg installations /app0 is a read-only UFS mount, so try the
+    // writable homebrew folder first (matching PrepareSaveStorage below).
     std::filesystem::path bulk = storage;
     {
-      std::error_code bulk_error;
-      const std::filesystem::path candidate = "/app0/cache";
-      std::filesystem::create_directories(candidate, bulk_error);
-      bool writable = false;
-      if (!bulk_error) {
-        { std::ofstream probe(candidate / ".probe", std::ios::trunc); probe << "probe"; probe.flush(); writable = probe.good(); }
-        std::filesystem::remove(candidate / ".probe", bulk_error);
-      }
-      if (writable) {
-        bulk = candidate;
-        for (const char* old : {"cache", "utility-cache"}) {
-          std::error_code remove_error;
-          const auto removed = std::filesystem::remove_all(storage / old, remove_error);
-          if (!remove_error && removed) XELOGW("Storage: removed {} cache entries from {}", removed, (storage / old).string());
-          else if (remove_error) XELOGW("Storage: could not clear {}: {}", (storage / old).string(), remove_error.message());
+      for (const std::filesystem::path candidate :
+           {std::filesystem::path("/data/homebrew/PPSA50011/cache"),
+            std::filesystem::path("/app0/cache")}) {
+        std::error_code bulk_error;
+        std::filesystem::create_directories(candidate, bulk_error);
+        bool writable = false;
+        if (!bulk_error) {
+          { std::ofstream probe(candidate / ".probe", std::ios::trunc); probe << "probe"; probe.flush(); writable = probe.good(); }
+          std::filesystem::remove(candidate / ".probe", bulk_error);
+        }
+        if (writable) {
+          bulk = candidate;
+          for (const char* old : {"cache", "utility-cache"}) {
+            std::error_code remove_error;
+            const auto removed = std::filesystem::remove_all(storage / old, remove_error);
+            if (!remove_error && removed) XELOGW("Storage: removed {} cache entries from {}", removed, (storage / old).string());
+            else if (remove_error) XELOGW("Storage: could not clear {}: {}", (storage / old).string(), remove_error.message());
+          }
+          break;
         }
       }
       // How much of the save storage is in use: its real size is not reported
