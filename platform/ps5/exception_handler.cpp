@@ -65,16 +65,16 @@ void callback(int number, siginfo_t* info, void* raw_context) {
     &mc.mc_rax, &mc.mc_rcx, &mc.mc_rdx, &mc.mc_rbx, &mc.mc_rsp, &mc.mc_rbp,
     &mc.mc_rsi, &mc.mc_rdi, &mc.mc_r8, &mc.mc_r9, &mc.mc_r10, &mc.mc_r11,
     &mc.mc_r12, &mc.mc_r13, &mc.mc_r14, &mc.mc_r15};
-  // Fast path: SIGSEGV access-violation handlers (SharedMemory write watches)
-  // only inspect fault_address and access_violation_operation, never GPR/XMM
-  // registers. Only populate full GPR/XMM state on SIGILL or if modified.
+  // General registers are always needed: the MMIO handler emulates a faulting
+  // guest store by reading the stored value from int_registers[value_reg].
+  for (unsigned n = 0; n < gprs.size(); ++n) host.int_registers[n] = *gprs[n];
+  // FXSAVE XMM0 starts at byte 160. Gate this layout on the SDK's format tag.
+  // The 256-byte copy costs nanoseconds next to the signal delivery itself, and
+  // a handler that changes part of a register needs the rest of it intact.
   const bool have_xmm = mc.mc_fpformat == _MC_FPFMT_XMM;
   auto* xmm = reinterpret_cast<unsigned char*>(mc.mc_fpstate) + 160;
   static_assert(sizeof(mc.mc_fpstate) >= 160 + sizeof(host.xmm_registers));
-  if (number == SIGILL) {
-    for (unsigned n = 0; n < gprs.size(); ++n) host.int_registers[n] = *gprs[n];
-    if (have_xmm) std::memcpy(host.xmm_registers, xmm, sizeof(host.xmm_registers));
-  }
+  if (have_xmm) std::memcpy(host.xmm_registers, xmm, sizeof(host.xmm_registers));
   Exception fault;
   if (number == SIGILL) fault.InitializeIllegalInstruction(&host);
   else fault.InitializeAccessViolation(&host, uintptr_t(info->si_addr),

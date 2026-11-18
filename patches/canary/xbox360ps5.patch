@@ -7768,6 +7768,7 @@ diff --git a/src/xenia/kernel/xam/profile_manager.h b/src/xenia/kernel/xam/profi
    bool MountProfile(const uint64_t xuid, std::string mount_path = "");
    bool DismountProfile(const uint64_t xuid);
 diff --git a/src/xenia/cpu/ppc/ppc_emit_memory.cc b/src/xenia/cpu/ppc/ppc_emit_memory.cc
+index 33e1b0f..84effe2 100644
 --- a/src/xenia/cpu/ppc/ppc_emit_memory.cc
 +++ b/src/xenia/cpu/ppc/ppc_emit_memory.cc
 @@ -784,8 +784,6 @@ int InstrEmit_ldarx(PPCHIRBuilder& f, const InstrData& i) {
@@ -7788,7 +7789,7 @@ diff --git a/src/xenia/cpu/ppc/ppc_emit_memory.cc b/src/xenia/cpu/ppc/ppc_emit_m
      Value* rt =
          f.ZeroExtend(f.ByteSwap(f.LoadWithReserve(ea, INT32_TYPE)), INT64_TYPE);
      f.StoreGPR(i.X.RT, rt);
-@@ -859,10 +855,6 @@ int InstrEmit_stdcx(PPCHIRBuilder& f, const InstrData& i) {
+@@ -857,11 +853,6 @@ int InstrEmit_stdcx(PPCHIRBuilder& f, const InstrData& i) {
    f.StoreContext(offsetof(PPCContext, cr0.cr0_lt), f.LoadZeroInt8());
    f.StoreContext(offsetof(PPCContext, cr0.cr0_gt), f.LoadZeroInt8());
  
@@ -7799,7 +7800,8 @@ diff --git a/src/xenia/cpu/ppc/ppc_emit_memory.cc b/src/xenia/cpu/ppc/ppc_emit_m
 -  }
    return 0;
  }
-@@ -892,18 +884,11 @@ int InstrEmit_stwcx(PPCHIRBuilder& f, const InstrData& i) {
+ 
+@@ -892,18 +883,13 @@ int InstrEmit_stwcx(PPCHIRBuilder& f, const InstrData& i) {
  
      f.StoreContext(offsetof(PPCContext, cr0.cr0_eq), f.LoadConstantInt8(1));
    } else {
@@ -7816,6 +7818,6 @@ diff --git a/src/xenia/cpu/ppc/ppc_emit_memory.cc b/src/xenia/cpu/ppc/ppc_emit_m
 -  if (!cvars::no_reserved_ops) {
 -    f.MemoryBarrier();
 -  }
--
+ 
    return 0;
  }

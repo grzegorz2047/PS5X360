@@ -85,7 +85,14 @@ tool="$work/host/ps5-native-tool"
   --stub-dir "$sdk/target/lib" --stub build/radv-stubs/libSceAgc.so \
   --stub build/radv-stubs/libSceAgcDriver.so --module-sdk 0x02000009 \
   --companion-sdk 0x08050001 --file-name eboot.elf
-python3 build/native-runtime-stage/tools/verify-image.py "$work/llvm-pie.elf" "$work/eboot.elf"
+# The image check comes from the private native runtime stage; builds without it
+# (GitHub Actions) skip the check instead of failing.
+verify_image=build/native-runtime-stage/tools/verify-image.py
+if [[ -f $verify_image ]]; then
+  python3 "$verify_image" "$work/llvm-pie.elf" "$work/eboot.elf"
+else
+  echo "Skipping image verification: $verify_image is not present" >&2
+fi
 "$tool" self --sign --in "$work/eboot.elf" --out "$work/eboot.bin" --magic 0x1D3D154F
 ls -la "$work/eboot.bin"
 mkdir -p "$root/dist/PPSA50011/assets/fonts"
