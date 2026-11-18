@@ -131,6 +131,28 @@ def apply(elf_bytes: bytes) -> bytes:
         "IssueDrawInner: stand-in decision goes through the selective wait caves",
     )
 
+    # 8b. Compile the pipelines that patch 8 waits for first. The creation
+    #    queue is a max-heap on PipelineCreationArguments::priority (0..3), and
+    #    equal priorities come out in no particular order, so a waited
+    #    pipeline could sit behind hundreds of others: Battlefield: Bad Company
+    #    froze for 15 s and more on a first run (2026-11-18 log). In
+    #    VulkanPipelineCache::ConfigurePipeline (this in rbx, register_file_ at
+    #    [this+8], priority in r12b), a pipeline that writes a visible colour
+    #    target (priority >= 2) and matches patch 8's rule (<= 6 indices, or a
+    #    render target at most 256 pixels wide) gets priority 4, ahead of all.
+    patch_vaddr(
+        0x150EDC8,
+        "cc" * 55,
+        "4180fc027225488b43086683b8f28700000676148b800080000025ff3f0000740a3d00010000770341b4044488a508ffffffe9f51d0eff",
+        "Code cave 3 (int3 padding after jmp): priority 4 for full-screen / small-target colour pipelines",
+    )
+    patch_vaddr(
+        0x5F0BED,
+        "4488a508ffffff",
+        "e9d6e1f1006690",
+        "ConfigurePipeline: queue priority goes through the boost cave before the push",
+    )
+
     # 9. On-screen notice while the picture stops (shader compilation, loading):
     #    FrameWatch::Notice() in the title's main loop shows the "no new frames"
     #    banner after 45 s without a refreshed output. Point its compare at an
