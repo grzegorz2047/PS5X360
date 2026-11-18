@@ -280,16 +280,18 @@ clear_pages=1
 readback=1
 
 # Battlefield: Bad Company - https://github.com/xenia-canary/game-compatibility/issues/188 (labels: gpu-readback, requires_render_target_rov_fsi)
-# PS5 optimization: keep accurate_targets=1 (FSI), use readback=0 (relying on
-# delayed <=512 KiB AutoReadback for HDR luminance without 19s/30s fence
-# stalls), 6 pipeline compilation threads (pipeline_threads=3), and disable
-# async_shaders so first-run draws never bake purple stand-in cubemaps/water
-# or show glitched purple terrain before shaders finish caching to .vk.bin.
+# PS5 optimization: host render targets (accurate_targets=0): no visible
+# artifacts on the console (2026-11-19) and pipelines compile 3x faster than
+# with FSI (98 ms vs 298 ms average, 214 s vs 585 s for a first run), then a
+# steady 60 FPS. readback=0 (relying on the delayed <=512 KiB AutoReadback for
+# HDR luminance without 19 s per 30 s of fence stalls) and 6 pipeline
+# compilation threads (pipeline_threads=3). Background shaders stay on (the
+# default): the binary patches wait for the real pipeline only where a
+# stand-in would be seen (purple terrain, guns or baked reflection cube).
 [454107F9]
-accurate_targets=1
+accurate_targets=0
 readback=0
 pipeline_threads=3
-async_shaders=0
 
 # The Orange Box - https://github.com/xenia-canary/game-compatibility/issues/235 (labels: gpu-readback)
 [4541080F]
