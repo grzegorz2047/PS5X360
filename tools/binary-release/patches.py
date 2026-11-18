@@ -98,6 +98,29 @@ def apply(elf_bytes: bytes) -> bytes:
         "exit checkpoint timeout log message (1500 ms -> 30000ms)",
     )
 
+    # 8. Async shaders: skip a draw whose pipeline is still the stand-in instead of
+    #    drawing it with the placeholder pixel shader. The stand-in writes
+    #    transparent black (and depth) with the real pipeline state, which shows
+    #    as purple/rainbow surfaces and gets baked into render-to-texture results
+    #    such as Battlefield: Bad Company's reflection cubemap at mission start.
+    #    VulkanCommandProcessor::IssueDrawInner, after the stand-in is counted:
+    #    keep draws_since_resolve_.stand_in++, then jump to a cave that keeps the
+    #    gpu_diag::stand_in_draws++ and continues at the existing "not drawn"
+    #    exit (0x5bc089, the path a failed pipeline creation already takes).
+    #    Nothing changes with async shaders off (no stand-ins are made then).
+    patch_vaddr(
+        0x5B8421,
+        "cccccccccccccccccccccccccccccc",
+        "f048ff054fd43903e95b3c0000cccc",
+        "Code cave (int3 padding after ret): lock inc gpu_diag::stand_in_draws; jmp to not-drawn exit",
+    )
+    patch_vaddr(
+        0x5BB02A,
+        "488b442418488d0d42a83903ff80d4160000f048ff01",
+        "488b442418ff80d4160000e9e7d3ffff660f1f440000",
+        "IssueDrawInner: count the stand-in draw, then skip it instead of drawing the placeholder",
+    )
+
     return bytes(elf)
 
 
