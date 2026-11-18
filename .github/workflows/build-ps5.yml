@@ -30,6 +30,28 @@ jobs:
           pipx install meson==1.7.2
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
+      - name: Install Vulkan SDK shader tools
+        # Canary's compile_shader_spirv.py runs `spirv-opt --canonicalize-ids`,
+        # which Ubuntu 24.04's SPIRV-Tools (2023.6) lacks. Only the three shader
+        # tools are put on PATH; VULKAN_SDK stays unset so the PS5 cross build
+        # keeps using the RADV headers.
+        run: |
+          set -euo pipefail
+          v=1.4.341.1
+          file=vulkansdk-linux-x86_64-$v.tar.xz
+          curl -fsSL --retry 5 --retry-all-errors -o "$RUNNER_TEMP/$file" \
+            "https://sdk.lunarg.com/sdk/download/$v/linux/$file"
+          echo "3bf0f762afb6c79bc6a9d9fb5998745ccff928800a29619b501ed9de7fd9789b  $RUNNER_TEMP/$file" | sha256sum --check --strict
+          mkdir -p "$HOME/vulkan-sdk" "$HOME/shader-tools"
+          tar -xJf "$RUNNER_TEMP/$file" -C "$HOME/vulkan-sdk" "$v/x86_64/bin" "$v/x86_64/lib"
+          for tool in glslangValidator spirv-opt spirv-dis; do
+            ln -sf "$HOME/vulkan-sdk/$v/x86_64/bin/$tool" "$HOME/shader-tools/$tool"
+          done
+          echo "$HOME/shader-tools" >> "$GITHUB_PATH"
+          "$HOME/shader-tools/spirv-opt" --version
+          help=$("$HOME/shader-tools/spirv-opt" --help)
+          grep -q -- --canonicalize-ids <<< "$help"
+
       - name: Setup .NET 8 for UFS2Tool (.ffpkg)
         uses: actions/setup-dotnet@v4
         with:
