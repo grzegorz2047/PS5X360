@@ -1,0 +1,4 @@
+# Overrides merged into assets/lang/pl.txt by tools/binary-release/build_package.py.
+# The banner now shows after 2 s without a new frame, typically while shaders compile.
+Sem\sframes\snovos.\sTouchpad:\sguia = Brak\snowych\sklatek\s(kompilacja\sshaderów\slub\swczytywanie).\sTouchpad:\sprzewodnik
+Sem\sframes\snovos.\sOPTIONS\s+\stouchpad:\sguia = Brak\snowych\sklatek\s(kompilacja\sshaderów\slub\swczytywanie).\sOPTIONS\s+\stouchpad:\sprzewodnik

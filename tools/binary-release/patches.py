@@ -131,6 +131,19 @@ def apply(elf_bytes: bytes) -> bytes:
         "IssueDrawInner: stand-in decision goes through the selective wait caves",
     )
 
+    # 9. On-screen notice while the picture stops (shader compilation, loading):
+    #    FrameWatch::Notice() in the title's main loop shows the "no new frames"
+    #    banner after 45 s without a refreshed output. Point its compare at an
+    #    existing 2.0 constant instead (the 45.0 constant itself is shared with
+    #    FrameWatch::Observe and stays). The banner text gains "(compiling
+    #    shaders or loading)" through assets/lang-overrides.
+    patch_vaddr(
+        0x06B3D6,
+        "c5f92e053ac7c901",
+        "c5f92e05fac5c901",
+        "main loop: no-new-frames banner after 2 s (vucomisd vs 2.0 at 0x1d079d8, was 45.0 at 0x1d07b18)",
+    )
+
     return bytes(elf)
 
 

@@ -36,6 +36,26 @@ def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def merge_lang(base: bytes, overrides: bytes) -> bytes:
+    """Replaces or adds `portuguese key = translation` lines of a UI language file."""
+    wanted = {}
+    for line in overrides.decode("utf-8").splitlines():
+        if line and not line.startswith("#"):
+            key, sep, value = line.partition(" = ")
+            if not sep:
+                raise SystemExit(f"Language override line without ' = ': {line!r}")
+            wanted[key] = value
+    lines = base.decode("utf-8").split("\n")
+    for i, line in enumerate(lines):
+        key, sep, _ = line.partition(" = ")
+        if sep and key in wanted:
+            lines[i] = f"{key} = {wanted.pop(key)}"
+    if lines and lines[-1] == "":
+        lines.pop()
+    lines += [f"{key} = {value}" for key, value in wanted.items()]
+    return ("\n".join(lines) + "\n").encode("utf-8")
+
+
 def notice(version: str, source: str, eboot_sha: str) -> bytes:
     return f"""PS5X360 {version} - optimized build of the official PS5X360 {BASE_VERSION} package
 
@@ -90,6 +110,11 @@ def main() -> int:
         files[PREFIX + "assets/config/" + path.name] = path.read_bytes()
     for path in sorted((ROOT / "assets/patches").glob("*.patch.toml")):
         files[PREFIX + "assets/patches/" + path.name] = path.read_bytes()
+    for path in sorted((ROOT / "assets/lang-overrides").glob("*.txt")):
+        name = PREFIX + "assets/lang/" + path.name
+        if name not in files:
+            raise SystemExit(f"{path.name}: the base package has no assets/lang/{path.name}")
+        files[name] = merge_lang(files[name], path.read_bytes())
     # v1.0.2 keeps resolves up to 512 KiB copied back when readback is off; this
     # marker would switch that off (it darkens Battlefield: Bad Company).
     files.pop(PREFIX + "readback-auto.off", None)
