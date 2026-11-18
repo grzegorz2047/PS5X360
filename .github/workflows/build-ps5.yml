@@ -22,8 +22,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             build-essential clang-18 lld-18 llvm-18 cmake ninja-build \
-            python3 python3-pip python3-venv python3-mako python3-yaml \
-            meson pkg-config git curl unzip jq
+            python3 python3-pip python3-venv python3-mako python3-yaml python3-packaging \
+            pkg-config git curl unzip jq rsync wget \
+            llvm-18-dev libclang-18-dev libclang-cpp18-dev libclc-18-dev \
+            libllvmspirvlib-18-dev llvm-spirv-18 spirv-tools glslang-tools
+          # Mesa at the pinned PS5_Mesa revision needs Meson >= 1.4; Ubuntu 24.04 ships 1.3.2.
+          pipx install meson==1.7.2
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Setup .NET 8 for UFS2Tool (.ffpkg)
         uses: actions/setup-dotnet@v4
