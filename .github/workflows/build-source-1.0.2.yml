@@ -4,6 +4,10 @@ name: Rebuild v1.0.2 from source drops (not for release)
 # (tools/source-1.0.2/assemble.py) and compiles them into eboot.bin with the same PS5
 # toolchain as build-ps5.yml. The result is a check artifact, not a release: some parts of
 # 1.0.2 are not in any drop (docs/SOURCE-1.0.2.md). Releases come from release-binary.yml.
+#
+# Caches: the built RADV driver and payload SDK (.deps/references/PS5_Vulkan/.deps/native),
+# keyed by the three pinned reference commits and the RADV build script, so Mesa and its
+# build-only packages are needed only when that key changes; and ccache for the compile.
 on:
   workflow_dispatch:
   # TEMPORARY while iterating on branch source-1.0.2 (dispatch needs the file on main);
@@ -15,6 +19,11 @@ on:
 permissions:
   contents: read
 
+env:
+  PS5_VULKAN_REV: 3f3ee69607013b345d2baa6d6a37c86745649a08
+  PS5_MESA_REV: 0b2d6d1a61d9bbf89cf8beb88a696144f67c61f8
+  PS5_PAYLOAD_SDK_REV: 95c08f27386fc698f6bbe21dde3030140a41d10b
+
 jobs:
   rebuild:
     name: Assemble and compile 1.0.2
@@ -23,7 +32,38 @@ jobs:
       - name: Checkout PS5X360
         uses: actions/checkout@v4
 
-      - name: Install build dependencies
+      - name: Fetch PS5_Vulkan, PS5_Mesa, and PS5_PayloadSDK references
+        run: |
+          set -euo pipefail
+          fetch_pinned() {
+            local name=$1 revision=$2 dir=.deps/references/$1
+            git init -q "$dir"
+            git -C "$dir" remote add origin "https://github.com/mihawk-99/$name.git"
+            git -C "$dir" fetch -q --depth 1 origin "$revision"
+            git -C "$dir" checkout -q --detach FETCH_HEAD
+            test "$(git -C "$dir" rev-parse HEAD)" = "$revision"
+          }
+          mkdir -p .deps/references
+          fetch_pinned PS5_Vulkan "$PS5_VULKAN_REV"
+          fetch_pinned PS5_Mesa "$PS5_MESA_REV"
+          fetch_pinned PS5_PayloadSDK "$PS5_PAYLOAD_SDK_REV"
+
+      - name: Restore the built RADV driver and payload SDK
+        id: radv
+        uses: actions/cache/restore@v4
+        with:
+          path: .deps/references/PS5_Vulkan/.deps/native
+          key: radv-native-${{ env.PS5_VULKAN_REV }}-${{ env.PS5_MESA_REV }}-${{ env.PS5_PAYLOAD_SDK_REV }}-${{ hashFiles('tools/build-radv-platform.sh') }}
+
+      - name: Install build dependencies (compile only)
+        if: steps.radv.outputs.cache-hit == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang-18 lld-18 llvm-18 cmake ninja-build python3 git curl ccache
+
+      - name: Install build dependencies (with Mesa's)
+        if: steps.radv.outputs.cache-hit != 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -50,34 +90,29 @@ jobs:
           done
           echo "$HOME/shader-tools" >> "$GITHUB_PATH"
 
-      - name: Fetch PS5_Vulkan, PS5_Mesa, and PS5_PayloadSDK references
+      - name: Assemble the 1.0.2 source tree
+        run: python3 -I tools/source-1.0.2/assemble.py --out build/src102 --cache .deps/src102-cache
+
+      - name: Build RADV platform and payload SDK
+        if: steps.radv.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
-          fetch_pinned() {
-            local name=$1 revision=$2 dir=.deps/references/$1
-            git init -q "$dir"
-            git -C "$dir" remote add origin "https://github.com/mihawk-99/$name.git"
-            git -C "$dir" fetch -q --depth 1 origin "$revision"
-            git -C "$dir" checkout -q --detach FETCH_HEAD
-            test "$(git -C "$dir" rev-parse HEAD)" = "$revision"
-          }
-          mkdir -p .deps/references
-          fetch_pinned PS5_Vulkan 3f3ee69607013b345d2baa6d6a37c86745649a08
-          fetch_pinned PS5_Mesa 0b2d6d1a61d9bbf89cf8beb88a696144f67c61f8
-          fetch_pinned PS5_PayloadSDK 95c08f27386fc698f6bbe21dde3030140a41d10b
+          # zlib.net intermittently serves CI runners something else; seed the identical
+          # tarball from zlib's GitHub release (setup-native-dependencies.sh checks its SHA-256).
           zlib_dir=.deps/references/PS5_Vulkan/.deps/native/zlib
           mkdir -p "$zlib_dir"
           curl -fsSL --retry 5 --retry-all-errors -o "$zlib_dir/zlib-1.3.2.tar.gz" \
             https://github.com/madler/zlib/releases/download/v1.3.2/zlib-1.3.2.tar.gz
           echo "bb329a0a2cd0274d05519d61c667c062e06990d72e125ee2dfa8de64f0119d16  $zlib_dir/zlib-1.3.2.tar.gz" | sha256sum --check --strict
-
-      - name: Assemble the 1.0.2 source tree
-        run: python3 -I tools/source-1.0.2/assemble.py --out build/src102 --cache .deps/src102-cache
-
-      - name: Build RADV platform and payload SDK
-        run: |
           mkdir -p build
           bash tools/build-radv-platform.sh
+
+      - name: Save the built RADV driver and payload SDK
+        if: steps.radv.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .deps/references/PS5_Vulkan/.deps/native
+          key: ${{ steps.radv.outputs.cache-primary-key }}
 
       - name: Restore compiler cache
         uses: actions/cache/restore@v4
