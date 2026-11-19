@@ -1,0 +1,224 @@
+diff --git a/port/network_self_test.hpp b/port/network_self_test.hpp
+new file mode 100644
+index 0000000..9293b8d
+--- /dev/null
++++ b/port/network_self_test.hpp
+@@ -0,0 +1,157 @@
++// Fix 42: the pieces of online mode's network self-test (NetworkSelfTest, canary_game_main.cpp)
++// that the official 1.0.2 has and the published source lacks: every line is timed from the
++// test's start ("Network test: curl +{} ms: {}", "+{} ms {} -> {} ...", "+{} ms closing the
++// request", "+{} ms request closed"), the resolver's account of its last lookups is logged a
++// line at a time ("Network test: lookup {}", ps5x_resolver_report into 0x640 bytes), and a plain
++// TCP connection to the Xenia server's address is tried ("Network test: TCP
++// 166.117.125.185:443 {} (errno {})"). Official eboot: NetworkSelfTest at 0x73d10, its curl
++// trace callback at 0x82f40 (research/gap-feasibility/9/nettest.asm of the workspace).
++//
++// 1.0.2 connects with a blocking connect(); here the socket is non-blocking and the wait is
++// bounded (kTcpProbeTimeoutMs), so the probe adds at most that to the test's own thread (the
++// test runs on a detached thread, never on the interface's). No Xenia headers here (checked on
++// the host by tools/check-network-self-test.cpp).
++#pragma once
++
++#include <arpa/inet.h>
++#include <fcntl.h>
++#include <netinet/in.h>
++#include <poll.h>
++#include <sys/socket.h>
++#include <sys/time.h>
++#include <unistd.h>
++
++#include <cerrno>
++#include <chrono>
++#include <cstddef>
++#include <cstdint>
++#include <string>
++#include <string_view>
++#include <vector>
++
++namespace xbox360ps5::network_self_test {
++
++// The buffer the official gives ps5x_resolver_report (memset and call with 0x640 at 0x7419d).
++constexpr std::size_t kResolverReportSize = 0x640;
++// The address and port the official connects to (inet_addr("166.117.125.185"), sockaddr dword
++// 0xbb010210: length 16, AF_INET, port 443).
++constexpr const char* kTcpProbeAddress = "166.117.125.185";
++constexpr std::uint16_t kTcpProbePort = 443;
++// The longest the probe waits for the connection (1.0.2 waited as long as the system did).
++constexpr int kTcpProbeTimeoutMs = 5000;
++
++using Clock = std::chrono::steady_clock;  // 1.0.2: clock_gettime(CLOCK_MONOTONIC), 0x19a3690
++
++// Whole milliseconds from `start` to `now`, truncated toward zero as 1.0.2's (now - start) / 1e6
++// on nanoseconds.
++inline std::int64_t ElapsedMs(Clock::time_point start, Clock::time_point now) {
++  return std::chrono::duration_cast<std::chrono::milliseconds>(now - start).count();
++}
++
++// A libcurl trace record as one log line: its text without the line ends at its end.
++inline std::string TraceText(const char* data, std::size_t size) {
++  std::string line(data ? data : "", data ? size : 0);
++  while (!line.empty() && (line.back() == '\n' || line.back() == '\r')) line.pop_back();
++  return line;
++}
++
++// The resolver's report (a NUL-terminated "name: step; step" line per lookup) split at its
++// line feeds, empty lines left out. Views into `report`.
++inline std::vector<std::string_view> ReportLines(const char* report) {
++  std::vector<std::string_view> lines;
++  if (!report) return lines;
++  std::string_view rest(report);
++  while (!rest.empty()) {
++    const std::size_t end = rest.find('\n');
++    const std::string_view line = rest.substr(0, end);
++    if (!line.empty()) lines.push_back(line);
++    if (end == std::string_view::npos) break;
++    rest.remove_prefix(end + 1);
++  }
++  return lines;
++}
++
++struct TcpProbeResult {
++  bool connected = false;
++  int error = 0;  // errno of the step that failed; 0 when connected
++};
++
++// The word the log line gives the outcome ("connected" or "failed", as 1.0.2's strings).
++inline const char* TcpProbeText(const TcpProbeResult& result) {
++  return result.connected ? "connected" : "failed";
++}
++
++namespace detail {
++template <typename Address>
++auto SetLength(Address& address, int) -> decltype(address.sin_len = 0, void()) {
++  address.sin_len = sizeof(Address);  // BSD (the console): 1.0.2's sockaddr has it
++}
++template <typename Address>
++void SetLength(Address&, long) {}
++}  // namespace detail
++
++// Connects a TCP socket to `address`:`port` and closes it again, waiting at most `timeout_ms`.
++// A timeout is failed with ETIMEDOUT; a bad address with EINVAL.
++inline TcpProbeResult ProbeTcp(const char* address, std::uint16_t port, int timeout_ms) {
++  TcpProbeResult result;
++  sockaddr_in at{};
++  detail::SetLength(at, 0);
++  at.sin_family = AF_INET;
++  at.sin_port = htons(port);
++  if (!address || inet_pton(AF_INET, address, &at.sin_addr) != 1) {
++    result.error = EINVAL;
++    return result;
++  }
++  const int sock = socket(AF_INET, SOCK_STREAM, 0);
++  if (sock < 0) {
++    result.error = errno;
++    return result;
++  }
++  // Non-blocking, as libcurl's sockets on the console (ps5_resolver.cpp): the descriptor's flag
++  // and, on the console, its own socket option (SO_NBIO), which the descriptor flag may not
++  // reach. Should both be refused, the send timeout is the last bound on the wait.
++  const int flags = fcntl(sock, F_GETFL, 0);
++  if (flags >= 0) fcntl(sock, F_SETFL, flags | O_NONBLOCK);
++#if !defined(__linux__)
++  const int one = 1;
++  setsockopt(sock, SOL_SOCKET, 0x1200, &one, sizeof(one));
++#endif
++  timeval limit{timeout_ms / 1000, (timeout_ms % 1000) * 1000};
++  setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &limit, sizeof(limit));
++  if (connect(sock, reinterpret_cast<const sockaddr*>(&at), sizeof(at)) == 0) {
++    result.connected = true;
++  } else if (errno != EINPROGRESS && errno != EWOULDBLOCK && errno != EAGAIN && errno != EINTR) {
++    result.error = errno;
++  } else {
++    const auto deadline = Clock::now() + std::chrono::milliseconds(timeout_ms);
++    for (;;) {
++      const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - Clock::now()).count();
++      if (left <= 0) {
++        result.error = ETIMEDOUT;
++        break;
++      }
++      pollfd writable{sock, POLLOUT, 0};
++      const int ready = poll(&writable, 1, int(left));
++      if (ready < 0) {
++        if (errno == EINTR) continue;
++        result.error = errno;
++        break;
++      }
++      if (ready == 0) continue;  // the deadline is checked again above
++      int error = 0;
++      socklen_t length = sizeof(error);
++      if (getsockopt(sock, SOL_SOCKET, SO_ERROR, &error, &length) != 0) {
++        result.error = errno;
++      } else if (error != 0) {
++        result.error = error;
++      } else {
++        result.connected = true;
++      }
++      break;
++    }
++  }
++  close(sock);
++  return result;
++}
++
++}  // namespace xbox360ps5::network_self_test
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+index 8b0be38..b1a1e75 100644
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -176,19 +176,30 @@ DECLARE_bool(upnp);
+ #include "xenia/kernel/util/curl_utils.h"
+ #include "guide_network.hpp"  // fix 22: the network mode from the guide
+ #include <fcntl.h>
++#include "network_self_test.hpp"  // fix 42: the self-test's timing, lookups and TCP probe
++extern "C" void ps5x_resolver_report(char* out, size_t size);  // port/ps5_resolver.cpp
+ 
+ namespace {
+ // Online mode's check of each piece the Xenia server needs, written to the console's log
+ // (one run per start, on its own thread): a pipe and a loopback connection (libcurl's wake-up
+ // channel), a multi handle, then one HTTPS request with libcurl's own account of each step.
++// Fix 42 (as the official 1.0.2): each step of the request timed from the test's start, the
++// resolver's last lookups, then a plain TCP connection to the Xenia server's address
++// (network_self_test.hpp).
++xbox360ps5::network_self_test::Clock::time_point net_self_test_start;
++int64_t NetSelfTestMs() {
++  return xbox360ps5::network_self_test::ElapsedMs(net_self_test_start,
++                                                  xbox360ps5::network_self_test::Clock::now());
++}
+ int NetSelfTestTrace(CURL*, curl_infotype type, char* data, size_t size, void*) {
+   if (type != CURLINFO_TEXT) return 0;
+-  std::string line(data, size);
+-  while (!line.empty() && (line.back() == '\n' || line.back() == '\r')) line.pop_back();
+-  XELOGW("Network test: curl: {}", line);
++  const std::string line = xbox360ps5::network_self_test::TraceText(data, size);
++  XELOGW("Network test: curl +{} ms: {}", NetSelfTestMs(), line);
+   return 0;
+ }
+ void NetworkSelfTest(const std::string& server) {
++  namespace nst = xbox360ps5::network_self_test;
++  net_self_test_start = nst::Clock::now();
+   int ends[2] = {-1, -1};
+   const int piped = pipe(ends);
+   XELOGW("Network test: pipe {} (errno {})", piped == 0 ? "ok" : "refused", piped == 0 ? 0 : errno);
+@@ -213,8 +224,21 @@ void NetworkSelfTest(const std::string& server) {
+   const CURLcode result = curl_easy_perform(curl);
+   long status = 0;
+   curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+-  XELOGW("Network test: {} -> {} ({}; {}), HTTP {}", url, int(result), curl_easy_strerror(result), error_text, status);
++  XELOGW("Network test: +{} ms {} -> {} ({}; {}), HTTP {}", NetSelfTestMs(), url, int(result),
++         curl_easy_strerror(result), error_text, status);
++  XELOGW("Network test: +{} ms closing the request", NetSelfTestMs());
+   curl_easy_cleanup(curl);
++  XELOGW("Network test: +{} ms request closed", NetSelfTestMs());
++  // What the resolver did for the request (port/ps5_resolver.cpp), a line a lookup.
++  char lookups[nst::kResolverReportSize] = {};
++  ps5x_resolver_report(lookups, sizeof(lookups));
++  for (const std::string_view line : nst::ReportLines(lookups)) {
++    XELOGW("Network test: lookup {}", line);
++  }
++  // The server's address without libcurl, DNS or TLS: only whether a TCP connection opens.
++  const nst::TcpProbeResult tcp =
++      nst::ProbeTcp(nst::kTcpProbeAddress, nst::kTcpProbePort, nst::kTcpProbeTimeoutMs);
++  XELOGW("Network test: TCP 166.117.125.185:443 {} (errno {})", nst::TcpProbeText(tcp), tcp.error);
+ }
+ // Network play, from /data/homebrew/PPSA50011/network.conf (written by the home's Online
+ // channel), one "key=value" a line:
