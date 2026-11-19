@@ -1,5 +1,5 @@
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.cc b/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.cc
-index 2baadbe..9924466 100644
+index 2baadbe..a6bf29e 100644
 --- a/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.cc
 +++ b/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.cc
 @@ -34,6 +34,8 @@ namespace xam {
@@ -212,12 +212,12 @@ index 2baadbe..9924466 100644
    if (ec) {
      XELOGW("{}: {} (:08X)", __func__, ec.message(), ec.value());
      return 0;
-@@ -770,6 +796,60 @@ uint64_t ContentManager::GetContentFreeSpace() const {
+@@ -770,6 +796,67 @@ uint64_t ContentManager::GetContentFreeSpace() const {
    return drive_stats.free;
  }
  
 +void ContentManager::ScanStorageDevicesLocked() const {
-+  std::vector<std::string> skipped;
++  std::vector<storage::Skipped> skipped;
 +  storage::PosixFs fs;
 +  auto devices = storage::Scan(
 +      fs, root_path_,
@@ -232,12 +232,19 @@ index 2baadbe..9924466 100644
 +  }
 +  if (changed) {
 +    XELOGW("Storage: devices {}", storage::Describe(devices));
-+    for (const auto& mount : skipped) {
-+      XELOGW("Storage: {} is mounted but not writable; not offered", mount);
++    for (const auto& skip : skipped) {
++      if (skip.why == storage::Skipped::Why::kSameFilesystem) {
++        XELOGW("Storage: {} is the same filesystem as {}; offered once",
++               skip.mount, skip.detail);
++      } else {
++        XELOGW("Storage: {} is mounted but not writable (tried {}); not "
++               "offered",
++               skip.mount, skip.detail);
++      }
 +    }
 +  }
 +  storage_devices_ = std::move(devices);
-+  unwritable_drives_ = std::move(skipped);
++  skipped_drives_ = std::move(skipped);
 +  storage_scanned_ = true;
 +}
 +
@@ -252,10 +259,10 @@ index 2baadbe..9924466 100644
 +  return storage_devices_;
 +}
 +
-+std::vector<std::string> ContentManager::UnwritableDrives() const {
++std::vector<storage::Skipped> ContentManager::SkippedDrives() const {
 +  std::lock_guard<std::mutex> guard(storage_lock_);
 +  if (!storage_scanned_) ScanStorageDevicesLocked();
-+  return unwritable_drives_;
++  return skipped_drives_;
 +}
 +
 +std::filesystem::path ContentManager::DeviceRoot(uint32_t device_id) const {
@@ -274,7 +281,7 @@ index 2baadbe..9924466 100644
    vfs::File* file;
    if (spa_file_update->Open(vfs::FileAccess::kFileReadData, &file) !=
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.h b/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.h
-index 448c273..b23e190 100644
+index 448c273..f2f631c 100644
 --- a/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.h
 +++ b/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.h
 @@ -12,6 +12,7 @@
@@ -305,7 +312,7 @@ index 448c273..b23e190 100644
  class ContentManager {
   public:
    ContentManager(KernelState* kernel_state,
-@@ -112,8 +119,24 @@ class ContentManager {
+@@ -112,8 +119,23 @@ class ContentManager {
  
    void CloseOpenedFilesFromContent(const std::string_view root_name);
  
@@ -324,15 +331,14 @@ index 448c273..b23e190 100644
 +  // later shows up then.
 +  void RefreshStorageDevices();
 +  std::vector<storage::Device> StorageDevices() const;
-+  // The mount points of the last scan's drives that are mounted but not
-+  // writable.
-+  std::vector<std::string> UnwritableDrives() const;
++  // The last scan's mounted drives that are not offered, and why.
++  std::vector<storage::Skipped> SkippedDrives() const;
 +  // The saves root of a device (storage::RootFor).
 +  std::filesystem::path DeviceRoot(uint32_t device_id) const;
  
    X_STATUS InstallContentPackage(const ContentPackage* package,
                                   const std::filesystem::path& installation_path,
-@@ -130,13 +153,16 @@ class ContentManager {
+@@ -130,13 +152,16 @@ class ContentManager {
                                 const std::string_view root_path = "");
  
    std::filesystem::path ResolvePackageRoot(
@@ -352,7 +358,7 @@ index 448c273..b23e190 100644
  
    bool UpdateSpaData(vfs::Entry* spa_file_update);
  
-@@ -149,6 +175,13 @@ class ContentManager {
+@@ -149,6 +174,13 @@ class ContentManager {
    xe::global_critical_region global_critical_region_;
    std::unordered_map<std::string, std::unique_ptr<ContentPackage>>
        mounted_packages_;
@@ -361,17 +367,17 @@ index 448c273..b23e190 100644
 +  mutable std::mutex storage_lock_;
 +  mutable bool storage_scanned_ = false;
 +  mutable std::vector<storage::Device> storage_devices_;
-+  mutable std::vector<std::string> unwritable_drives_;
++  mutable std::vector<storage::Skipped> skipped_drives_;
 +  void ScanStorageDevicesLocked() const;
  };
  
  }  // namespace xam
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/storage_devices.h b/.deps/xenia-canary/src/xenia/kernel/xam/storage_devices.h
 new file mode 100644
-index 0000000..2a9f281
+index 0000000..8a589e7
 --- /dev/null
 +++ b/.deps/xenia-canary/src/xenia/kernel/xam/storage_devices.h
-@@ -0,0 +1,471 @@
+@@ -0,0 +1,666 @@
 +/**
 + ******************************************************************************
 + * Xenia : Xbox 360 Emulator Research Project                                 *
@@ -386,8 +392,9 @@ index 0000000..2a9f281
 +// /data/homebrew/PPSA50011/saves) is the hard drive, device 1, as before.
 +// Each writable drive mounted at one of the console's mount points
 +// (/mnt/ext0.., /mnt/usb0..) is a device of its own, with an ID fixed by
-+// its mount point, and keeps its saves in <drive>/PS5X360/saves, laid out
-+// as the internal folder (<xuid>/<title>/<content type>/<name>).
++// its mount point, and keeps its saves in <drive>/PS5X360/saves (or below a
++// writable folder of the drive when its top is not writable), laid out as the
++// internal folder (<xuid>/<title>/<content type>/<name>).
 +//
 +// Header only and free of the rest of the core, so that
 +// tools/check-save-devices.cpp drives the same decisions with a fake
@@ -400,7 +407,14 @@ index 0000000..2a9f281
 +#include <fcntl.h>
 +#include <sys/stat.h>
 +#include <unistd.h>
++#if defined(__FreeBSD__)
++#include <sys/param.h>
++#include <sys/mount.h>  // statfs: the PS5's own figures and the mount's source
++#else
++#include <sys/statvfs.h>
++#endif
 +
++#include <cinttypes>
 +#include <cstdint>
 +#include <cstdio>
 +#include <filesystem>
@@ -423,7 +437,9 @@ index 0000000..2a9f281
 +// point, so a drive keeps its ID whatever else is plugged in, and a game that
 +// remembers it finds the drive again. The guest name is what
 +// XamContentGetDeviceName and XamContentGetDeviceData give (27 characters at
-+// most).
++// most). ext0/ext1 are the PS5's extended storage (the M.2 SSD slot, or a USB
++// drive formatted as extended storage); usb0.. the USB drives it reads as
++// plain storage.
 +struct Slot {
 +  const char* mount;
 +  uint32_t device_id;
@@ -454,9 +470,16 @@ index 0000000..2a9f281
 +  return nullptr;
 +}
 +
-+// Where a drive keeps its saves.
-+inline std::filesystem::path SaveRoot(const std::filesystem::path& mount) {
-+  return mount / "PS5X360" / "saves";
++// Where a drive may keep its saves, in order: its top, else a folder of the
++// drive that the app may write while the top is not (the PS5's extended
++// storage: /mnt/ext1 is the system's, its homebrew and xbox360 folders are
++// not). Each is <base>/PS5X360/saves.
++inline constexpr const char* kSaveBases[] = {"", "homebrew", "xbox360"};
++
++inline std::filesystem::path SaveRoot(const std::filesystem::path& mount,
++                                      std::string_view base = "") {
++  const auto folder = base.empty() ? mount : mount / std::string(base);
++  return folder / "PS5X360" / "saves";
 +}
 +
 +// A package's folder below a device's saves root (ContentManager's layout).
@@ -471,16 +494,62 @@ index 0000000..2a9f281
 +  return root / xuid_text / title_text / type_text;
 +}
 +
++// What the filesystem says about a path's filesystem. dev: the stat st_dev
++// of the path itself; fsid, source ("/dev/da0s1"), type ("exfatfs") and the
++// sizes: statfs where the system has it (the PS5), else what is known.
++struct FsInfo {
++  bool ok = false;
++  uint64_t dev = 0;
++  std::string fsid;
++  std::string source;
++  std::string type;
++  bool space_ok = false;
++  uint64_t capacity = 0;
++  uint64_t free = 0;
++};
++
 +struct Device {
 +  uint32_t id = kInternalDeviceId;
 +  Kind kind = Kind::kInternal;
 +  std::string mount;           // "/mnt/usb0"; empty for the internal folder
 +  std::string name;            // "usb0"; empty for the internal folder
 +  std::filesystem::path root;  // where its saves are
++  FsInfo fs;                   // its filesystem, as scanned
++  int number = 0;              // USB drives: 1, 2.. by disk (see Scan)
 +  bool space_known = false;
 +  uint64_t capacity = 0;
 +  uint64_t free = 0;
 +};
++
++// A mounted drive that is not offered, and why.
++struct Skipped {
++  std::string mount;
++  uint32_t id = 0;
++  enum class Why { kNotWritable, kSameFilesystem } why = Why::kNotWritable;
++  uint32_t same_as = 0;  // kSameFilesystem: the offered device it is
++  std::string detail;    // for the log
++};
++
++// The disk a mount's source names: "/dev/da0s1", "/dev/da0p2" and "/dev/da0"
++// are all on da0. Empty when the source is not a /dev/<letters><number> name.
++inline std::string DiskOf(std::string_view source) {
++  if (source.substr(0, 5) != "/dev/") return std::string();
++  source.remove_prefix(5);
++  size_t i = 0;
++  while (i < source.size() && source[i] >= 'a' && source[i] <= 'z') ++i;
++  const size_t letters = i;
++  while (i < source.size() && source[i] >= '0' && source[i] <= '9') ++i;
++  if (!letters || i == letters) return std::string();
++  return std::string(source.substr(0, i));
++}
++
++// Two scanned paths are one filesystem: the same st_dev (what told the
++// mounts from /mnt's placeholders on the console). statfs's fsid and source
++// are logged but not trusted for this: a sandbox that gives every path the
++// same statfs answer would make every drive one.
++inline bool SameFilesystem(const FsInfo& a, const FsInfo& b) {
++  return a.ok && b.ok && a.dev == b.dev;
++}
 +
 +// What Scan needs from the filesystem (PosixFs below on the console, a fake
 +// in the checks):
@@ -488,43 +557,131 @@ index 0000000..2a9f281
 +//   bool IsDirectory(const path&)
 +//   bool ProbeWritable(const path&)  a file can be made in this directory
 +//                                    (and is removed again)
-+//   bool Space(const path&, uint64_t& capacity, uint64_t& free)
++//   FsInfo Info(const path&)
 +//   std::vector<std::string> ListDirectories(const path&)
 +//
 +// The internal folder always comes first. A slot counts only when its mount
 +// point is a mount point: the console keeps empty, read-only placeholders
 +// (/mnt/usb3 with nothing in that port), and writing there would put saves on
-+// the system's own filesystem. The write probe runs in the saves folder when
-+// the drive has one, else at the drive's top: the folder itself is made only
-+// when a game creates a save there. skipped gets each mounted drive that is
-+// not writable.
++// the system's own filesystem. A mount that is the same filesystem as one
++// already offered (or as the internal folder) is offered once. The saves
++// folder: the first of kSaveBases whose PS5X360/saves folder exists and takes
++// a probe file, else the first whose base takes one (the folder itself is
++// made only when a game creates a save there).
++//
++// Free space: the PS5's app sandbox answered with the same round figures (16
++// GiB free of 64 GiB) for every path. Figures that two different filesystems
++// share exactly are taken as not reported: those devices show no free space
++// and are not left out for lack of it.
++//
++// USB drives are numbered 1, 2.. in slot order; mounts whose sources name the
++// same disk (partitions of one drive) share its number.
 +template <class Fs>
 +std::vector<Device> Scan(Fs& fs, const std::filesystem::path& internal_root,
 +                         const std::filesystem::path& mount_root,
-+                         std::vector<std::string>* skipped = nullptr) {
++                         std::vector<Skipped>* skipped = nullptr) {
 +  std::vector<Device> devices;
 +  Device internal;
 +  internal.root = internal_root;
-+  internal.space_known =
-+      fs.Space(internal_root, internal.capacity, internal.free);
++  internal.fs = fs.Info(internal_root);
 +  devices.push_back(internal);
-+  if (mount_root.empty()) return devices;
-+  for (const auto& slot : kSlots) {
-+    const auto mount = mount_root / slot.mount;
-+    if (!fs.IsMountPoint(mount)) continue;
-+    Device device;
-+    device.id = slot.device_id;
-+    device.kind = slot.kind;
-+    device.mount = mount.string();
-+    device.name = slot.mount;
-+    device.root = SaveRoot(mount);
-+    const auto probe = fs.IsDirectory(device.root) ? device.root : mount;
-+    if (!fs.ProbeWritable(probe)) {
-+      if (skipped) skipped->push_back(device.mount);
-+      continue;
++  if (!mount_root.empty()) {
++    for (const auto& slot : kSlots) {
++      const auto mount = mount_root / slot.mount;
++      if (!fs.IsMountPoint(mount)) continue;
++      Device device;
++      device.id = slot.device_id;
++      device.kind = slot.kind;
++      device.mount = mount.string();
++      device.name = slot.mount;
++      device.fs = fs.Info(mount);
++      const Device* same = nullptr;
++      for (const auto& offered : devices) {
++        if (SameFilesystem(offered.fs, device.fs)) {
++          same = &offered;
++          break;
++        }
++      }
++      if (same) {
++        if (skipped) {
++          skipped->push_back({device.mount, device.id,
++                              Skipped::Why::kSameFilesystem, same->id,
++                              same->mount.empty() ? same->root.string()
++                                                  : same->mount});
++        }
++        continue;
++      }
++      bool found = false;
++      for (const char* base : kSaveBases) {  // a saves folder already there
++        const auto root = SaveRoot(mount, base);
++        if (fs.IsDirectory(root) && fs.ProbeWritable(root)) {
++          device.root = root;
++          found = true;
++          break;
++        }
++      }
++      std::string tried;
++      for (const char* base : kSaveBases) {  // else the first writable base
++        if (found) break;
++        const auto folder = *base ? mount / base : mount;
++        if (*base && !fs.IsDirectory(folder)) continue;
++        tried += (tried.empty() ? "" : ", ") + folder.string();
++        if (fs.ProbeWritable(folder)) {
++          device.root = SaveRoot(mount, base);
++          found = true;
++        }
++      }
++      if (!found) {
++        if (skipped) {
++          skipped->push_back({device.mount, device.id,
++                              Skipped::Why::kNotWritable, 0, tried});
++        }
++        continue;
++      }
++      devices.push_back(device);
 +    }
-+    device.space_known = fs.Space(mount, device.capacity, device.free);
-+    devices.push_back(device);
++  }
++  // Free space, unless the figures are the sandbox's.
++  for (auto& device : devices) {
++    device.space_known = device.fs.space_ok;
++    device.capacity = device.fs.capacity;
++    device.free = device.fs.free;
++  }
++  for (size_t i = 0; i < devices.size(); ++i) {
++    for (size_t j = i + 1; j < devices.size(); ++j) {
++      const FsInfo& a = devices[i].fs;
++      const FsInfo& b = devices[j].fs;
++      if (a.space_ok && b.space_ok && a.capacity == b.capacity &&
++          a.free == b.free) {
++        devices[i].space_known = devices[j].space_known = false;
++      }
++    }
++  }
++  // USB numbers, by disk; sources are trusted for this only when no two
++  // drives give the same one.
++  bool sources_distinct = true;
++  for (size_t i = 0; i < devices.size(); ++i) {
++    for (size_t j = i + 1; j < devices.size(); ++j) {
++      if (devices[i].fs.source == devices[j].fs.source) {
++        sources_distinct = false;
++      }
++    }
++  }
++  std::vector<std::string> disks;
++  int next = 0;
++  for (auto& device : devices) {
++    if (device.kind != Kind::kUsb) continue;
++    const std::string disk =
++        sources_distinct ? DiskOf(device.fs.source) : std::string();
++    int number = 0;
++    for (size_t k = 0; !disk.empty() && k < disks.size(); ++k) {
++      if (disks[k] == disk) number = static_cast<int>(k) + 1;
++    }
++    if (!number) {
++      disks.push_back(disk.empty() ? "?" + device.name : disk);
++      number = ++next;
++    }
++    device.number = number;
 +  }
 +  return devices;
 +}
@@ -655,20 +812,24 @@ index 0000000..2a9f281
 +}
 +
 +// A device's button. tr translates the English text (UiText). One device:
-+// "Hard drive" as in 1.0.2, or the drive's name. Several: each with its free
-+// space when known.
++// "Hard drive" as in 1.0.2, or the drive's name. Several: "Internal
++// storage", "USB 1 (usb0)", "M.2 SSD / extended storage (ext1)", each with
++// its free space when it is known. The mount's name tells the drives apart
++// and is what the save drive setting names.
 +template <class Tr>
 +std::string Label(const Device& device, bool several, Tr tr) {
 +  std::string label;
 +  switch (device.kind) {
 +    case Kind::kInternal:
-+      label = several ? tr("Console storage") : tr("Hard drive");
++      label = several ? tr("Internal storage") : tr("Hard drive");
 +      break;
 +    case Kind::kExtended:
-+      label = Fill(tr("Extended storage %s"), device.name);
++      label = std::string(tr("M.2 SSD / extended storage")) + " (" +
++              device.name + ")";
 +      break;
 +    case Kind::kUsb:
-+      label = Fill(tr("USB drive %s"), device.name);
++      label = Fill(tr("USB %s"), std::to_string(device.number)) + " (" +
++              device.name + ")";
 +      break;
 +  }
 +  if (several && device.space_known) {
@@ -696,7 +857,9 @@ index 0000000..2a9f281
 +// What the save drive setting gives when a game asks where to save.
 +//   kAsk         no saved drive (or an ID of no device): the window, as before
 +//   kUse         the saved drive is mounted, writable and has the room the
-+//                game asked for: its device, without the window (index)
++//                game asked for: its device, without the window (index). A
++//                mount that is the same filesystem as an offered one is that
++//                device.
 +//   kNotMounted  the saved drive is not mounted (unplugged): the window, with
 +//                a notice naming it (mount)
 +//   kReadOnly    it is mounted but cannot be written: the window and a notice
@@ -710,15 +873,21 @@ index 0000000..2a9f281
 +};
 +
 +inline SavedDrive CheckSaved(const std::vector<Device>& devices,
-+                             const std::vector<std::string>& unwritable,
++                             const std::vector<Skipped>& skipped,
 +                             uint32_t saved_id, uint64_t requested,
 +                             const std::filesystem::path& mount_root) {
 +  SavedDrive saved;
 +  if (!saved_id) return saved;
 +  const Slot* slot = FindSlot(saved_id);
 +  if (!slot && saved_id != kInternalDeviceId) return saved;
++  uint32_t id = saved_id;
++  for (const auto& skip : skipped) {
++    if (skip.id == saved_id && skip.why == Skipped::Why::kSameFilesystem) {
++      id = skip.same_as;
++    }
++  }
 +  for (size_t i = 0; i < devices.size(); ++i) {
-+    if (devices[i].id != saved_id) continue;
++    if (devices[i].id != id) continue;
 +    saved.index = i;
 +    saved.mount =
 +        devices[i].mount.empty() ? devices[i].root.string() : devices[i].mount;
@@ -731,11 +900,12 @@ index 0000000..2a9f281
 +  saved.mount = (mount_root.empty() ? std::filesystem::path("/mnt")
 +                                    : mount_root) /
 +                slot->mount;
-+  saved.state = Saved::kReadOnly;
-+  for (const auto& mount : unwritable) {
-+    if (mount == saved.mount) return saved;
-+  }
 +  saved.state = Saved::kNotMounted;
++  for (const auto& skip : skipped) {
++    if (skip.id == saved_id && skip.why == Skipped::Why::kNotWritable) {
++      saved.state = Saved::kReadOnly;
++    }
++  }
 +  return saved;
 +}
 +
@@ -767,9 +937,9 @@ index 0000000..2a9f281
 +    "The game asks where to keep its saved data.",
 +    "Each drive keeps its saves in its own PS5X360/saves folder.",
 +    "Hard drive",
-+    "Console storage",
-+    "Extended storage %s",
-+    "USB drive %s",
++    "Internal storage",
++    "M.2 SSD / extended storage",
++    "USB %s",
 +    "%s GB free",
 +    "Cancel",
 +    "The saved drive (%s) is not mounted; choose another.",
@@ -777,13 +947,23 @@ index 0000000..2a9f281
 +    "The saved drive (%s) does not have enough free space; choose another.",
 +};
 +
-+// One line for the log: each device's ID, folder and free space.
++// For the log: each device's ID, folder, filesystem and free space.
 +inline std::string Describe(const std::vector<Device>& devices) {
 +  std::string text;
 +  for (const auto& device : devices) {
 +    if (!text.empty()) text += ", ";
 +    text += std::to_string(device.id) + " " + device.root.string();
-+    if (device.space_known) text += " (" + Gigabytes(device.free) + " GB free)";
++    if (!device.fs.source.empty() || !device.fs.type.empty()) {
++      text += " [" + device.fs.source + " " + device.fs.type + "]";
++    }
++    if (device.space_known) {
++      text += " (" + Gigabytes(device.free) + " GB free)";
++    } else if (device.fs.space_ok) {
++      text += " (free space not reported: " + Gigabytes(device.fs.free) +
++              " of " + Gigabytes(device.fs.capacity) + " GB, as another)";
++    } else {
++      text += " (free space unknown)";
++    }
 +  }
 +  return text;
 +}
@@ -814,14 +994,35 @@ index 0000000..2a9f281
 +    ::unlink(probe.c_str());
 +    return written;
 +  }
-+  bool Space(const std::filesystem::path& path, uint64_t& capacity,
-+             uint64_t& free) {
-+    std::error_code error;
-+    const auto space = std::filesystem::space(path, error);
-+    if (error) return false;
-+    capacity = space.capacity;
-+    free = space.available;
-+    return true;
++  FsInfo Info(const std::filesystem::path& path) {
++    FsInfo info;
++    struct stat self {};
++    if (::stat(path.c_str(), &self) != 0) return info;
++    info.ok = true;
++    info.dev = static_cast<uint64_t>(self.st_dev);
++#if defined(__FreeBSD__)
++    struct statfs fs {};
++    if (::statfs(path.c_str(), &fs) == 0) {
++      char fsid[32];
++      std::snprintf(fsid, sizeof(fsid), "%08x:%08x",
++                    static_cast<unsigned>(fs.f_fsid.val[0]),
++                    static_cast<unsigned>(fs.f_fsid.val[1]));
++      info.fsid = fsid;
++      info.source = fs.f_mntfromname;
++      info.type = fs.f_fstypename;
++      info.space_ok = true;
++      info.capacity = static_cast<uint64_t>(fs.f_blocks) * fs.f_bsize;
++      info.free = static_cast<uint64_t>(fs.f_bavail) * fs.f_bsize;
++    }
++#else
++    struct statvfs fs {};
++    if (::statvfs(path.c_str(), &fs) == 0) {
++      info.space_ok = true;
++      info.capacity = static_cast<uint64_t>(fs.f_blocks) * fs.f_frsize;
++      info.free = static_cast<uint64_t>(fs.f_bavail) * fs.f_frsize;
++    }
++#endif
++    return info;
 +  }
 +  std::vector<std::string> ListDirectories(const std::filesystem::path& path) {
 +    std::vector<std::string> names;
@@ -1138,7 +1339,7 @@ index d5ce5b0..68d414e 100644
  }  // namespace xam
  }  // namespace kernel
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
-index bf19396..bafbd92 100644
+index bf19396..23c8eeb 100644
 --- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
 +++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
 @@ -8,6 +8,8 @@
@@ -1266,7 +1467,7 @@ index bf19396..bafbd92 100644
 +  // The save drive setting: its drive without the window while it can be
 +  // used; otherwise the window, saying why (never another drive silently).
 +  const storage::SavedDrive saved = storage::CheckSaved(
-+      drives, content_manager->UnwritableDrives(),
++      drives, content_manager->SkippedDrives(),
 +      cvars::saved_storage_device, uint64_t(total_requested),
 +      external_storage_root ? std::filesystem::path(external_storage_root)
 +                            : std::filesystem::path());
@@ -1428,7 +1629,7 @@ index 572a353..5a47bad 100644
    static const char* FilterName(int filter);
    void Load();
 diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
-index e49255c..fc89ec3 100644
+index e49255c..f365e87 100644
 --- a/src/canary_game_main.cpp
 +++ b/src/canary_game_main.cpp
 @@ -32,6 +32,7 @@ extern std::filesystem::path config_folder;  // xenia/config.cc: LoadGameConfig
@@ -1444,9 +1645,9 @@ index e49255c..fc89ec3 100644
      {"The game asks where to keep its saved data.", "The game asks where to keep its saved data."},
      {"Hard drive", "Hard drive"},
 +    // Fix 27: where to save, with the drives plugged into the console (extra.txt [added]).
-+    {"Console storage", "Console storage"},
-+    {"Extended storage %s", "Extended storage %s"},
-+    {"USB drive %s", "USB drive %s"},
++    {"Internal storage", "Internal storage"},
++    {"M.2 SSD / extended storage", "M.2 SSD / extended storage"},
++    {"USB %s", "USB %s"},
 +    {"%s GB free", "%s GB free"},
 +    {"Each drive keeps its saves in its own PS5X360/saves folder.",
 +     "Each drive keeps its saves in its own PS5X360/saves folder."},
@@ -1470,7 +1671,7 @@ index e49255c..fc89ec3 100644
    std::error_code error;
    std::filesystem::create_directories(storage, error);
 diff --git a/src/launcher.cpp b/src/launcher.cpp
-index 5da890b..60c7e44 100644
+index 5da890b..6ebb6fd 100644
 --- a/src/launcher.cpp
 +++ b/src/launcher.cpp
 @@ -70,6 +70,7 @@ DECLARE_bool(use_fast_dot_product);
@@ -1496,7 +1697,7 @@ index 5da890b..60c7e44 100644
 +      // Fix 27: the choices are storage::SaveDriveDeviceId's, in its order (one mount point each).
 +      {"save_drive", &S::save_drive, 4, W::live, 0, true, "Save drive",
 +       "Where games keep their saves. A drive chosen here is used without asking while it is plugged in and writable; otherwise the game asks again and says why.",
-+       {"Ask every time", "Console storage", "Extended storage ext0", "Extended storage ext1", "Extended storage ext2", "Extended storage ext3", "USB drive usb0", "USB drive usb1", "USB drive usb2", "USB drive usb3", "USB drive usb4", "USB drive usb5", "USB drive usb6", "USB drive usb7"}},
++       {"Ask every time", "Console storage", "M.2 SSD / extended storage (ext0)", "M.2 SSD / extended storage (ext1)", "M.2 SSD / extended storage (ext2)", "M.2 SSD / extended storage (ext3)", "USB drive usb0", "USB drive usb1", "USB drive usb2", "USB drive usb3", "USB drive usb4", "USB drive usb5", "USB drive usb6", "USB drive usb7"}},
        {"detailed_logs", &S::detailed_logs, 4, W::live, 0, false, "Detailed logs",
         "Log every game system call. Slows games down; enable only for troubleshooting.",
         {"Off||plural", "On||plural"}},
