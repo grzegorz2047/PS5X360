@@ -47,6 +47,13 @@ for name in "${checks[@]}"; do
     status=1
   fi
 done
+echo "=== check-patch-syntax.py"
+if "$python" -I "$repo/tools/check-patch-syntax.py"; then
+  echo "pass check-patch-syntax.py"
+else
+  echo "FAIL check-patch-syntax.py"
+  status=1
+fi
 echo "=== check-assemble-skip.py"
 if "$python" -I "$repo/tools/check-assemble-skip.py" --tree "$tree"; then
   echo "pass check-assemble-skip.py"
