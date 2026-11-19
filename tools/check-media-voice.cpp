@@ -163,7 +163,9 @@ void CheckRate(uint32_t rate, uint32_t channels) {
       at48.erase(at48.begin(), at48.begin() + ptrdiff_t(used));
     }
     kept = at48.size() / 2;
-    for (float f : at48) assert(f == 0.25f || f == 0.0f || (f > 0.0f && f < 0.25f));
+    // A constant frame stays constant (0.25, or 0.25 + 0.7071 x 0.25 with the 5.1 centre).
+    const float level = channels >= 3 ? 0.25f + 0.25f * 0.7071f : 0.25f;
+    for (float f : at48) assert(std::fabs(f - level) < 1e-6f);
   }
   assert(kept < kGrain);
   assert(std::fabs(double(grains * kGrain + kept) - expected) <= tolerance);
