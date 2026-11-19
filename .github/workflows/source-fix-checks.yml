@@ -8,7 +8,7 @@ name: Host checks of the 1.0.2 source fixes
 # checks before it compiles.
 on:
   push:
-    branches: [source-1.0.2-patches]
+    branches: [source-1.0.2-patches, 'fix/**']
     paths:
       - 'tools/source-1.0.2/**'
       - 'tools/check-stale-dispatch-header.cpp'
@@ -17,6 +17,7 @@ on:
       - 'tools/check-stall-dump.cpp'
       - 'tools/check-label-owner.cpp'
       - 'tools/check-memexport-merge.cpp'
+      - 'tools/check-notify-first-poll.cpp'
       - 'tools/check-assemble-skip.py'
       - 'tools/check-english-source.py'
       - '.github/workflows/source-fix-checks.yml'
