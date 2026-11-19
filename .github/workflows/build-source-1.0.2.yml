@@ -10,11 +10,6 @@ name: Rebuild v1.0.2 from source drops (not for release)
 # build-only packages are needed only when that key changes; and ccache for the compile.
 on:
   workflow_dispatch:
-  # TEMPORARY while iterating on branch source-1.0.2 (dispatch needs the file on main);
-  # removed before the work is finished.
-  push:
-    branches: [source-1.0.2, source-1.0.2-patches]
-    paths: ['tools/source-1.0.2/**', '.github/workflows/build-source-1.0.2.yml']
 
 permissions:
   contents: read
@@ -124,7 +119,7 @@ jobs:
       - name: Compile and link eboot.bin
         run: |
           set -o pipefail
-          export CCACHE_DIR=$HOME/.cache/ccache CCACHE_MAXSIZE=2G CCACHE_BASEDIR=$GITHUB_WORKSPACE
+          export CCACHE_DIR=$HOME/.cache/ccache CCACHE_MAXSIZE=2G CCACHE_BASEDIR=$GITHUB_WORKSPACE CCACHE_COMPILERCHECK=content
           bash tools/source-1.0.2/build.sh build/src102 build/src102-out 2>&1 | tee build/src102-build.log
           ccache -s || true
 

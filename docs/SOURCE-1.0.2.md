@@ -17,9 +17,24 @@ is missing, and how close a rebuild gets.
 **It builds.** [Run 44497867041](https://github.com/grzegorz2047/PS5X360/actions/runs/44497867041)
 assembled the tree, compiled every core and title object and linked a signed `eboot.bin`
 (37,551,301 bytes, SHA-256 `65e6e9c0…`; `eboot.elf` `9ef24b10…`). It is a Vulkan-only
-reconstruction of 1.0.2, **not tested on a console**: about 22 MiB smaller than the official
-executable, almost all of it the OpenGL renderer stack that was never published (see
+reconstruction of 1.0.2, about 22 MiB smaller than the official executable, almost all of it
+the OpenGL renderer stack that was never published (see
 [Comparison](#comparison-with-the-official-executable)).
+
+On the console (user's test of that build): the launcher, Modern Warfare 2, Black Ops and Dragon
+Age II run like the official build; the visible difference was the missing dark home theme,
+reconstructed since.
+
+Latest build: [run 44507850129](https://github.com/grzegorz2047/PS5X360/actions/runs/44507850129),
+with the `gameinfo.txt` reader ([run 44502949131](https://github.com/grzegorz2047/PS5X360/actions/runs/44502949131))
+and the dark theme: `eboot.bin` 37,574,693 bytes, SHA-256 `b7525acb…` (`eboot.elf` `a251fd04…`).
+Its official-only strings drop to 18,074; the dark theme's and `gameinfo.txt`'s are now in both.
+Not yet tested on a console.
+
+The workflow keeps the built RADV driver and payload SDK in the Actions cache (keyed by the
+pinned reference commits) and uses ccache: with the cache, the RADV build and Mesa's packages are
+skipped (dependencies 36 s instead of up to 9 min). It runs on `workflow_dispatch` only, which
+GitHub offers once the workflow file is on the default branch.
 
 Earlier runs, each fixing what the previous one found:
 [44482112072](https://github.com/grzegorz2047/PS5X360/actions/runs/44482112072) (stale core
@@ -118,8 +133,9 @@ From this repository (build glue no drop contains): `platform/ps5/compat/`,
 | 1.0.x `i18n.hpp` (17 interface languages) | `launcher.cpp` | 0.5.9's `i18n.hpp` (pt/en/es table) + reconstructed `i18n_ui.hpp` reading the package's `assets/lang/<code>.txt`, hooked in by three recorded edits | language list and file format follow the official package; untested on hardware |
 | 1.0.x `virtual_depth_camera.hpp` (physical USB Kinect and its relay: `build/kinect-usb-20261014`, `kinect-relay-20261015`) | core `xboxkrnl_pscam.cc` | 0.5.9's virtual camera + one recorded edit (`VirtualDepthCalibration::valid`, always true) | only the phone/virtual Kinect; the official's `Kinect USB: …` paths are absent |
 | 1.0.x `canary_audio.hpp` | `canary_audio.cpp`, `launcher.cpp` | 0.5.9's, with `override` dropped from `DestroyDriver` (no longer virtual in the netplay core; it did the same as the base) | none expected |
+| 1.0.2 dark home theme (`ui-dark.on`, `assets/skin-dark`) | the home and the Settings sheet | reconstructed from the official executable's code ([`dark_theme.hpp`](../tools/source-1.0.2/reconstructed/dark_theme.hpp) and recorded edits to `launcher.cpp`, `kinect_home.inc`, `kinect_state.inc`, `kinect_press.inc`): read once at start; picture folders `/data/homebrew/PPSA50011/skin`, `/app0/assets/skin-dark`, `/app0/assets/skin`; graphite panel colours (`ApplyTheme(NxeUi() && !dark)`); slot type `#eef0f2`/`#a3a9ae` instead of `#282828`/`#8c8c8c`; a "Tema: CLARO/ESCURO" slot after System Link (message, restart) and a "Tema" Settings row before "Reiniciar o emulador" (rows 40 px apart, as in the official) that remove the marker or write `1\n` to it | the console test of run 44497867041 found it missing; the slot's icon (`kSettings`) is our choice |
 | `__wrap_sceKernelDebugOutText` | 1.0.2 link (`--wrap`) | the wrap is left out | debug output goes to the system unchanged |
-| Other title sources changed between 0.6.0 and 1.0.0 (input diagnostics, network self-test, dark home skin `assets/skin-dark` / `ui-dark.on`, cover download log, …) | retained objects of `upstream-c28af11-20261020`, `kinect-home-20261021`, `dash-mode-20261020`, `input-fix-20261021`, … (`port.json`, `title-src/` there) | the newest published version is used | those features are missing (their strings are only in the official image, see below) |
+| Other title sources changed between 0.6.0 and 1.0.0 (input diagnostics, network self-test, cover download log, …) | retained objects of `upstream-c28af11-20261020`, `kinect-home-20261021`, `dash-mode-20261020`, `input-fix-20261021`, … (`port.json`, `title-src/` there) | the newest published version is used | those features are missing (their strings are only in the official image, see below) |
 | Compiler commands of the retained objects | every object the author did not recompile | the flags of 0.5.9's `canary/CMakeLists.txt` (title `-O2 -mavx`, all `-march=znver2 -fno-stack-protector`) and Canary's Release `-O3` | code differs byte for byte even where sources match |
 
 ## Release fixes ported from the binary patches
