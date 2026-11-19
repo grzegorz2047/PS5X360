@@ -1,0 +1,74 @@
+diff --git a/port/presenter_sidecar.hpp b/port/presenter_sidecar.hpp
+index d047777..538da95 100644
+--- a/port/presenter_sidecar.hpp
++++ b/port/presenter_sidecar.hpp
+@@ -46,14 +46,17 @@ void LoadFramegenPrivateConfig() {
+   static bool loaded = false;
+   if (loaded) return;
+   loaded = true;
+-  const char* path = "/app0/framegen.conf";
+-  std::FILE* file = std::fopen(path, "rb");
+-  if (!file) {
+-    path = "/data/homebrew/PPSA50011/framegen.conf";
+-    file = std::fopen(path, "rb");
++  // Binary release patch group 11: the launcher's choice is saved in the title's writable
++  // storage first (/app0 is read-only on a .ffpkg installation), then the packaged file.
++  std::FILE* file = nullptr;
++  const char* path = nullptr;
++  for (const char* candidate : {"/download0/xbox360ps5/framegen.conf", "/app0/framegen.conf",
++                                "/data/homebrew/PPSA50011/framegen.conf"}) {
++    path = candidate;
++    if ((file = std::fopen(path, "rb"))) break;
+   }
+   if (!file) {
+-    XELOGW("Framegen config unavailable in /app0 or installation root; disabled");
++    XELOGW("Framegen config unavailable in /download0, /app0 or installation root; disabled");
+     return;
+   }
+   char text[1024]{};
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+index b32c1d0..2664c7d 100644
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -1369,8 +1369,14 @@ const char* FramegenText(const char* pt, const char* en, const char* es) {
+   if (const char* loaded = LoadedUiText(pt)) return loaded;
+   return language == 19 ? pt : language == 5 || language == 18 ? es : en;
+ }
+-// Frame generation as the menu shows it, read from /app0/framegen.conf (framegen_config.hpp
+-// has the file's three lines). Kept here, not in the class or the Settings.
++// Frame generation as the menu shows it, read from kFramegenFile (framegen_config.hpp has
++// the file's three lines). Kept here, not in the class or the Settings.
++// Binary release patch group 11: the file lives in the title's writable storage. On a .ffpkg
++// installation /app0 is read-only, so the choice was never saved and the presenter kept the
++// packaged "off". The package's /app0/framegen.conf is still read while there is no new file
++// (presenter_sidecar.hpp reads in the same order).
++const char* const kFramegenFile = "/download0/xbox360ps5/framegen.conf";
++const char* const kFramegenPackagedFile = "/app0/framegen.conf";
+ struct FramegenChoiceState {
+   int mode = 0;        // 0 off, 1 automatic, 2 2x, 3 3x, 4 4x
+   int last_on = 2;     // the multiplier written while off: the mode it had when last on
+@@ -1380,7 +1386,8 @@ struct FramegenChoiceState {
+ FramegenChoiceState& FramegenChoice() {
+   static FramegenChoiceState choice = [] {
+     FramegenChoiceState state;
+-    std::ifstream input("/app0/framegen.conf", std::ios::binary);
++    std::ifstream input(kFramegenFile, std::ios::binary);
++    if (!input) input.open(kFramegenPackagedFile, std::ios::binary);
+     std::string file((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+     if (file.size() > 1023) file.resize(1023);  // as much as the presenter reads
+     const ps5x360::framegen::Config config = ps5x360::framegen::ParseConfig(file);
+@@ -1425,12 +1432,12 @@ bool WriteFramegen(int mode, const std::string& output) {
+   const int multiplier = mode ? mode : choice.last_on;  // 1 automatic, 2 to 4
+   const std::string file = ps5x360::framegen::FormatConfig(
+       mode != 0, multiplier == 1 ? 0u : uint32_t(multiplier), output, choice.pacing);
+-  const char* temporary = "/app0/framegen.conf.new";
++  const char* temporary = "/download0/xbox360ps5/framegen.conf.new";
+   std::ofstream stream(temporary, std::ios::trunc | std::ios::binary);
+   stream << file;
+   stream.close();
+   if (!stream) { std::remove(temporary); return false; }
+-  if (std::rename(temporary, "/app0/framegen.conf") != 0) {
++  if (std::rename(temporary, kFramegenFile) != 0) {
+     std::remove(temporary); return false;
+   }
+   XELOGW("Frame generation requested={} multiplier={} output_hz={} (restart required)", mode != 0,
