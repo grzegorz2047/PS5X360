@@ -258,7 +258,7 @@ void CheckSpace() {
   assert(prompt.shown.size() == devices.size());  // unknown space keeps every drive offered
   const std::string text = storage::Describe({devices[2]});
   assert(text.find("free space not reported") != std::string::npos);
-  assert(text.find("[/dev/da0s1 exfatfs]") != std::string::npos);
+  assert(text.find("[dev c9 /dev/da0s1 exfatfs]") != std::string::npos);
   // Only the drives that share figures lose them.
   FakeFs pair = Console();
   pair.info["/mnt/usb2"].capacity = pair.info["/mnt/usb1"].capacity;
