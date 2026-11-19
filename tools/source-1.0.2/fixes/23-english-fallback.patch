@@ -1,8 +1,8 @@
 diff --git a/include/xbox360ps5/i18n.hpp b/include/xbox360ps5/i18n.hpp
-index 97b316d..6d8bfd0 100644
+index c7eb01e..87c0ec7 100644
 --- a/include/xbox360ps5/i18n.hpp
 +++ b/include/xbox360ps5/i18n.hpp
-@@ -407,9 +407,19 @@ inline const char* Tr(const char* key) {
+@@ -411,9 +411,19 @@ inline const char* Tr(const char* key) {
    const int language = ui_language.load(std::memory_order_relaxed);
    if (language == 9) return key;
    if (const char* loaded = LoadedUiText(key)) return loaded;
@@ -24,17 +24,22 @@ index 97b316d..6d8bfd0 100644
  }
  } // namespace xbox360ps5
 diff --git a/reconstructed/xbox360ps5/i18n_ui.hpp b/reconstructed/xbox360ps5/i18n_ui.hpp
-index 57adb01..046f357 100644
+index 57adb01..435c185 100644
 --- a/reconstructed/xbox360ps5/i18n_ui.hpp
 +++ b/reconstructed/xbox360ps5/i18n_ui.hpp
-@@ -87,23 +87,41 @@ inline std::string Unescape(const std::string& in) {
+@@ -87,23 +87,46 @@ inline std::string Unescape(const std::string& in) {
  }
  }  // namespace i18n_ui
  
 +namespace i18n_ui {
++// The language files' folder: the package's (host checks point it at their own files).
++inline std::string& Folder() {
++  static std::string folder = "/app0/assets/lang/";
++  return folder;
++}
 +// One language file into a table.
 +inline void Read(int id, Table& table) {
-+  std::ifstream input(std::string("/app0/assets/lang/") + UiLanguageCode(id) + ".txt", std::ios::binary);
++  std::ifstream input(Folder() + UiLanguageCode(id) + ".txt", std::ios::binary);
 +  for (std::string line; std::getline(input, line);) {
 +    if (!line.empty() && line.back() == '\r') line.pop_back();
 +    if (line.empty() || line[0] == '#') continue;

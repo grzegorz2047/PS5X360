@@ -1,0 +1,183 @@
+# Hand-written data of tools/source-1.0.2/english/rekey.py (fix 25: English keys).
+#
+# Format: "[section]" lines, then "<Portuguese key> = <text>" lines. As in the language files,
+# "\s" is a space (needed at the start or end of a text), "\n" a new line, "\\" a backslash;
+# spaces inside a text may be written as they are. Lines starting with "#" are comments.
+# printf specifiers (%d, %08X) and edge spaces must be kept: the texts are joined with data.
+#
+# [english]  English for Portuguese keys that have English nowhere else: not in en.txt (the
+#            official package's, merged with the fork's overrides), not in Tr's built-in table,
+#            not in a FramegenText or CoreUiText English. Until fix 25 these showed in
+#            Portuguese to an English user (and to any language whose file lacked them).
+# [keys]     The English key of a Portuguese key when it is not just its English: the context
+#            keys of collisions. Two Portuguese keys with the same English but different
+#            translations (gender, number, or a different word) cannot share one English key,
+#            so one keeps the plain English and the others get "<English>||<context>". Only the
+#            part before "||" is shown when no language file has the key. rekey.py fails on any
+#            collision not resolved here.
+# [<code>]   Translations, for a language code (es, es-419, pt, de, fr, it, ja, ko, nl, pl, ru, tr,
+#            zh-Hans, zh-Hant), of keys that are in no language file: fix 22's "Rede" row and
+#            the guide's "opção"/"opções" counter. They follow each file's own words (Opções,
+#            Rede desligada, the jogo/jogos counter: Polish and Russian use the plural form for
+#            five and more, Japanese and Korean a counter, Turkish no plural after a number).
+# [added <code>]  Translations, for a language code (pt-BR and the others, not en: the key is
+#            the English), of English keys that fixes after fix 25 add: "<English key> =
+#            <translation>". Fixes after fix 25 are written against English keys (Tr("...") in
+#            English); tools/check-english-source.py fails until pt-BR and the 13 full files
+#            translate each new key here.
+
+[english]
+\scontinua\saberto.\sCírculo\sou\so\smesmo\sjogo:\svoltar\sa\sele. = \sis\sstill\sopen.\sCircle\sor\sthe\ssame\sgame:\sgo\sback\sto\sit.
+\sde\s5 = \sout\sof\s5
+Abra este jogo uma vez: o emulador identifica o título e as informações dele passam a aparecer aqui. = Open this game once: the emulator identifies the title and its information appears here.
+Categorias = Categories
+Descrição (em inglês, do arquivo x360db) = Description (from the x360db archive)
+Desenvolvedora = Developer
+Dá para jogar, com problemas = Playable, with issues
+Editora = Publisher
+Este jogo não está no arquivo de informações (x360db). = This game is not in the information archive (x360db).
+Fechar o jogo e voltar ao menu = Close the game and return to the menu
+Gênero = Genre
+Jogável do começo ao fim = Playable from start to finish
+Lançamento = Release date
+No Xenia Canary = In Xenia Canary
+Nome = Name
+Nota dos jogadores = Player rating
+Não funciona = Does not work
+Renderização = Rendering
+Rolar = Scroll
+Sem avaliação = Not rated
+Só carrega, não chega a jogar = Loads, but does not reach gameplay
+Ver a biblioteca (o jogo continua aberto) = Go to the library (the game stays open)
+precisa (FSI), para este jogo = accurate (FSI), for this game
+Rede = Network
+opção = option
+opções = options
+
+[keys]
+# "On": settings switches (Ligado), feminine nouns (Ligada: vibration, the web page, frame
+# generation, FSI), plural nouns (Ligados: sounds, notifications, logs), a DLC (Ativada) and a
+# title update (Ativa).
+Ligado = On
+Ligada = On||feminine
+Ligados = On||plural
+Ativada = On||DLC
+Ativa = On||update
+# "Off": the same, for Desligado / Desligada / Desligados / Desativada (DLC and update).
+Desligado = Off
+Desligada = Off||feminine
+Desligados = Off||plural
+Desativada = Off||DLC
+# "Done": the settings panel's button (Feito) and the search keyboard's (Concluir).
+Feito = Done
+Concluir = Done||finish
+# "new": the library's count of new games, one and more ("2 jogos, 1 novo").
+novo = new
+novos = new||plural
+# "Automatic": shader threads (Automático) and frame generation (Automática).
+Automático = Automatic
+Automática = Automatic||feminine
+
+[es]
+Rede = Red
+Online – conectado = Online\s–\sconectado
+Online – servidor não alcançado = Online\s–\sservidor\sno\salcanzado
+opção = opción
+opções = opciones
+
+[es-419]
+Rede = Red
+Online – conectado = Online\s–\sconectado
+Online – servidor não alcançado = Online\s–\sservidor\sno\salcanzado
+opção = opción
+opções = opciones
+
+[pt]
+Rede = Rede
+Online – conectado = Online\s–\sligado
+Online – servidor não alcançado = Online\s–\sservidor\sinacessível
+opção = opção
+opções = opções
+
+[de]
+Rede = Netzwerk
+Online – conectado = Online\s–\sverbunden
+Online – servidor não alcançado = Online\s–\sServer\snicht\serreicht
+opção = Option
+opções = Optionen
+
+[fr]
+Rede = Réseau
+Online – conectado = En\sligne\s–\sconnecté
+Online – servidor não alcançado = En\sligne\s–\sserveur\sinjoignable
+opção = option
+opções = options
+
+[it]
+Rede = Rete
+Online – conectado = Online\s–\sconnesso
+Online – servidor não alcançado = Online\s–\sserver\snon\sraggiunto
+opção = opzione
+opções = opzioni
+
+[ja]
+Rede = ネットワーク
+Online – conectado = オンライン\s–\s接続済み
+Online – servidor não alcançado = オンライン\s–\sサーバーに接続できません
+opção = 項目
+opções = 項目
+
+[ko]
+Rede = 네트워크
+Online – conectado = 온라인\s–\s연결됨
+Online – servidor não alcançado = 온라인\s–\s서버에\s연결할\s수\s없음
+opção = 개
+opções = 개
+
+[nl]
+Rede = Netwerk
+Online – conectado = Online\s–\sverbonden
+Online – servidor não alcançado = Online\s–\sserver\sniet\sbereikt
+opção = optie
+opções = opties
+
+[pl]
+Rede = Sieć
+Online – conectado = Online\s–\społączono
+Online – servidor não alcançado = Online\s–\sbrak\społączenia\sz\sserwerem
+opção = opcja
+opções = opcji
+
+[ru]
+Rede = Сеть
+Online – conectado = Онлайн\s–\sподключено
+Online – servidor não alcançado = Онлайн\s–\sсервер\sнедоступен
+opção = параметр
+opções = параметров
+
+[tr]
+Rede = Ağ
+Online – conectado = Çevrim\siçi\s–\sbağlı
+Online – servidor não alcançado = Çevrim\siçi\s–\ssunucuya\sulaşılamadı
+opção = seçenek
+opções = seçenek
+
+[zh-Hans]
+Rede = 网络
+Online – conectado = 在线\s–\s已连接
+Online – servidor não alcançado = 在线\s–\s无法连接服务器
+opção = 个选项
+opções = 个选项
+
+[zh-Hant]
+Rede = 網路
+Online – conectado = 線上\s–\s已連線
+Online – servidor não alcançado = 線上\s–\s無法連線至伺服器
+opção = 個選項
+opções = 個選項
+
+[core]
+# CoreUiText (canary_game_main.cpp): "<the core's own English (xam_ui.cc)> = <the key it is
+# shown by>", for a row whose Portuguese text has a key that shows other English: "Criar perfil"
+# is "Create profile" in the interface but "Create Profile" in the core's profile window.
+Create Profile = Create Profile

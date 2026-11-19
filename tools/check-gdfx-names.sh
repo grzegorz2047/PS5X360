@@ -21,6 +21,13 @@ CXX=${CXX_HOST:-clang++-18}
 out=$tree/build/check-gdfx-names
 rm -rf "$out"
 mkdir -p "$out"
+# AddressSanitizer when the compiler has its runtime (libclang-rt-18-dev), else without.
+sanitize="-fsanitize=address -fno-omit-frame-pointer"
+if ! echo 'int main() { return 0; }' |
+    "$CXX" -x c++ $sanitize - -o "$out/asan-probe" 2>/dev/null; then
+  echo "(no AddressSanitizer runtime for $CXX; building without it)"
+  sanitize=""
+fi
 
 # $1: a directory holding src/xenia/{base,vfs} (the tree's core, or the reversed copy).
 build() {
@@ -35,7 +42,7 @@ build() {
        $src/src/xenia/vfs/devices/disc_image_file.cc"
   # shellcheck disable=SC2086
   "$CXX" -std=c++20 -O1 -g -pthread -march=znver2 -DFMT_HEADER_ONLY $extra \
-    -fsanitize=address -fno-omit-frame-pointer \
+    $sanitize \
     -I"$src/src" -I"$tree/include" -I"$tree/reconstructed" -I"$core/src" -I"$core" \
     -I"$core/third_party/fmt/include" -I"$core/third_party/utfcpp/source" -I"$core/third_party" \
     "$repo/tools/check-gdfx-names.cpp" $base $vfs -ldl -o "$exe"

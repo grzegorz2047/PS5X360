@@ -1,0 +1,718 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/object_history.h b/.deps/xenia-canary/src/xenia/kernel/object_history.h
+new file mode 100644
+index 0000000..d6101f3
+--- /dev/null
++++ b/.deps/xenia-canary/src/xenia/kernel/object_history.h
+@@ -0,0 +1,127 @@
++// Xbox360PS5 (tools/source-1.0.2/fixes/24-stall-code-words.patch): the last waits and releases
++// of a kernel object (event, semaphore, mutant, thread), for the STALL report of a game that
++// spins on one (Battlefield 3's JobManagers after the campaign has loaded). Header-only and free
++// of Xenia headers, so the host check tools/check-stall-dump.cpp drives it.
++//
++// Each object keeps its last kSize operations. An operation equal to the one before it (same
++// thread, kind, argument and result, such as a zero-timeout poll that keeps timing out) only
++// counts a repeat, so a spinning poll does not push the releases out.
++#ifndef XENIA_KERNEL_OBJECT_HISTORY_H_
++#define XENIA_KERNEL_OBJECT_HISTORY_H_
++
++#include <array>
++#include <chrono>
++#include <cstdint>
++#include <cstdio>
++#include <mutex>
++#include <string>
++#include <vector>
++
++namespace xbox360ps5 {
++namespace object_history {
++
++enum class Op : uint8_t {
++  kWait = 1,      // a wait on this object alone; arg: timeout in ms (-1: none)
++  kWaitAny,       // a wait on several, any of them; arg: timeout in ms
++  kWaitAll,       // a wait on several, all of them; arg: timeout in ms
++  kRelease,       // semaphore release; arg: count, result: previous count (-1: refused)
++  kSet,           // event set
++  kPulse,         // event pulse
++  kReset,         // event reset
++  kMutantRelease, // mutant release; result: status
++};
++
++inline const char* OperationName(Op op) {
++  switch (op) {
++    case Op::kWait: return "wait";
++    case Op::kWaitAny: return "wait-any";
++    case Op::kWaitAll: return "wait-all";
++    case Op::kRelease: return "release";
++    case Op::kSet: return "set";
++    case Op::kPulse: return "pulse";
++    case Op::kReset: return "reset";
++    case Op::kMutantRelease: return "mutant-release";
++  }
++  return "?";
++}
++
++struct Entry {
++  uint32_t first_ms = 0, last_ms = 0;  // first and last time (NowMs) it happened
++  uint32_t thread = 0;                 // the calling thread's handle (0: not a guest thread)
++  Op op = Op::kWait;
++  int32_t arg = 0;
++  uint32_t result = 0;
++  uint32_t repeats = 0;                // how many times in a row
++};
++
++// Milliseconds since the first use (the process's start, near enough).
++inline uint32_t NowMs() {
++  static const auto start = std::chrono::steady_clock::now();
++  return uint32_t(std::chrono::duration_cast<std::chrono::milliseconds>(
++                      std::chrono::steady_clock::now() - start)
++                      .count());
++}
++
++class Ring {
++ public:
++  static constexpr size_t kSize = 16;
++
++  void Record(uint32_t now_ms, uint32_t thread, Op op, int32_t arg, uint32_t result) {
++    std::lock_guard<std::mutex> lock(mutex_);
++    ++total_;
++    if (count_) {
++      Entry& last = entries_[(head_ + kSize - 1) % kSize];
++      if (last.thread == thread && last.op == op && last.arg == arg && last.result == result) {
++        ++last.repeats;
++        last.last_ms = now_ms;
++        return;
++      }
++    }
++    Entry& entry = entries_[head_];
++    entry = Entry{now_ms, now_ms, thread, op, arg, result, 1};
++    head_ = (head_ + 1) % kSize;
++    if (count_ < kSize) ++count_;
++  }
++
++  // Oldest first.
++  std::vector<Entry> Entries() const {
++    std::lock_guard<std::mutex> lock(mutex_);
++    std::vector<Entry> out;
++    out.reserve(count_);
++    for (size_t n = 0; n < count_; ++n) out.push_back(entries_[(head_ + kSize - count_ + n) % kSize]);
++    return out;
++  }
++  uint64_t total() const {
++    std::lock_guard<std::mutex> lock(mutex_);
++    return total_;
++  }
++
++ private:
++  mutable std::mutex mutex_;
++  std::array<Entry, kSize> entries_{};
++  size_t head_ = 0, count_ = 0;
++  uint64_t total_ = 0;
++};
++
++// " [-<ms ago>ms <thread> <op> <arg> -> <result> x<repeats> over <ms>ms]" per entry, oldest first.
++inline std::string Format(const std::vector<Entry>& entries, uint32_t now_ms) {
++  std::string text;
++  for (const Entry& entry : entries) {
++    char item[160];
++    const uint32_t ago = now_ms >= entry.last_ms ? now_ms - entry.last_ms : 0;
++    std::snprintf(item, sizeof(item), " [-%ums %08X %s %d -> %08X x%u", ago, entry.thread,
++                  OperationName(entry.op), entry.arg, entry.result, entry.repeats);
++    text += item;
++    if (entry.repeats > 1) {
++      std::snprintf(item, sizeof(item), " over %ums", entry.last_ms - entry.first_ms);
++      text += item;
++    }
++    text += "]";
++  }
++  return text;
++}
++
++}  // namespace object_history
++}  // namespace xbox360ps5
++
++#endif  // XENIA_KERNEL_OBJECT_HISTORY_H_
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xevent.cc b/.deps/xenia-canary/src/xenia/kernel/xevent.cc
+index 396d6de..760ae4e 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xevent.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xevent.cc
+@@ -81,6 +81,7 @@ void XEvent::InitializeNativeExitedThread(void* native_ptr) {
+ }
+ 
+ int32_t XEvent::Set(uint32_t priority_increment, bool wait) {
++  NoteHistory(xbox360ps5::object_history::Op::kSet, 0, 0);  // fix 24
+   set_priority_increment(priority_increment);
+   {
+     std::lock_guard<std::mutex> lock(state_lock_);
+@@ -93,6 +94,7 @@ int32_t XEvent::Set(uint32_t priority_increment, bool wait) {
+ }
+ 
+ int32_t XEvent::Pulse(uint32_t priority_increment, bool wait) {
++  NoteHistory(xbox360ps5::object_history::Op::kPulse, 0, 0);  // fix 24
+   set_priority_increment(priority_increment);
+   auto* kevent = memory()->TranslateVirtual<X_KEVENT*>(guest_object());
+   // KePulseEvent returns the pre-pulse signal state.
+@@ -106,6 +108,7 @@ int32_t XEvent::Pulse(uint32_t priority_increment, bool wait) {
+ }
+ 
+ int32_t XEvent::Reset() {
++  NoteHistory(xbox360ps5::object_history::Op::kReset, 0, 0);  // fix 24
+   std::lock_guard<std::mutex> lock(state_lock_);
+   memory()->TranslateVirtual<X_KEVENT*>(guest_object())->header.signal_state =
+       0;
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xmutant.cc b/.deps/xenia-canary/src/xenia/kernel/xmutant.cc
+index 98a17eb..f83c2f2 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xmutant.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xmutant.cc
+@@ -52,11 +52,12 @@ X_STATUS XMutant::ReleaseMutant(uint32_t priority_increment, bool abandon,
+ 
+   // TODO(benvanik): abandoning.
+   assert_false(abandon);
+-  if (mutant_->Release()) {
+-    return X_STATUS_SUCCESS;
+-  } else {
+-    return X_STATUS_MUTANT_NOT_OWNED;
+-  }
++  const X_STATUS status =
++      mutant_->Release() ? X_STATUS_SUCCESS : X_STATUS_MUTANT_NOT_OWNED;
++  // Xbox360PS5 (fix 24): the object history.
++  NoteHistory(xbox360ps5::object_history::Op::kMutantRelease, 0,
++              uint32_t(status));
++  return status;
+ }
+ 
+ bool XMutant::Save(ByteStream* stream) {
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xmutant.h b/.deps/xenia-canary/src/xenia/kernel/xmutant.h
+index b283df5..9209a43 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xmutant.h
++++ b/.deps/xenia-canary/src/xenia/kernel/xmutant.h
+@@ -31,6 +31,8 @@ class XMutant : public XObject {
+   void InitializeNative(void* native_ptr, const X_DISPATCH_HEADER* header);
+ 
+   X_STATUS ReleaseMutant(uint32_t priority_increment, bool abandon, bool wait);
++  // Xbox360PS5 (fix 24): the thread that owns it (null: none), for the thread-end log.
++  XThread* owning_thread() const { return owning_thread_.load(); }
+ 
+   bool Save(ByteStream* stream) override;
+   static object_ref<XMutant> Restore(KernelState* kernel_state,
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xobject.cc b/.deps/xenia-canary/src/xenia/kernel/xobject.cc
+index 13e7768..3ae35af 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xobject.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xobject.cc
+@@ -235,8 +235,25 @@ struct NotedWait {
+ };
+ }  // namespace
+ 
++void XObject::NoteHistory(xbox360ps5::object_history::Op op, int32_t arg,
++                          uint32_t result) {
++  // Host threads (the emulator's own) set events too: no guest thread then.
++  auto thread = XThread::IsInThread() ? XThread::GetCurrentThread() : nullptr;
++  const uint32_t by =
++      thread && !thread->handles().empty() ? thread->handle() : 0;
++  history_.Record(xbox360ps5::object_history::NowMs(), by, op, arg, result);
++}
++
++// Xbox360PS5 (fix 24): a wait's timeout as the object history keeps it (-1: none).
++static int32_t NotedTimeout(const uint64_t* opt_timeout, uint32_t ms) {
++  return opt_timeout ? int32_t(ms) : -1;
++}
++
+ X_STATUS XObject::Wait(uint32_t wait_reason, uint32_t processor_mode,
+                        uint32_t alertable, uint64_t* opt_timeout) {
++  const int32_t noted_ms = NotedTimeout(
++      opt_timeout, opt_timeout ? TimeoutTicksToMs(int64_t(*opt_timeout)) : 0);
++  const X_STATUS status = [&]() -> X_STATUS {
+   auto wait_handle = GetWaitHandle();
+   if (!wait_handle) {
+     // Object doesn't support waiting.
+@@ -274,11 +291,17 @@ X_STATUS XObject::Wait(uint32_t wait_reason, uint32_t processor_mode,
+     case xe::threading::WaitResult::kFailed:
+       return X_STATUS_ABANDONED_WAIT_0;
+   }
++  }();
++  NoteHistory(xbox360ps5::object_history::Op::kWait, noted_ms, uint32_t(status));
++  return status;
+ }
+ 
+ X_STATUS XObject::SignalAndWait(XObject* signal_object, XObject* wait_object,
+                                 uint32_t wait_reason, uint32_t processor_mode,
+                                 uint32_t alertable, uint64_t* opt_timeout) {
++  const int32_t noted_ms = NotedTimeout(
++      opt_timeout, opt_timeout ? TimeoutTicksToMs(int64_t(*opt_timeout)) : 0);
++  const X_STATUS status = [&]() -> X_STATUS {
+   auto timeout_ms =
+       opt_timeout ? std::chrono::milliseconds(Clock::ScaleGuestDurationMillis(
+                         TimeoutTicksToMs(*opt_timeout)))
+@@ -310,6 +333,10 @@ X_STATUS XObject::SignalAndWait(XObject* signal_object, XObject* wait_object,
+     case xe::threading::WaitResult::kFailed:
+       return X_STATUS_ABANDONED_WAIT_0;
+   }
++  }();
++  wait_object->NoteHistory(xbox360ps5::object_history::Op::kWait, noted_ms,
++                           uint32_t(status));
++  return status;
+ }
+ 
+ X_STATUS XObject::WaitMultiple(uint32_t count, XObject** objects,
+@@ -393,6 +420,13 @@ X_STATUS XObject::WaitMultiple(uint32_t count, XObject** objects,
+       current_thread->BoostOnWake(boost_increment);
+     }
+   }
++  const int32_t noted_ms = NotedTimeout(
++      opt_timeout, opt_timeout ? TimeoutTicksToMs(int64_t(*opt_timeout)) : 0);
++  for (uint32_t i = 0; i < count; ++i) {
++    objects[i]->NoteHistory(wait_type ? xbox360ps5::object_history::Op::kWaitAny
++                                      : xbox360ps5::object_history::Op::kWaitAll,
++                            noted_ms, uint32_t(status));
++  }
+   return status;
+ }
+ 
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xobject.h b/.deps/xenia-canary/src/xenia/kernel/xobject.h
+index 7406ba1..fa04561 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xobject.h
++++ b/.deps/xenia-canary/src/xenia/kernel/xobject.h
+@@ -17,6 +17,7 @@
+ 
+ #include "xenia/base/threading.h"
+ #include "xenia/kernel/kernel.h"
++#include "xenia/kernel/object_history.h"
+ #include "xenia/memory.h"
+ 
+ namespace xe {
+@@ -177,6 +178,11 @@ class XObject {
+ 
+   // Returns all associated handles with this object.
+   std::vector<X_HANDLE> handles() const { return handles_; }
++
++  // Xbox360PS5 (fix 24): the object's last waits and releases (object_history.h), for the
++  // STALL report. NoteHistory records one with the calling thread's handle.
++  void NoteHistory(xbox360ps5::object_history::Op op, int32_t arg, uint32_t result);
++  const xbox360ps5::object_history::Ring& history() const { return history_; }
+   std::vector<X_HANDLE>& handles() { return handles_; }
+ 
+   const std::string& name() const { return name_; }
+@@ -277,6 +283,7 @@ class XObject {
+   Type type_;
+   std::vector<X_HANDLE> handles_;
+   std::string name_;  // May be zero length.
++  xbox360ps5::object_history::Ring history_;
+ 
+   // Guest pointer for kernel object. Remember: X_OBJECT_HEADER precedes this
+   // if we allocated it!
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xsemaphore.cc b/.deps/xenia-canary/src/xenia/kernel/xsemaphore.cc
+index 4e0812b..46602aa 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xsemaphore.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xsemaphore.cc
+@@ -66,6 +66,9 @@ bool XSemaphore::ReleaseSemaphore(int32_t release_count,
+   if (out_previous_count) {
+     *out_previous_count = previous_count;
+   }
++  // Xbox360PS5 (fix 24): the object history (-1: the release was refused).
++  NoteHistory(xbox360ps5::object_history::Op::kRelease, release_count,
++              success ? uint32_t(previous_count) : 0xFFFFFFFFu);
+   return success;
+ }
+ 
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xthread.cc b/.deps/xenia-canary/src/xenia/kernel/xthread.cc
+index 8b4b9b0..0e077d2 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xthread.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xthread.cc
+@@ -11,6 +11,7 @@
+ #include <xmmintrin.h>
+ #include <atomic>
+ #include <cstdlib>
++#include <ctime>
+ #include <mutex>
+ #include <unordered_set>
+ 
+@@ -27,6 +28,7 @@
+ #include "xenia/cpu/processor.h"
+ #include "xenia/emulator.h"
+ #include "xenia/kernel/kernel_state.h"
++#include "xenia/kernel/xmutant.h"  // fix 24: mutants a thread still owns as it ends
+ #include "xenia/kernel/user_module.h"
+ #include "xenia/kernel/xboxkrnl/xboxkrnl_threading.h"
+ 
+@@ -65,6 +67,28 @@ uint32_t next_xthread_id_ = 0;
+ // faulted on its next write to the context. Both are given back once, when
+ // the thread ends.
+ namespace {
++// Xbox360PS5 (fix 24): each guest thread's end in the log, with its exit code and the time, for
++// a game that hangs after waiting on a thread (Battlefield 3's ClientLoad after ServerLoad).
++void LogThreadEnd(const char* how, const std::string& name, uint32_t handle, uint32_t id,
++                  int exit_code) {
++  const std::time_t now = std::time(nullptr);
++  std::tm parts{};
++  gmtime_r(&now, &parts);
++  XELOGW("Thread end ({}): '{}' handle {:08X} id {} exit code {:08X} at {:02d}:{:02d}:{:02d} UTC",
++         how, name, handle, id, uint32_t(exit_code), parts.tm_hour, parts.tm_min, parts.tm_sec);
++}
++// Xbox360PS5 (fix 24): the mutants a thread still owns as it ends. Their host mutant stays owned
++// by the ended host thread, so no other thread can take it again.
++void LogOwnedMutants(KernelState* kernel_state, XThread* thread) {
++  for (const auto& mutant :
++       kernel_state->object_table()->GetObjectsByType<XMutant>()) {
++    if (mutant->owning_thread() != thread) continue;
++    XELOGW("Thread end: '{}' still owns mutant {:08X} (guest {:08X})",
++           thread->thread_name(),
++           mutant->handles().empty() ? 0 : mutant->handle(),
++           mutant->guest_object());
++  }
++}
+ std::mutex self_owned_mutex;
+ std::unordered_set<XThread*> self_owned;
+ 
+@@ -531,6 +555,10 @@ X_STATUS XThread::Exit(int exit_code) {
+   // Set exit code.
+   kthread->header.signal_state = 1;
+   kthread->exit_status = exit_code;
++  if (is_guest_thread()) {
++    LogThreadEnd("exit", thread_name(), handles().empty() ? 0 : handle(), thread_id_, exit_code);
++    LogOwnedMutants(kernel_state(), this);
++  }
+ 
+   auto kprocess = cpu_context->TranslateVirtual(kthread->process);
+ 
+@@ -574,6 +602,11 @@ X_STATUS XThread::Terminate(int exit_code) {
+   X_KTHREAD* thread = guest_object<X_KTHREAD>();
+   thread->header.signal_state = 1;
+   thread->exit_status = exit_code;
++  if (is_guest_thread()) {
++    LogThreadEnd("terminated", thread_name(), handles().empty() ? 0 : handle(), thread_id_,
++                 exit_code);
++    LogOwnedMutants(kernel_state(), this);
++  }
+ 
+   // Notify processor of our exit.
+   emulator()->processor()->OnThreadExit(thread_id_);
+diff --git a/port/stall_dump.hpp b/port/stall_dump.hpp
+new file mode 100644
+index 0000000..58bb84c
+--- /dev/null
++++ b/port/stall_dump.hpp
+@@ -0,0 +1,145 @@
++// SPDX-License-Identifier: MIT
++// Fix 24 of the source rebuild (tools/source-1.0.2/fixes/24-stall-code-words.patch): what the
++// STALL report reads from a guest thread that spins outside any wait, as templates over a
++// memory reader, so the host check tools/check-stall-dump.cpp drives them with fake memory.
++// No Xenia headers here.
++//
++// Reader:
++//   bool Readable(uint32_t address);   the 4 bytes at `address` can be read (host access)
++//   uint32_t Word(uint32_t address);   the big-endian word there
++#pragma once
++#include <cstdint>
++#include <cstdio>
++#include <string>
++#include <vector>
++
++namespace xbox360ps5 {
++namespace stall_dump {
++
++// `count` words from `first` (word-aligned), "????????" for each one that cannot be read.
++template <typename Reader>
++std::string Words(Reader& reader, uint32_t first, uint32_t count) {
++  std::string text;
++  first &= ~3u;
++  for (uint32_t n = 0; n < count; ++n) {
++    const uint64_t at = uint64_t(first) + uint64_t(n) * 4;
++    char item[16];
++    if (at > 0xFFFFFFFCull || !reader.Readable(uint32_t(at)))
++      std::snprintf(item, sizeof(item), " ????????");
++    else
++      std::snprintf(item, sizeof(item), " %08X", reader.Word(uint32_t(at)));
++    text += item;
++  }
++  return text;
++}
++
++// 64 bytes around a code address: 8 words before it and 8 from it (the address's own word is
++// the ninth), so the loop's branch and what it reads are in view.
++template <typename Reader>
++std::string CodeWindow(Reader& reader, uint32_t address) {
++  const uint32_t aligned = address & ~3u;
++  return Words(reader, aligned >= 32 ? aligned - 32 : 0, 16);
++}
++
++struct Frame {
++  uint32_t address = 0;   // the frame (r1 for the first)
++  uint32_t back = 0;      // its back chain: the caller's frame
++  uint32_t saved_lr = 0;  // the return address the caller's frame keeps (at back - 8)
++  bool lr_read = false;
++  std::string words;      // the frame's first 8 words
++};
++
++// The back chain from r1: each frame's first word is its caller's frame, which keeps the return
++// address 8 bytes below its start. Stops at an unreadable or misaligned frame, one that does
++// not move up the stack, a jump of more than 64 KiB, or after `limit` frames.
++template <typename Reader>
++std::vector<Frame> StackFrames(Reader& reader, uint32_t r1, int limit = 8) {
++  std::vector<Frame> frames;
++  uint32_t frame = r1;
++  for (int depth = 0; depth < limit; ++depth) {
++    if (!frame || (frame & 3) || !reader.Readable(frame)) break;
++    Frame item;
++    item.address = frame;
++    item.back = reader.Word(frame);
++    item.words = Words(reader, frame, 8);
++    const bool chained = item.back > frame && item.back - frame <= 0x10000;
++    if (chained && item.back >= 8 && reader.Readable(item.back - 8)) {
++      item.saved_lr = reader.Word(item.back - 8);
++      item.lr_read = true;
++    }
++    frames.push_back(item);
++    if (!chained) break;
++    frame = item.back;
++  }
++  return frames;
++}
++
++// A register value worth dumping memory at: a guest address (not a small number, not a handle,
++// not the address space's top). Stack addresses count: Battlefield 3's main thread spins on an
++// object in its own frame (7018D5A0).
++inline bool LooksLikeData(uint32_t value) {
++  if (value < 0x10000) return false;
++  if (value >= 0xF8000000) return false;  // handles, and the top of the address space
++  return true;
++}
++
++// A register value that looks like a kernel object handle (0xF8000000 + 4n).
++inline bool LooksLikeHandle(uint32_t value) {
++  return value > 0xF8000000 && value < 0xF9000000 && (value & 3) == 0;
++}
++
++enum class ThreadState : uint8_t { kRunning, kExited, kNotStarted };
++inline const char* ThreadStateName(ThreadState state) {
++  switch (state) {
++    case ThreadState::kRunning: return "running";
++    case ThreadState::kExited: return "exited (object still referenced)";
++    case ThreadState::kNotStarted: return "not started";
++  }
++  return "?";
++}
++// A guest thread from its host state and its KTHREAD: ended once the guest object says so
++// (terminated, or its dispatch header signalled) and the host thread no longer runs.
++inline ThreadState Classify(bool running, bool terminated, bool signalled) {
++  if (running && !terminated) return ThreadState::kRunning;
++  if (terminated || signalled) return ThreadState::kExited;
++  return ThreadState::kNotStarted;
++}
++
++// The relative branch-and-link instructions (bl) among `count` words from `first`: where each
++// is and where it goes (PowerPC: primary opcode 18, AA 0, LK 1; a signed 24-bit word offset).
++struct Call {
++  uint32_t site = 0, target = 0;
++};
++template <typename Reader>
++std::vector<Call> Calls(Reader& reader, uint32_t first, uint32_t count) {
++  std::vector<Call> calls;
++  first &= ~3u;
++  for (uint32_t n = 0; n < count; ++n) {
++    const uint64_t at = uint64_t(first) + uint64_t(n) * 4;
++    if (at > 0xFFFFFFFCull || !reader.Readable(uint32_t(at))) continue;
++    const uint32_t word = reader.Word(uint32_t(at));
++    if ((word >> 26) != 18 || (word & 3) != 1) continue;
++    int32_t offset = int32_t(word & 0x03FFFFFC);
++    if (offset & 0x02000000) offset -= 0x04000000;
++    calls.push_back({uint32_t(at), uint32_t(int64_t(at) + offset)});
++  }
++  return calls;
++}
++
++// Samples of one place over time, keeping a sample only when it differs from the one before.
++struct ChangeLog {
++  struct Sample {
++    uint32_t ms = 0;
++    std::string text;
++  };
++  std::vector<Sample> samples;
++  uint32_t last_ms = 0;
++  void Add(uint32_t ms, const std::string& text) {
++    last_ms = ms;
++    if (samples.empty() || samples.back().text != text) samples.push_back({ms, text});
++  }
++  bool Changed() const { return samples.size() > 1; }
++};
++
++}  // namespace stall_dump
++}  // namespace xbox360ps5
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+index 5c3db7d..2f9b489 100644
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -76,6 +76,12 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
+ #include "xenia/base/mutex.h"
+ #include "xbox360ps5/thread_place.hpp"
+ #include "xbox360ps5/frame_watch.hpp"
++#include "stall_dump.hpp"  // fix 24: the STALL report's guest memory
++#include <map>
++#include <set>
++#include "xenia/kernel/object_history.h"
++#include "xenia/kernel/user_module.h"
++#include "xenia/base/memory.h"
+ #include "xbox360ps5/session_log.hpp"
+ #include "xbox360ps5/crash_report.hpp"
+ #include "xbox360ps5/ui_sounds.hpp"
+@@ -727,18 +733,162 @@ std::string CallersText(xe::Memory* memory, uint32_t stack) {
+   }
+   return text.empty() ? " none read" : text;
+ }
++// Fix 24: guest memory for the STALL report, read only where the host can read it (the page's
++// host access, as guest_crash_dump.hpp does: the heaps' own page tables do not tell on the
++// PS5, and the code at 0x838D4514 was shown as unreadable through them).
++struct StallReader {
++  xe::Memory* memory;
++  bool Readable(uint32_t address) {
++    size_t length = 4;
++    xe::memory::PageAccess access;
++    return xe::memory::QueryProtect(memory->TranslateVirtual(address), length, access) &&
++           access != xe::memory::PageAccess::kNoAccess;
++  }
++  uint32_t Word(uint32_t address) { return xe::load_and_swap<uint32_t>(memory->TranslateVirtual(address)); }
++};
++// Fix 24: the executable's import thunks by address ("xboxkrnl.exe!KeWaitForSingleObject"), and
++// each library's table logged once a process, to name the calls the STALL report shows.
++const std::map<uint32_t, std::string>& ImportThunks(xe::Emulator& emulator) {
++  static std::map<uint32_t, std::string> thunks;
++  static bool made = false;
++  if (made) return thunks;
++  made = true;
++  auto module = emulator.kernel_state()->GetExecutableModule();
++  if (!module || !module->xex_module()) return thunks;
++  for (const auto& library : *module->xex_module()->import_libraries()) {
++    std::string line;
++    for (const auto& import : library.imports) {
++      auto* exported = emulator.processor()->export_resolver()->GetExportByOrdinal(library.name, uint16_t(import.ordinal));
++      const std::string name = exported && exported->name && *exported->name
++                                   ? std::string(exported->name)
++                                   : fmt::format("ordinal {}", import.ordinal);
++      if (import.thunk_address) thunks[import.thunk_address] = library.name + "!" + name;
++      line += fmt::format(" {:08X}={}", import.thunk_address, name);
++      if (line.size() > 900) {
++        XELOGW("STALL imports {}:{}", library.name, line);
++        line.clear();
++      }
++    }
++    if (!line.empty()) XELOGW("STALL imports {}:{}", library.name, line);
++  }
++  return thunks;
++}
++// The import a call goes to: its thunk (16 bytes from the recorded address), or "".
++std::string ImportAt(const std::map<uint32_t, std::string>& thunks, uint32_t target) {
++  auto found = thunks.upper_bound(target);
++  if (found == thunks.begin()) return "";
++  --found;
++  return target - found->first < 16 ? found->second : "";
++}
+ void ReportStall(xe::Emulator& emulator, int pass) {
++  namespace sd = xbox360ps5::stall_dump;
++  namespace oh = xbox360ps5::object_history;
+   const auto threads = emulator.kernel_state()->object_table()->GetObjectsByType<xe::kernel::XThread>();
+   XELOGW("STALL pass {}: {} threads", pass, threads.size());
++  StallReader reader{emulator.memory()};
++  const auto& thunks = ImportThunks(emulator);
++  std::set<uint32_t> handles_seen;  // objects whose history is logged after the threads
++  struct Watched {
++    uint32_t thread, reg, address;
++    sd::ChangeLog log;
++  };
++  std::vector<Watched> watched;  // memory at r3 and r31 of threads in no wait, sampled below
+   for (const auto& thread : threads) {
+     if (!thread->thread_state()) continue;
+     const auto* context = thread->thread_state()->context();
++    if (thread->is_guest_thread()) {
++      // Fix 24: a thread that has ended keeps its last context while its object is referenced;
++      // listed as such, not as a thread spinning outside any wait.
++      const auto* kthread = thread->guest_object<xe::kernel::X_KTHREAD>();
++      const auto state = sd::Classify(thread->is_running(), kthread && kthread->terminated,
++                                      kthread && uint32_t(kthread->header.signal_state) != 0);
++      if (state != sd::ThreadState::kRunning) {
++        XELOGW("STALL thread {:08X} id {} '{}' {}; exit status {:08X}, kthread {:08X}", thread->handle(),
++               thread->thread_id(), thread->thread_name(), sd::ThreadStateName(state),
++               kthread ? uint32_t(kthread->exit_status) : 0u, thread->guest_object());
++        continue;
++      }
++    }
+     XELOGW("STALL thread {:08X} {}; callers{}", thread->handle(), WaitText(*thread),
+            thread->is_guest_thread() ? CallersText(emulator.memory(), uint32_t(context->r[1])) : std::string(" -"));
+     XELOGW("STALL thread {:08X} id {} '{}' guest {} suspended {} lr {:08X} ctr {:08X} r1 {:08X} r3 {:08X} r4 {:08X} r5 {:08X}",
+            thread->handle(), thread->thread_id(), thread->thread_name(), thread->is_guest_thread() ? 1 : 0,
+            thread->suspend_count(), uint32_t(context->lr), uint32_t(context->ctr), uint32_t(context->r[1]),
+            uint32_t(context->r[3]), uint32_t(context->r[4]), uint32_t(context->r[5]));
++    if (!thread->is_guest_thread()) continue;
++    // Fix 24: for a guest thread, its KTHREAD (what a wait on the thread names), the code around
++    // lr and ctr (64 bytes each, lr's own word the ninth) with the imports it calls, its stack
++    // frames, and for one in no wait the memory its registers point at (the registers as last
++    // stored by the generated code: a loop that makes no call may have newer values in host
++    // registers).
++    XELOGW("STALL thread {:08X} kthread {:08X} r6 {:08X} r7 {:08X} r8 {:08X} r31 {:08X}", thread->handle(),
++           thread->guest_object(), uint32_t(context->r[6]), uint32_t(context->r[7]), uint32_t(context->r[8]),
++           uint32_t(context->r[31]));
++    for (const uint32_t at : {uint32_t(context->lr), uint32_t(context->ctr)}) {
++      XELOGW("STALL thread {:08X} code at {:08X}-32{}:{}", thread->handle(), at,
++             at == uint32_t(context->ctr) ? " (ctr)" : "", sd::CodeWindow(reader, at));
++      std::string calls;
++      for (const auto& call : sd::Calls(reader, (at & ~3u) >= 32 ? (at & ~3u) - 32 : 0, 16)) {
++        const std::string name = ImportAt(thunks, call.target);
++        calls += fmt::format(" {:08X}->{:08X}{}{}", call.site, call.target, name.empty() ? "" : " ", name);
++      }
++      if (!calls.empty()) XELOGW("STALL thread {:08X} calls near {:08X}:{}", thread->handle(), at, calls);
++    }
++    int depth = 0;
++    for (const auto& frame : sd::StackFrames(reader, uint32_t(context->r[1]))) {
++      XELOGW("STALL thread {:08X} frame {} at {:08X} back {:08X} lr {}:{}", thread->handle(), depth++,
++             frame.address, frame.back, frame.lr_read ? fmt::format("{:08X}", frame.saved_lr) : std::string("?"),
++             frame.words);
++    }
++    const auto note = thread->wait_note();
++    for (uint32_t n = 0; n < std::min<uint32_t>(note.count, 4); ++n) handles_seen.insert(note.handles[n]);
++    for (int n = 3; n < 32; ++n)
++      if (sd::LooksLikeHandle(uint32_t(context->r[n]))) handles_seen.insert(uint32_t(context->r[n]));
++    if (!note.count) {
++      for (int n : {3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 28, 29, 30, 31}) {
++        const uint32_t value = uint32_t(context->r[n]);
++        if (!sd::LooksLikeData(value)) continue;
++        XELOGW("STALL thread {:08X} r{} {:08X}:{}", thread->handle(), n, value, sd::Words(reader, value, 8));
++        if (n == 3 || n == 31) watched.push_back({thread->handle(), uint32_t(n), value, {}});
++      }
++    }
++  }
++  // Fix 24: the last waits and releases of each object a thread waits on or holds a handle to.
++  static const char* const kTypeNames[] = {"Undefined", "Enumerator", "Event", "File", "IOCompletion", "Module",
++                                           "Mutant", "NotifyListener", "Semaphore", "Session", "Socket",
++                                           "SymbolicLink", "Thread", "Timer", "Device"};
++  const uint32_t now = oh::NowMs();
++  for (const uint32_t handle : handles_seen) {
++    auto object = emulator.kernel_state()->object_table()->LookupObject<xe::kernel::XObject>(handle);
++    if (!object) {
++      XELOGW("STALL object {:08X}: not in the table", handle);
++      continue;
++    }
++    const uint32_t type = uint32_t(object->type());
++    const uint32_t guest = object->guest_object();
++    std::string signal = "-";
++    if (guest && reader.Readable(guest + 4)) signal = fmt::format("{}", reader.Word(guest + 4));
++    XELOGW("STALL object {:08X} {} guest {:08X} signal_state {} ops {}:{}", handle,
++           type < std::size(kTypeNames) ? kTypeNames[type] : "?", guest, signal, object->history().total(),
++           oh::Format(object->history().Entries(), now));
++  }
++  // Fix 24: what the memory at r3 and r31 of the threads in no wait does over 0.8 s (only the
++  // changes are logged): a counter or flag the thread spins on moves, or does not.
++  if (!watched.empty()) {
++    for (int sample = 0; sample < 8; ++sample) {
++      if (sample) std::this_thread::sleep_for(std::chrono::milliseconds(100));
++      for (auto& watch : watched) watch.log.Add(uint32_t(sample * 100), sd::Words(reader, watch.address, 8));
++    }
++    for (const auto& watch : watched) {
++      if (!watch.log.Changed()) {
++        XELOGW("STALL thread {:08X} r{} {:08X} unchanged over {} ms", watch.thread, watch.reg, watch.address,
++               watch.log.last_ms);
++        continue;
++      }
++      for (const auto& sample : watch.log.samples)
++        XELOGW("STALL thread {:08X} r{} {:08X} at +{} ms:{}", watch.thread, watch.reg, watch.address, sample.ms,
++               sample.text);
++    }
+   }
+   xe::FlushLog();
+   for (const auto& thread : threads) {
