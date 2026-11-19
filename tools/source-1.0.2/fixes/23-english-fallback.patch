@@ -1,0 +1,98 @@
+diff --git a/include/xbox360ps5/i18n.hpp b/include/xbox360ps5/i18n.hpp
+index 97b316d..6d8bfd0 100644
+--- a/include/xbox360ps5/i18n.hpp
++++ b/include/xbox360ps5/i18n.hpp
+@@ -407,9 +407,19 @@ inline const char* Tr(const char* key) {
+   const int language = ui_language.load(std::memory_order_relaxed);
+   if (language == 9) return key;
+   if (const char* loaded = LoadedUiText(key)) return loaded;
++  // Fix 23: what the chosen language's file lacks. Portuguese (Portugal): the Brazilian source.
++  // Spanish (both): this table's Spanish. Any other: English, from assets/lang/en.txt, then
++  // this table; the Portuguese source only when neither has it.
++  if (language == 19) return key;
++  const Entry* built_in = nullptr;
+   for (const auto& entry : entries) {
+-    if (!std::strcmp(entry.pt, key)) return language == 5 ? entry.es : entry.en;
++    if (!std::strcmp(entry.pt, key)) { built_in = &entry; break; }
+   }
++  if (built_in && (language == 5 || language == 18)) return built_in->es;
++  if (language != 1) {
++    if (const char* english = EnglishUiText(key)) return english;
++  }
++  if (built_in) return built_in->en;
+   return key; // Literal symbols and external names remain untouched.
+ }
+ } // namespace xbox360ps5
+diff --git a/reconstructed/xbox360ps5/i18n_ui.hpp b/reconstructed/xbox360ps5/i18n_ui.hpp
+index 57adb01..046f357 100644
+--- a/reconstructed/xbox360ps5/i18n_ui.hpp
++++ b/reconstructed/xbox360ps5/i18n_ui.hpp
+@@ -87,23 +87,41 @@ inline std::string Unescape(const std::string& in) {
+ }
+ }  // namespace i18n_ui
+ 
++namespace i18n_ui {
++// One language file into a table.
++inline void Read(int id, Table& table) {
++  std::ifstream input(std::string("/app0/assets/lang/") + UiLanguageCode(id) + ".txt", std::ios::binary);
++  for (std::string line; std::getline(input, line);) {
++    if (!line.empty() && line.back() == '\r') line.pop_back();
++    if (line.empty() || line[0] == '#') continue;
++    const size_t split = line.find(" = ");
++    if (split == std::string::npos) continue;
++    table.text[Unescape(line.substr(0, split))] = Unescape(line.substr(split + 3));
++  }
++}
++}  // namespace i18n_ui
++
+ // Loads /app0/assets/lang/<code>.txt for the language (Brazilian Portuguese is the source).
+ inline void LoadUiTranslations(int id) {
+   auto table = std::make_shared<i18n_ui::Table>();
+   table->language = id;
+-  if (id != 9) {
+-    std::ifstream input(std::string("/app0/assets/lang/") + UiLanguageCode(id) + ".txt", std::ios::binary);
+-    for (std::string line; std::getline(input, line);) {
+-      if (!line.empty() && line.back() == '\r') line.pop_back();
+-      if (line.empty() || line[0] == '#') continue;
+-      const size_t split = line.find(" = ");
+-      if (split == std::string::npos) continue;
+-      table->text[i18n_ui::Unescape(line.substr(0, split))] = i18n_ui::Unescape(line.substr(split + 3));
+-    }
+-  }
++  if (id != 9) i18n_ui::Read(id, *table);
+   std::lock_guard<std::mutex> guard(i18n_ui::Lock());
+   i18n_ui::Current() = std::move(table);
+ }
++// Fix 23 (tools/source-1.0.2/fixes): the English translation of a Portuguese text from
++// /app0/assets/lang/en.txt (read once), or nullptr. A text the chosen language's file lacks is
++// shown in English, not in the Portuguese source.
++inline const char* EnglishUiText(const char* pt) {
++  static const i18n_ui::Table english = [] {
++    i18n_ui::Table table;
++    table.language = 1;
++    i18n_ui::Read(1, table);
++    return table;
++  }();
++  const auto found = english.text.find(pt);
++  return found == english.text.end() ? nullptr : found->second.c_str();
++}
+ // The loaded translation of a Portuguese text, or nullptr. Tables stay alive for the
+ // process, so the returned text remains valid.
+ inline const char* LoadedUiText(const char* pt) {
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+index 9613e5d..80e2147 100644
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -1381,7 +1381,11 @@ const char* FramegenText(const char* pt, const char* en, const char* es) {
+   const int language = ui_language.load();
+   if (language == 9) return pt;
+   if (const char* loaded = LoadedUiText(pt)) return loaded;
+-  return language == 19 ? pt : language == 5 || language == 18 ? es : en;
++  if (language == 19) return pt;
++  if (language == 5 || language == 18) return es;
++  // Fix 23: English as assets/lang/en.txt has it, else this function's own.
++  if (const char* english = EnglishUiText(pt)) return english;
++  return en;
+ }
+ // Frame generation as the menu shows it, read from kFramegenFile (framegen_config.hpp has
+ // the file's three lines). Kept here, not in the class or the Settings.
