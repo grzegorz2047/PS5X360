@@ -1,5 +1,5 @@
 diff --git a/.deps/xenia-canary/src/xenia/gpu/command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/command_processor.cc
-index d8c67c8..251f4a4 100644
+index d8c67c8..e158068 100644
 --- a/.deps/xenia-canary/src/xenia/gpu/command_processor.cc
 +++ b/.deps/xenia-canary/src/xenia/gpu/command_processor.cc
 @@ -384,6 +384,8 @@ void CommandProcessor::WorkerThreadMain() {
@@ -11,7 +11,53 @@ index d8c67c8..251f4a4 100644
      if (write_ptr_index == 0xBAADF00D || read_ptr_index_ == write_ptr_index) {
        SCOPE_profile_cpu_i("gpu", "xe::gpu::CommandProcessor::Stall");
        // We've run out of commands to execute.
-@@ -616,6 +618,8 @@ void CommandProcessor::HandleSpecialRegisterWrite(uint32_t index,
+@@ -605,6 +607,45 @@ void CommandProcessor::LogRegisterSets(uint32_t base_register_index,
+ #endif
+ }
+ 
++void CommandProcessor::LogLongMemoryWait(uint32_t poll_address, uint32_t ref,
++                                         uint32_t mask, uint32_t function) {
++  namespace ct = xbox360ps5::cp_trace;
++  struct Reader {
++    Memory* memory;
++    static bool HostReadable(const void* host) {
++      size_t length = 4;
++      xe::memory::PageAccess access;
++      return xe::memory::QueryProtect(const_cast<void*>(host), length, access) &&
++             access != xe::memory::PageAccess::kNoAccess;
++    }
++    bool Physical(uint32_t physical, uint32_t& value) {
++      const uint8_t* host = memory->TranslatePhysical(physical);
++      if (!HostReadable(host)) return false;
++      value = xe::load_and_swap<uint32_t>(host);
++      return true;
++    }
++    bool Virtual(uint32_t address, uint32_t& value) {
++      const uint8_t* host = memory->TranslateVirtual(address);
++      if (!HostReadable(host)) return false;
++      value = xe::load_and_swap<uint32_t>(host);
++      return true;
++    }
++  } reader{memory_};
++  static const char* const kFunctions[] = {"never", "<",  "<=", "==",
++                                           "!=",    ">=", ">",  "always"};
++  const auto wait = ct::Global().Wait();
++  const uint32_t physical = ct::PacketAddress(poll_address);
++  XELOGW(
++      "GPU: WAIT_REG_MEM on memory {:08X} (endian {}) has waited 2 s: (value & "
++      "{:08X}) {} {:08X}; value {:08X} when it began, {:08X} now; packet at "
++      "physical {:08X}; ring read {:08X} write {:08X}",
++      physical, ct::EndianName(poll_address), mask, kFunctions[function & 7],
++      ref, wait.first_value, wait.value, wait.packet,
++      ct::Global().ReadPointer(), ct::Global().WritePointer());
++  XELOGW("GPU: that dword: {}",
++         ct::AliasReport(reader, physical, ref, mask));
++}
++
+ void CommandProcessor::HandleSpecialRegisterWrite(uint32_t index,
+                                                   uint32_t value) {
+   RegisterFile& regs = *register_file_;
+@@ -616,6 +657,8 @@ void CommandProcessor::HandleSpecialRegisterWrite(uint32_t index,
        uint32_t scratch_addr = regs.values[XE_GPU_REG_SCRATCH_ADDR];
        uint32_t mem_addr = scratch_addr + (scratch_reg * 4);
        xe::store_and_swap<uint32_t>(memory_->TranslatePhysical(mem_addr), value);
@@ -21,7 +67,7 @@ index d8c67c8..251f4a4 100644
    } else {
      switch (index) {
 diff --git a/.deps/xenia-canary/src/xenia/gpu/command_processor.h b/.deps/xenia-canary/src/xenia/gpu/command_processor.h
-index 2d5825e..34deabb 100644
+index 2d5825e..a0111dd 100644
 --- a/.deps/xenia-canary/src/xenia/gpu/command_processor.h
 +++ b/.deps/xenia-canary/src/xenia/gpu/command_processor.h
 @@ -21,6 +21,7 @@
@@ -32,12 +78,22 @@ index 2d5825e..34deabb 100644
  #include "xenia/base/ring_buffer.h"
  #include "xenia/gpu/register_file.h"
  #include "xenia/gpu/trace_writer.h"
+@@ -187,6 +188,9 @@ class CommandProcessor {
+   void EnableReadPointerWriteBack(uint32_t ptr, uint32_t block_size_log2);
+ 
+   void UpdateWritePointer(uint32_t value);
++  // Xbox360PS5 (fix 24): a WAIT_REG_MEM on memory that has lasted 2 s, in the log.
++  void LogLongMemoryWait(uint32_t poll_address, uint32_t ref, uint32_t mask,
++                         uint32_t function);
+ 
+   void LogRegisterSet(uint32_t register_index, uint32_t value);
+   void LogRegisterSets(uint32_t base_register_index, const uint32_t* values,
 diff --git a/.deps/xenia-canary/src/xenia/gpu/cp_trace.h b/.deps/xenia-canary/src/xenia/gpu/cp_trace.h
 new file mode 100644
-index 0000000..ffa843d
+index 0000000..50de17e
 --- /dev/null
 +++ b/.deps/xenia-canary/src/xenia/gpu/cp_trace.h
-@@ -0,0 +1,173 @@
+@@ -0,0 +1,256 @@
 +// Xbox360PS5 (tools/source-1.0.2/fixes/24-stall-code-words.patch): what the GPU command
 +// processor writes to guest memory (fences, events, scratch write-back) and what it waits for,
 +// for the STALL report of a game whose CPU waits for a fence the GPU never writes (Battlefield
@@ -101,9 +157,83 @@ index 0000000..ffa843d
 +struct WaitState {
 +  bool active = false;
 +  bool memory = false;           // a memory address (else a register index)
-+  uint32_t address = 0, ref = 0, mask = 0, function = 0;
++  uint32_t address = 0, ref = 0, mask = 0, function = 0;  // address: as in the packet
 +  uint32_t since_ms = 0, polls = 0, value = 0;
++  uint32_t first_value = 0;      // the value when the wait began
++  uint32_t packet = 0;           // the WAIT_REG_MEM packet's physical address
++  bool reported = false;         // logged once it lasted 2 s
 +};
++
++// A memory address in a packet: the dword's physical address and its endian swap (low 2 bits).
++inline uint32_t PacketAddress(uint32_t address) { return address & ~3u; }
++inline const char* EndianName(uint32_t address) {
++  switch (address & 3) {
++    case 0: return "none";
++    case 1: return "8in16";
++    case 2: return "8in32";
++    default: return "16in32";
++  }
++}
++
++// The guest virtual addresses of a physical address: 0xA0000000 (64 KiB pages), 0xC0000000
++// (16 MiB pages) and 0xE0000000 (4 KiB pages, 0x1000 below: physical = address - 0xE0000000
++// + 0x1000).
++struct Alias {
++  const char* view;
++  uint32_t address;
++};
++inline std::vector<Alias> Aliases(uint32_t physical) {
++  std::vector<Alias> aliases;
++  if (physical >= 0x20000000) return aliases;
++  aliases.push_back({"A0000000", 0xA0000000u + physical});
++  aliases.push_back({"C0000000", 0xC0000000u + physical});
++  if (physical >= 0x1000) aliases.push_back({"E0000000", 0xE0000000u + physical - 0x1000});
++  return aliases;
++}
++
++// The awaited dword as the GPU reads it (physical) and as the CPU sees it through each alias,
++// and the places within 8 KiB of it that hold the awaited value: a write that went through an
++// alias with a wrong offset shows there. Reader:
++//   bool Physical(uint32_t physical, uint32_t& value);   big-endian word, as the GPU reads it
++//   bool Virtual(uint32_t address, uint32_t& value);     through the CPU's view
++// Values are the stored words; the endian swap of the packet is applied by the caller.
++template <typename Reader>
++std::string AliasReport(Reader& reader, uint32_t physical, uint32_t ref, uint32_t mask) {
++  std::string text;
++  char item[96];
++  uint32_t value = 0;
++  if (reader.Physical(physical, value))
++    std::snprintf(item, sizeof(item), "physical %08X = %08X", physical, value);
++  else
++    std::snprintf(item, sizeof(item), "physical %08X unreadable", physical);
++  text += item;
++  bool differs = false;
++  const uint32_t at_physical = value;
++  for (const Alias& alias : Aliases(physical)) {
++    uint32_t seen = 0;
++    if (reader.Virtual(alias.address, seen)) {
++      std::snprintf(item, sizeof(item), "; %s view %08X = %08X", alias.view, alias.address, seen);
++      differs = differs || seen != at_physical;
++    } else {
++      std::snprintf(item, sizeof(item), "; %s view %08X unreadable", alias.view, alias.address);
++    }
++    text += item;
++  }
++  text += differs ? "; THE VIEWS DIFFER" : "; the views agree";
++  int found = 0;
++  std::string near;
++  const uint32_t first = physical >= 0x2000 ? physical - 0x2000 : 0;
++  for (uint32_t at = first; at <= physical + 0x2000 && found < 16; at += 4) {
++    uint32_t word = 0;
++    if (at == physical || !reader.Physical(at, word)) continue;
++    if ((word & mask) != (ref & mask)) continue;
++    std::snprintf(item, sizeof(item), " %08X(%+d)", at, int32_t(at - physical));
++    near += item;
++    ++found;
++  }
++  text += found ? "; the awaited value is near at" + near : "; the awaited value is nowhere within 8 KiB";
++  return text;
++}
 +
 +class Trace {
 + public:
@@ -137,15 +267,24 @@ index 0000000..ffa843d
 +  }
 +
 +  void BeginWait(uint32_t now_ms, bool memory, uint32_t address, uint32_t ref, uint32_t mask,
-+                 uint32_t function) {
++                 uint32_t function, uint32_t packet = 0) {
 +    std::lock_guard<std::mutex> lock(mutex_);
 +    wait_ = WaitState{true, memory, address, ref, mask, function, now_ms, 0, 0};
++    wait_.packet = packet;
 +    ++waits_;
 +  }
 +  void Poll(uint32_t value) {
 +    std::lock_guard<std::mutex> lock(mutex_);
++    if (!wait_.polls) wait_.first_value = value;
 +    ++wait_.polls;
 +    wait_.value = value;
++  }
++  // True once for a wait that has lasted `limit_ms` (then logged by the command processor).
++  bool DueReport(uint32_t now_ms, uint32_t limit_ms) {
++    std::lock_guard<std::mutex> lock(mutex_);
++    if (!wait_.active || wait_.reported || now_ms - wait_.since_ms < limit_ms) return false;
++    wait_.reported = true;
++    return true;
 +  }
 +  void EndWait() {
 +    std::lock_guard<std::mutex> lock(mutex_);
@@ -212,7 +351,7 @@ index 0000000..ffa843d
 +
 +#endif  // XENIA_GPU_CP_TRACE_H_
 diff --git a/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h b/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h
-index 838428a..e11044b 100644
+index 838428a..dfced4d 100644
 --- a/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h
 +++ b/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h
 @@ -738,6 +738,8 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_WAIT_REG_MEM(
@@ -224,20 +363,29 @@ index 838428a..e11044b 100644
  
    do {
      uint32_t value = value_ref;
-@@ -755,6 +757,12 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_WAIT_REG_MEM(
+@@ -755,6 +757,21 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_WAIT_REG_MEM(
      matched = MatchValueAndRef(value & mask, ref, wait_info);
  
      if (!matched) {
 +      if (!traced) {
++        // The packet's physical address: the reader is past its 6 dwords.
++        const uint32_t packet = uint32_t(
++            reader_.read_ptr() - uintptr_t(memory_->physical_membase()) - 24);
 +        xbox360ps5::cp_trace::Global().BeginWait(xbox360ps5::cp_trace::NowMs(), is_memory, poll_reg_addr, ref,
-+                                 mask, wait_info & 7);
++                                 mask, wait_info & 7, packet);
 +        traced = true;
 +      }
 +      xbox360ps5::cp_trace::Global().Poll(value);
++      // A memory wait that lasts 2 s: the awaited dword through every alias,
++      // logged once (Battlefield 3: the GPU waits for a CPU write that never
++      // shows, while the CPU waits for the fence after this packet).
++      if (is_memory && xbox360ps5::cp_trace::Global().DueReport(xbox360ps5::cp_trace::NowMs(), 2000)) {
++        LogLongMemoryWait(poll_reg_addr, ref, mask, wait_info & 7);
++      }
        // Wait.
        if (wait >= 0x100) {
          PrepareForWait();
-@@ -768,6 +776,7 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_WAIT_REG_MEM(
+@@ -768,6 +785,7 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_WAIT_REG_MEM(
  
          if (!worker_running_) {
            // Short-circuited exit.
@@ -245,7 +393,7 @@ index 838428a..e11044b 100644
            return false;
          }
        } else {
-@@ -775,6 +784,7 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_WAIT_REG_MEM(
+@@ -775,6 +793,7 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_WAIT_REG_MEM(
      }
    } while (!matched);
  
@@ -253,7 +401,7 @@ index 838428a..e11044b 100644
    return true;
  }
  XE_NOINLINE
-@@ -819,6 +829,8 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_REG_TO_MEM(
+@@ -819,6 +838,8 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_REG_TO_MEM(
  
    auto endianness = static_cast<xenos::Endian>(mem_addr & 0x3);
    mem_addr &= ~0x3;
@@ -262,7 +410,7 @@ index 838428a..e11044b 100644
    reg_val = GpuSwap(reg_val, endianness);
    xe::store(memory_->TranslatePhysical(mem_addr), reg_val);
    trace_writer_.WriteMemoryWrite(CpuToGpu(mem_addr), 4);
-@@ -834,6 +846,8 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_MEM_WRITE(
+@@ -834,6 +855,8 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_MEM_WRITE(
  
      auto endianness = static_cast<xenos::Endian>(write_addr & 0x3);
      auto addr = write_addr & ~0x3;
@@ -271,7 +419,7 @@ index 838428a..e11044b 100644
      write_data = GpuSwap(write_data, endianness);
      xe::store(memory_->TranslatePhysical(addr), write_data);
      trace_writer_.WriteMemoryWrite(CpuToGpu(addr), 4);
-@@ -873,6 +887,8 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_COND_WRITE(
+@@ -873,6 +896,8 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_COND_WRITE(
        // Memory.
        auto endianness = static_cast<xenos::Endian>(write_reg_addr & 0x3);
        write_reg_addr &= ~0x3;
@@ -280,7 +428,7 @@ index 838428a..e11044b 100644
        write_data = GpuSwap(write_data, endianness);
        xe::store(memory_->TranslatePhysical(write_reg_addr), write_data);
        trace_writer_.WriteMemoryWrite(CpuToGpu(write_reg_addr), 4);
-@@ -922,6 +938,8 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_EVENT_WRITE_SHD(
+@@ -922,6 +947,8 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_EVENT_WRITE_SHD(
    }
    auto endianness = static_cast<xenos::Endian>(address & 0x3);
    address &= ~0x3;
@@ -289,7 +437,7 @@ index 838428a..e11044b 100644
    data_value = GpuSwap(data_value, endianness);
    uint8_t* write_destination = memory_->TranslatePhysical(address);
    if (address > 0x1FFFFFFF) {
-@@ -950,6 +968,8 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_EVENT_WRITE_EXT(
+@@ -950,6 +977,8 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_EVENT_WRITE_EXT(
    COMMAND_PROCESSOR::WriteEventInitiator(initiator & 0x3F);
    auto endianness = static_cast<xenos::Endian>(address & 0x3);
    address &= ~0x3;
@@ -862,7 +1010,7 @@ index 0000000..de969ee
 +}  // namespace stall_dump
 +}  // namespace xbox360ps5
 diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
-index 5c3db7d..15e5d76 100644
+index 5c3db7d..6f69a36 100644
 --- a/src/canary_game_main.cpp
 +++ b/src/canary_game_main.cpp
 @@ -76,6 +76,13 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
@@ -879,7 +1027,7 @@ index 5c3db7d..15e5d76 100644
  #include "xbox360ps5/session_log.hpp"
  #include "xbox360ps5/crash_report.hpp"
  #include "xbox360ps5/ui_sounds.hpp"
-@@ -727,18 +734,234 @@ std::string CallersText(xe::Memory* memory, uint32_t stack) {
+@@ -727,18 +734,277 @@ std::string CallersText(xe::Memory* memory, uint32_t stack) {
    }
    return text.empty() ? " none read" : text;
  }
@@ -895,6 +1043,34 @@ index 5c3db7d..15e5d76 100644
 +           access != xe::memory::PageAccess::kNoAccess;
 +  }
 +  uint32_t Word(uint32_t address) { return xe::load_and_swap<uint32_t>(memory->TranslateVirtual(address)); }
++  // For xbox360ps5::cp_trace::AliasReport: a physical address as the GPU reads it, and a virtual
++  // one through the CPU's view.
++  bool Physical(uint32_t physical, uint32_t& value) {
++    size_t length = 4;
++    xe::memory::PageAccess access;
++    uint8_t* host = memory->TranslatePhysical(physical);
++    if (!xe::memory::QueryProtect(host, length, access) || access == xe::memory::PageAccess::kNoAccess) return false;
++    value = xe::load_and_swap<uint32_t>(host);
++    return true;
++  }
++  bool Virtual(uint32_t address, uint32_t& value) {
++    if (!Readable(address)) return false;
++    value = Word(address);
++    return true;
++  }
++};
++// Physical memory as the GPU reads it, for stall_dump's Words (the packets around a GPU wait).
++struct PhysicalReader {
++  StallReader& reader;
++  bool Readable(uint32_t physical) {
++    uint32_t value;
++    return physical < 0x20000000 && reader.Physical(physical, value);
++  }
++  uint32_t Word(uint32_t physical) {
++    uint32_t value = 0;
++    reader.Physical(physical, value);
++    return value;
++  }
 +};
 +// Fix 24: the executable's import thunks by address ("xboxkrnl.exe!KeWaitForSingleObject"), and
 +// each library's table logged once a process, to name the calls the STALL report shows.
@@ -1081,12 +1257,27 @@ index 5c3db7d..15e5d76 100644
 +           trace.Total(ct::Kind::kMemWrite), trace.Total(ct::Kind::kEventShd), trace.Total(ct::Kind::kEventExt),
 +           trace.Total(ct::Kind::kCondWrite), trace.Total(ct::Kind::kRegToMem), trace.Total(ct::Kind::kScratch));
 +    static const char* const kFunctions[] = {"never", "<", "<=", "==", "!=", ">=", ">", "always"};
-+    if (wait.active)
-+      XELOGW("STALL gpu in WAIT_REG_MEM on {} {:08X}: (value & {:08X}) {} {:08X}, last value {:08X}, for {} ms, {} polls",
-+             wait.memory ? "memory" : "register", wait.address, wait.mask, kFunctions[wait.function & 7], wait.ref,
-+             wait.value, ct::NowMs() - wait.since_ms, wait.polls);
-+    else
++    if (wait.active && wait.memory) {
++      const uint32_t physical = ct::PacketAddress(wait.address);
++      XELOGW("STALL gpu in WAIT_REG_MEM on memory {:08X} (endian {}): (value & {:08X}) {} {:08X}, value {:08X} when it "
++             "began, {:08X} now, for {} ms, {} polls; packet at physical {:08X}",
++             physical, ct::EndianName(wait.address), wait.mask, kFunctions[wait.function & 7], wait.ref,
++             wait.first_value, wait.value, ct::NowMs() - wait.since_ms, wait.polls, wait.packet);
++      XELOGW("STALL gpu awaited dword: {}", ct::AliasReport(reader, physical, wait.ref, wait.mask));
++      // The packets around it: the WAIT_REG_MEM, and what the GPU will do after it (fences).
++      PhysicalReader packets{reader};
++      for (uint32_t row = 0; row < 4; ++row) {
++        const uint32_t at = wait.packet - 32 + row * 32;
++        XELOGW("STALL gpu packets at physical {:08X}:{}", at, sd::Words(packets, at, 8));
++      }
++    } else if (wait.active) {
++      XELOGW("STALL gpu in WAIT_REG_MEM on register {:04X}: (value & {:08X}) {} {:08X}, value {:08X} when it began, "
++             "{:08X} now, for {} ms, {} polls",
++             wait.address, wait.mask, kFunctions[wait.function & 7], wait.ref, wait.first_value, wait.value,
++             ct::NowMs() - wait.since_ms, wait.polls);
++    } else {
 +      XELOGW("STALL gpu not in a WAIT_REG_MEM");
++    }
 +    const uint32_t now_ms = ct::NowMs();
 +    for (const auto& target : trace.Targets())
 +      XELOGW("STALL gpu wrote {:08X} = {:08X} by {} ({} times, last -{} ms)", target.address, target.value,

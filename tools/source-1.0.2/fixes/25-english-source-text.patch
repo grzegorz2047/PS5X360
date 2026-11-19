@@ -867,7 +867,7 @@ index 435c185..382b77d 100644
    {
      std::lock_guard<std::mutex> guard(keep_lock);
 diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
-index 15e5d76..1436238 100644
+index 6f69a36..c2b8261 100644
 --- a/src/canary_game_main.cpp
 +++ b/src/canary_game_main.cpp
 @@ -36,32 +36,27 @@ extern const char* (*ui_text)(const char* english);  // xam_ui.cc: the system wi
@@ -1040,7 +1040,7 @@ index 15e5d76..1436238 100644
    return json;
  }
  // The options that are not at their recommended value, for the log of a session.
-@@ -1660,17 +1655,17 @@ int main(int argc, char** argv) {
+@@ -1703,17 +1698,17 @@ int main(int argc, char** argv) {
    const auto show_web_address = [&launcher, &web_hint] {
      const std::string plain = xbox360ps5::WebSettingsPlainAddress(), key = xbox360ps5::WebSettingsKey();
      launcher.SetWebPage(xbox360ps5::WebSettingsAddress(), plain, key);
@@ -1061,7 +1061,7 @@ index 15e5d76..1436238 100644
        notice.close();
        std::error_code notice_error;
        std::filesystem::remove(storage / "notice.txt", notice_error);
-@@ -1836,7 +1831,7 @@ int main(int argc, char** argv) {
+@@ -1879,7 +1874,7 @@ int main(int argc, char** argv) {
          xbox360ps5::Toast toast;
          toast.title = earned.name;
          const auto* profile = emulator.kernel_state()->xam_state()->profile_manager()->GetProfile(earned.xuid);
@@ -1070,7 +1070,7 @@ index 15e5d76..1436238 100644
          toast.icon_path = xbox360ps5::SaveAchievementIcon(earned.title_id, earned.id, earned.icon);
          toast.trophy_sound = true;
          xbox360ps5::Notify(std::move(toast));
-@@ -1845,7 +1840,7 @@ int main(int argc, char** argv) {
+@@ -1888,7 +1883,7 @@ int main(int argc, char** argv) {
          // A notification without earning anything: a file put in the title's folder asks for one.
          std::error_code test_error;
          if (std::filesystem::remove("/app0/notify-test.txt", test_error))
@@ -1079,7 +1079,7 @@ index 15e5d76..1436238 100644
        }
        int toasts_were = global.achievement_toasts;
        // The settings page: what it shows, and the changes it asked for. A change
-@@ -1972,7 +1967,7 @@ int main(int argc, char** argv) {
+@@ -2015,7 +2010,7 @@ int main(int argc, char** argv) {
              const auto* profile = profiles->GetProfile(uint8_t(slot));
              const std::string name = profile ? profile->name() : "Player " + std::to_string(slot + 1);
              XELOGW("Local player {}: {} ({})", slot + 1, sample.connected ? "connected" : "disconnected", name);
@@ -1088,7 +1088,7 @@ index 15e5d76..1436238 100644
            }
          }
        };
-@@ -2168,7 +2163,7 @@ int main(int argc, char** argv) {
+@@ -2211,7 +2206,7 @@ int main(int argc, char** argv) {
              else if (pressed & 0xCF0) xbox360ps5::PlayUiSound(xbox360ps5::UiSound::move);
              // Switching the achievement notifications on shows what one looks like.
              if (global.achievement_toasts && !toasts_were)
@@ -1097,7 +1097,7 @@ index 15e5d76..1436238 100644
              toasts_were = global.achievement_toasts;
              if (apply_web(false) || ++web_tick % 90 == 0) { show_web_address(); publish_web("", ""); }
              context.Tick(); window.Paint();
-@@ -2185,7 +2180,7 @@ int main(int argc, char** argv) {
+@@ -2228,7 +2223,7 @@ int main(int argc, char** argv) {
          settings_title = log_id;
          overrides = xbox360ps5::LoadGameOverrides(settings_title);
          settings = xbox360ps5::ForGame(global, settings_title, overrides);
@@ -1106,7 +1106,7 @@ index 15e5d76..1436238 100644
          // else the general choice; 0 and 2 force it).
          if (const bool fsi_wanted =
                  settings.fsi == 1 ? xbox360ps5::FsiWantedFor(settings_title) : settings.fsi == 2;
-@@ -2270,7 +2265,7 @@ int main(int argc, char** argv) {
+@@ -2313,7 +2308,7 @@ int main(int argc, char** argv) {
          if (!status) { launched = true; break; }
          if (!dialog) { result = 5; break; }
          char text[96];
@@ -1115,7 +1115,7 @@ index 15e5d76..1436238 100644
          launcher.SetMessage(text);
          game.clear();
        }
-@@ -2296,7 +2291,7 @@ int main(int argc, char** argv) {
+@@ -2339,7 +2334,7 @@ int main(int argc, char** argv) {
          publish_web(settings_title, game_name);
          ApplyPicture(settings, emulator.graphics_system()->presenter());
          bool trigger_was = true, swallow = false, quit = false;
@@ -1124,7 +1124,7 @@ index 15e5d76..1436238 100644
          bool library_open = false, close_library = false, create_seen = false;
          XELOGW("Controller: asked for the system's buttons (Create as BACK), answer {:08X}", unsigned(ps5x360_pad_privilege_answer));
          xbox360ps5::LauncherDialog* library_dialog = nullptr;
-@@ -2479,8 +2474,8 @@ int main(int argc, char** argv) {
+@@ -2522,8 +2517,8 @@ int main(int argc, char** argv) {
                    library_held = ~0u;
                    launcher.SetLoading("");
                    launcher.Scan();
@@ -1135,7 +1135,7 @@ index 15e5d76..1436238 100644
                    xbox360ps5::LauncherSetRunningGame(game.string(), game_name);
                    library_dialog = new xbox360ps5::LauncherDialog(&drawer, launcher);
                    emulator.kernel_state()->BroadcastNotification(xe::kXNotificationSystemUI, 1);
-@@ -2768,7 +2763,7 @@ int main(int argc, char** argv) {
+@@ -2811,7 +2806,7 @@ int main(int argc, char** argv) {
            XELOGW("Network: sessions removed and ports closed{}", done->load() ? "" : " (timed out)");
          }
          if (quit) {
