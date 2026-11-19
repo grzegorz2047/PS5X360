@@ -124,7 +124,7 @@ jobs:
       - name: Compile and link eboot.bin
         run: |
           set -o pipefail
-          export CCACHE_DIR=$HOME/.cache/ccache CCACHE_MAXSIZE=2G CCACHE_BASEDIR=$GITHUB_WORKSPACE
+          export CCACHE_DIR=$HOME/.cache/ccache CCACHE_MAXSIZE=2G CCACHE_BASEDIR=$GITHUB_WORKSPACE CCACHE_COMPILERCHECK=content
           bash tools/source-1.0.2/build.sh build/src102 build/src102-out 2>&1 | tee build/src102-build.log
           ccache -s || true
 

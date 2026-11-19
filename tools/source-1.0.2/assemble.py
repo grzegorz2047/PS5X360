@@ -163,6 +163,89 @@ EDITS = [
      '  bool valid=true;\n};',
      '1.0.0 core reads VirtualDepthCalibration::valid (physical-camera metadata); 1.0.x header '
      'not published'),
+    # 1.0.2's dark home theme (reconstructed/dark_theme.hpp has what the official executable does).
+    ('src/launcher.cpp',
+     '#include "game_art.hpp"\n',
+     '#include "game_art.hpp"\n#include "dark_theme.hpp"  // reconstructed: 1.0.2 dark home theme\n',
+     'dark theme (reconstructed): header'),
+    ('port/kinect_home.inc',
+     'if (assets.LoadOwn({kKinectUserSkin, kKinectOwnSkin})) {',
+     'if (assets.LoadOwn(dark_theme::SkinFolders(kKinectUserSkin, kKinectOwnSkin))) {',
+     'dark theme (reconstructed): assets/skin-dark between the user\'s and the package\'s pictures'),
+    ('port/kinect_state.inc',
+     'dashboard, online, systemlink };',
+     'dashboard, online, systemlink, theme };',
+     'dark theme (reconstructed): the home\'s Tema slot'),
+    ('port/kinect_state.inc',
+     '        KinectAction::systemlink);\n  }\n  return slots;',
+     '        KinectAction::systemlink);\n'
+     '    // Reconstructed (1.0.2): the theme, as the official home shows it after System Link.\n'
+     '    add({0, Asset::kSettings,\n'
+     '         std::string(Tr("Tema")) + ": " + (dark_theme::AtStart() ? Tr("ESCURO") : Tr("CLARO")),\n'
+     '         Tr("X troca o tema; o emulador reinicia")},\n'
+     '        KinectAction::theme);\n'
+     '  }\n  return slots;',
+     'dark theme (reconstructed): the home\'s Tema slot'),
+    ('port/kinect_press.inc',
+     '        case KinectAction::none:\n          break;',
+     '        case KinectAction::theme: {\n'
+     '          // Reconstructed (1.0.2): the theme is read at start, so the emulator starts again.\n'
+     '          const bool done = dark_theme::Toggle();\n'
+     '          message_ = Tr(dark_theme::ToggleMessage(done));\n'
+     '          if (done) restart_ = true;\n'
+     '          break;\n'
+     '        }\n'
+     '        case KinectAction::none:\n          break;',
+     'dark theme (reconstructed): the home\'s Tema slot toggles the theme'),
+    ('src/launcher.cpp',
+     '      {Tr("Reiniciar o emulador"), "", Tr("Fecha e abre o emulador de novo.")}};',
+     '      {Tr("Tema"), dark_theme::AtStart() ? Tr("ESCURO") : Tr("CLARO"), Tr("X troca o tema; o emulador reinicia")},\n'
+     '      {Tr("Reiniciar o emulador"), "", Tr("Fecha e abre o emulador de novo.")}};',
+     'dark theme (reconstructed): Settings row Tema before Reiniciar o emulador, as in the official'),
+    ('src/launcher.cpp',
+     '  for (int n = 0; n < 13; ++n) {\n    const float y = 122 + n * 42.0f;',
+     '  for (int n = 0; n < 14; ++n) {\n    const float y = 122 + n * 40.0f;',
+     'dark theme (reconstructed): 14 Settings rows, 40 px apart as in the official'),
+    ('src/launcher.cpp',
+     '    c.Fill(x + 40, y, 780, 40, focused ? kSurfaceHigh : kSurface, focused ? 1.0f : 0.6f, 10);\n'
+     '    if (focused) c.Edge(x + 40, y, 780, 40, kAccent, 0.9f, 10, 2.0f);\n'
+     '    c.Text(rows[n].label, x + 64, y + 8, 24, focused ? kText : kBody);\n'
+     '    c.Text(rows[n].value, x + 796, y + 8,',
+     '    c.Fill(x + 40, y, 780, 38, focused ? kSurfaceHigh : kSurface, focused ? 1.0f : 0.6f, 10);\n'
+     '    if (focused) c.Edge(x + 40, y, 780, 38, kAccent, 0.9f, 10, 2.0f);\n'
+     '    c.Text(rows[n].label, x + 64, y + 7, 24, focused ? kText : kBody);\n'
+     '    c.Text(rows[n].value, x + 796, y + 7,',
+     'dark theme (reconstructed): Settings rows 38 px high, text 7 px down, as in the official'),
+    ('src/launcher.cpp',
+     'void ApplyTheme(bool dashboard) {\n',
+     'void ApplyTheme(bool dashboard) {\n'
+     '  // Reconstructed (1.0.2): the dark theme keeps the graphite colours (the official executable\n'
+     '  // calls ApplyTheme(NxeUi() && !dark) at each of its three call sites).\n'
+     '  dashboard = dashboard && !dark_theme::AtStart();\n',
+     'dark theme (reconstructed): graphite panel colours with the dark theme'),
+    ('port/kinect_home.inc',
+     'constexpr uint32_t kKinectInk = 0x282828, kKinectGrey = 0x8c8c8c, kKinectBand = 0x6cb33f;',
+     '// Reconstructed (1.0.2): the slots\' type, light over the dark theme\'s pictures (official:\n'
+     '// #eef0f2 for #282828, #a3a9ae for #8c8c8c).\n'
+     'struct KinectThemeColour {\n'
+     '  uint32_t light, dark;\n'
+     '  operator uint32_t() const { return dark_theme::AtStart() ? dark : light; }\n'
+     '};\n'
+     'constexpr KinectThemeColour kKinectInk{0x282828, 0xeef0f2}, kKinectGrey{0x8c8c8c, 0xa3a9ae};\n'
+     'constexpr uint32_t kKinectBand = 0x6cb33f;',
+     'dark theme (reconstructed): home slot text colours'),
+    ('src/launcher.cpp',
+     '      const int rows = 13;',
+     '      const int rows = 14;',
+     'dark theme (reconstructed): 14 Settings rows'),
+    ('src/launcher.cpp',
+     '        else if (settings_row_ == 12 && key == Key::cross) { settings_.Save(); restart_ = true; }',
+     '        else if (settings_row_ == 12 && key == Key::cross) {\n'
+     '          // Reconstructed (1.0.2): the theme; it is read at start, so the emulator starts again.\n'
+     '          if (dark_theme::Toggle()) { settings_.Save(); restart_ = true; }\n'
+     '        }\n'
+     '        else if (settings_row_ == 13 && key == Key::cross) { settings_.Save(); restart_ = true; }',
+     'dark theme (reconstructed): Settings row 12 toggles the theme, row 13 restarts'),
 ]
 # The author's licence and notice files, kept with the tree.
 NOTICES = [
