@@ -9,7 +9,8 @@
 //    of tools/source-1.0.2/english/lang (the argument) parses with the reconstructed parser: no
 //    malformed line, no line lost, each key once, escapes ("\s") canonical as rekey.py writes them;
 //  - fix 43: /app0/lang/<code>.txt is read after /app0/assets/lang/<code>.txt into the same
-//    table (0x1c1b4d, 0x1c1bbe), adding keys and replacing text; without that folder or file the
+//    table (0x1c1b4d, 0x1c1bbe), adding keys and replacing text (a line with an empty key or text
+//    adds nothing, as the official parser 0x220910 skips it); without that folder or file the
 //    table is the package file's alone, as before. Folders are temporary ones (i18n_ui::Folder,
 //    OverlayFolder).
 // Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh).
@@ -250,8 +251,10 @@ void Overlay(const fs::path& root) {
   std::printf("  no /app0/lang/ (or no file there): the package file's table, unchanged\n");
 
   // The language's file there: read second into the same table, adding and replacing (CRLF lines,
-  // comments and a malformed line as in the package's files).
-  Write(overlay / "pl.txt", "# overlay\r\nText\\sB = Polski B (lang)\r\nText\\sC = Polski C\r\nmalformed\r\n\r\n");
+  // comments and a malformed line as in the package's files). A line with an empty text or key
+  // adds nothing, as in the official parser (0x220910), so Text A keeps the package's text.
+  Write(overlay / "pl.txt", "# overlay\r\nText\\sB = Polski B (lang)\r\nText\\sC = Polski C\r\nmalformed\r\n\r\n"
+                            "Text\\sA = \r\n = Nothing\r\n");
   ui::OverlayFolder() = missing.string() + "/";
   xbox360ps5::LoadUiTranslations(11);
   ui::OverlayFolder() = overlay.string() + "/";
@@ -259,7 +262,8 @@ void Overlay(const fs::path& root) {
   const Map both = {{"Text A", "Polski A"}, {"Text B", "Polski B (lang)"}, {"Text C", "Polski C"}, {"Size ", "Rozmiar "}};
   assert(Loaded() == both);
   assert(Is(xbox360ps5::LoadedUiText("Text B"), "Polski B (lang)"));
-  std::printf("  /app0/lang/pl.txt after the package's: a key added, a text replaced\n");
+  assert(Is(xbox360ps5::LoadedUiText("Text A"), "Polski A") && Is(xbox360ps5::LoadedUiText(""), nullptr));
+  std::printf("  /app0/lang/pl.txt after the package's: a key added, a text replaced, an empty text ignored\n");
 
   // Kept while the language and folders stay (the official returns early for the same language).
   const char* kept = xbox360ps5::LoadedUiText("Text B");

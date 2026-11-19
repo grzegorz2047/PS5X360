@@ -84,8 +84,15 @@ index 382b77d..775657e 100644
    for (std::string line; std::getline(input, line);) {
      if (!line.empty() && line.back() == '\r') line.pop_back();
      if (line.empty() || line[0] == '#') continue;
-@@ -109,20 +128,28 @@ inline void Read(int id, Table& table) {
-     table.text[Unescape(line.substr(0, split))] = Unescape(line.substr(split + 3));
+@@ -107,22 +126,34 @@ inline void Read(int id, Table& table) {
+     const size_t split = line.find(" = ");
+     if (split == std::string::npos) continue;
+-    table.text[Unescape(line.substr(0, split))] = Unescape(line.substr(split + 3));
++    const std::string key = Unescape(line.substr(0, split)), text = Unescape(line.substr(split + 3));
++    // As the official parser (0x220910): a line whose key or text is empty adds nothing, so an
++    // overlay line without text keeps the package file's text.
++    if (key.empty() || text.empty()) continue;
++    table.text[key] = text;
    }
  }
 +// A language's files into a table: the package's, then the overlay's.
@@ -117,7 +124,7 @@ index 382b77d..775657e 100644
    table->folder = i18n_ui::Folder();
    i18n_ui::Read(id, *table);
    std::lock_guard<std::mutex> guard(i18n_ui::Lock());
-@@ -130,7 +157,8 @@ inline void LoadUiTranslations(int id) {
+@@ -130,7 +161,8 @@ inline void LoadUiTranslations(int id) {
  }
  // The text of a key in a fallback language's file, or nullptr when the file lacks it: English
  // (en.txt; fix 23 for every language), Brazilian Portuguese (pt-BR.txt, for Portugal's) or
