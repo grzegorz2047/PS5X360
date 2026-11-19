@@ -396,7 +396,11 @@ def build_title(out, drops, report):
         path.write_text(text.replace(old, new), encoding='utf-8', newline='\n')
         manifest[rel].setdefault('edits', []).append(why)
         manifest[rel]['sha256'] = sha256(path)
-    (out / 'VERSION').write_text('1.0.2\n')
+    # The label on the home screen ("PS5X360 v<VERSION>") comes from tools/source-1.0.2/BUILD_VERSION,
+    # bumped for every console test build (1.0.3_candidate_N), so the running build is visible.
+    build_version = HERE / 'BUILD_VERSION'
+    version = build_version.read_text(encoding='utf-8').strip() if build_version.exists() else '1.0.2'
+    (out / 'VERSION').write_text(version + '\n')
 
 
 def apply_fixes(out, report, with_core):
