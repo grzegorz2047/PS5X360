@@ -1,0 +1,42 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+index b23a109..4ee6ae7 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+@@ -2985,8 +2985,36 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+   // left there, and making every draw wait for a compile was the largest
+   // measured cause of hitches with it switched on (813 waits and no stand-in in
+   // the console sessions of 2026-10-10; frame rate dips followed the waits).
++  // Binary release patch group 8: the draws whose stand-in output would stay
++  // visible or be kept wait for their real pipeline too, in every readback
++  // mode. Battlefield: Bad Company showed purple surfaces and baked a purple
++  // reflection cube while ~470 pipelines compiled on a first run; skipping the
++  // stand-in draws instead did not help. They are the draws that write colour
++  // and overwrite render target 0 (its colour destination factor is Zero: with
++  // alpha, additive or premultiplied blending the stand-in's transparent black
++  // leaves the picture as it is, and waiting on every new particle, smoke or
++  // HUD quad froze the game for seconds when shooting) and either have at most
++  // 6 indices (full-screen composite, post-processing and tone-mapping quads)
++  // or render into a target at most 256 pixels wide (reflection cube faces,
++  // the HDR luminance chain). Colourless kill/alpha-test and occlusion draws
++  // gain nothing from waiting. A surface pitch of 0 has returned above.
++  const auto selective_wait = [&]() {
++    if (!normalized_color_mask) {
++      return false;
++    }
++    if (regs.Get<reg::RB_BLENDCONTROL>(
++                reg::RB_BLENDCONTROL::rt_register_indices[0])
++            .color_destblend != xenos::BlendFactor::kZero) {
++      return false;
++    }
++    if (regs.Get<reg::VGT_DRAW_INITIATOR>().num_indices <= 6) {
++      return true;
++    }
++    return regs.Get<reg::RB_SURFACE_INFO>().surface_pitch <= 256;
++  };
+   if (pipeline->is_placeholder.load(std::memory_order_acquire)) {
+-    if (GetReadbackResolveMode() == ReadbackResolveMode::kFull) {
++    if (GetReadbackResolveMode() == ReadbackResolveMode::kFull ||
++        selective_wait()) {
+       pipeline_cache_->AwaitPipelineCompletion(*pipeline);
+       ++draws_since_resolve_.waited;
+ #if XE_PLATFORM_PS5
