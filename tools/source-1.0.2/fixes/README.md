@@ -54,7 +54,7 @@ emulator code calls, so a check drives the same code with a fake kernel or emula
 | `tools/check-guide-network.cpp` | 22 | `xbox360ps5::network_switch::Run` and `SignedInToLive` (used by `UserProfile::signin_state`): the mode after each switch (offline, System Link, online, online without the server), profile conversion only when online and only for profiles that are not Live-enabled, registration of the first player once, the notifications in order (Live connection, link state, the conversion's sign-out and sign-in, the sign-in re-read), `network.conf`'s mode, and the sign-in state for modes 0, 1 and 2; the queue (a press while switching is kept, intermediate modes skipped, nothing rerun when the last mode wanted is the one reached), `Drain` running System Link and then the Online pressed meanwhile, the server set for System Link too, and the row's outcome texts | the guide row and its input, `XLiveAPI::SelectNetworkMode` against the real server, the real profile conversion, and how a game (Black Ops III) reacts |
 | `tools/check-english-fallback.cpp` | 23, 25 | `Tr()` with English-keyed language files in a temporary folder: Polish selected, then `en.txt`, then the English key without its `\|\|context`; English, Spanish (5; 18 through es.txt), Portuguese (9 from pt-BR.txt; 19 through pt-BR.txt), a language without a file, a text that is no key, a context key's stored English; then, in a second run, the generated `english/lang` files (Brazilian and Portugal's Portuguese, German, French, both Spanish, a key in no official file); the default interface language (the console's, else English) | the look of the screens |
 | `tools/check-stall-dump.cpp` | 24 | `port/stall_dump.hpp` with fake memory: the code window (lr's word the ninth of 16), '????????' for unreadable words with no read attempted, the address space's ends, the back chain with saved return addresses and where it stops, which register values are dumped and which look like handles, the thread states (running, exited, not started), `bl` targets decoded (JobManager1's 838D16B8 -> 83ECE554), only changes kept over time; and `object_history.h`: a zero-timeout poll folded into one counted entry, releases kept after it, the ring's size and the text | whether the host can read the console's code pages, the import names, what the history shows, and what Battlefield 3's threads spin on |
-| `tools/check-english-source.py` | 25 | `english/rekey.py --check` (fix 25 and the language files are what the generator makes); no Portuguese key or Portuguese-looking text left in the code; every English key in `pt-BR.txt` and the 13 full files; each file's format, printf specifiers and edge spaces; **display equivalence**: for every interface language and every text the code looks up, the old lookup (Portuguese keys, the official files merged with the fork's overrides, the built-in tables, fix 23's fallbacks) and the new one show the same text, except Portuguese that leaked into another language (now English or a translation) and Portugal's Portuguese in the core's windows (now from pt.txt) | text built at run time from fragments, and the console |
+| `tools/check-english-source.py` | 25 | `english/rekey.py --check` (fix 25 and the language files are what the generator makes, later fixes reversed first; the `official-lang` snapshot is the one `SOURCES.json` records); no Portuguese key or Portuguese-looking text left in the code; every English key (fix 25's and every literal passed to `Tr`, later fixes' included) in `pt-BR.txt` and the 13 full files; each file's format, printf specifiers and edge spaces; **display equivalence**: for every interface language and every text the code looks up, the old lookup (Portuguese keys, the official files merged with the fork's overrides, the built-in tables, fix 23's fallbacks) and the new one show the same text, except Portuguese that leaked into another language (now English or a translation) and Portugal's Portuguese in the core's windows (now from pt.txt) | text built at run time from fragments, and the console |
 
 ## Language files (fix 25)
 
@@ -70,12 +70,22 @@ and `assets/lang-overrides`.
 `english/rekey.py --tree <tree>` makes `fixes/25-english-source-text.patch` and `english/lang/` from an
 assembled tree (fixes up to 24; fix 25 is reversed in a copy when applied), `english/official-lang/` (the
 package's files merged with the fork's 15-language `assets/lang-overrides` as `build_package.py` does;
-`--zip` and `--overrides` rebuild it, `SOURCES.json` has their SHA-256) and `english/extra.txt` (English
+`--zip` and `--overrides` rebuild it; `SOURCES.json` has their SHA-256 and the snapshot files' own, and
+`--check` verifies the snapshot against it even without `--zip`) and `english/extra.txt` (English
 nobody wrote, the context keys of Portuguese keys whose English is the same, such as `On||feminine` for
 `Ligada`, and translations of the keys in no file). `--check` fails when a committed output is out of
 date. After a change to an earlier fix or to the drops that touches interface text, regenerate fix 25:
 assemble without it (move it aside if it no longer applies), run `rekey.py`, and commit the patch and the
 files together.
+
+**Fixes after fix 25** (`26-…` and on) are written against the English-keyed code: new interface text is
+`Tr("<English>")`, never Portuguese. `rekey.py` and `check-english-source.py` reverse them in a copy
+before reversing fix 25, so fix 25 keeps being checked against the tree it was made for (fixes up to 24)
+and a later fix never ends up inside it; do not regenerate fix 25 to absorb a later fix. Their new keys
+are translated in `english/extra.txt`, sections `[added <code>]` (`pt-BR` and the other 14 codes, not
+`en`: the key is the English), then `rekey.py` writes them into `english/lang/`.
+`check-english-source.py` reads every literal the tree passes to `Tr`, so it fails until `pt-BR.txt` and
+the 13 full files have each new key.
 
 To change one: assemble a tree, commit it in a scratch repository (the title and the core
 separately), edit, and regenerate the patch with `git diff` (for the core with

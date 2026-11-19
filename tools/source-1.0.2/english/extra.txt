@@ -20,6 +20,11 @@
 #            the guide's "opção"/"opções" counter. They follow each file's own words (Opções,
 #            Rede desligada, the jogo/jogos counter: Polish and Russian use the plural form for
 #            five and more, Japanese and Korean a counter, Turkish no plural after a number).
+# [added <code>]  Translations, for a language code (pt-BR and the others, not en: the key is
+#            the English), of English keys that fixes after fix 25 add: "<English key> =
+#            <translation>". Fixes after fix 25 are written against English keys (Tr("...") in
+#            English); tools/check-english-source.py fails until pt-BR and the 13 full files
+#            translate each new key here.
 
 [english]
 \scontinua\saberto.\sCírculo\sou\so\smesmo\sjogo:\svoltar\sa\sele. = \sis\sstill\sopen.\sCircle\sor\sthe\ssame\sgame:\sgo\sback\sto\sit.

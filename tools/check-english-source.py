@@ -5,12 +5,14 @@
 --tree is an assembled tree (tools/source-1.0.2/assemble.py) with fix 25 applied; the tree before
 it is made by reversing fix 25 in a copy. Checks:
   (a) tools/source-1.0.2/english/rekey.py --check: fix 25 and the language files are what the
-      generator makes from the tree, the official files' snapshot and english/extra.txt;
+      generator makes from the tree (fixes after fix 25 reversed in a copy), the official files'
+      snapshot and english/extra.txt, and the snapshot is the one SOURCES.json records;
   (b) no Portuguese key is left in the code (any string literal of the title's code, not only
       those passed to Tr), nothing that reads as Portuguese outside the language picker's native
       names, no FramegenText, and the lookup code is the one this check simulates;
-  (c) every English key the code uses is in pt-BR.txt and in each of the 13 full language files
-      (MISSING_ALLOWED lists the ones no official file had);
+  (c) every English key the code uses (fix 25's, extra.txt's [added <code>] ones, and every
+      literal the tree passes to Tr, fixes after fix 25 included) is in pt-BR.txt and in each of
+      the 13 full language files (MISSING_ALLOWED lists the ones no official file had);
   (d) each language file: UTF-8 without BOM, LF, "\\s" for spaces, "key = value", no duplicate or
       unknown key, no empty value, the printf specifiers of the English in the same order, the
       English's leading and trailing spaces;
@@ -134,15 +136,32 @@ def check_code(before, after, data, problems):
                 look += 1
                 problems.add('b', f'{rel}:{rekey.line_of(text, tok.start)}: reads as Portuguese: {tok.value!r}')
     print(f'(b) code: {len(after)} files, Portuguese keys left {left}, other Portuguese-looking texts {look}')
-    # Every English key appears in the code as a literal.
-    present = set()
-    for rel, text in after.items():
-        present |= {tok.value for tok in rekey.lex(text, rel) if tok.kind == 'str' and not tok.raw}
-    keys = set(data.key.values()) | set(data.core_key.values())
-    missing = sorted(keys - present)
-    for key in missing:
+    # Every English key of fix 25 appears as a literal in the tree fix 25 makes (fixes after it may
+    # drop one: it stays in the language files, unused), every [added] key in the whole tree.
+    def strings(files):
+        found = set()
+        for rel, text in files.items():
+            found |= {tok.value for tok in rekey.lex(text, rel) if tok.kind == 'str' and not tok.raw}
+        return found
+    present = strings(after)
+    present_25 = strings({**before.files, **rekey.rewrite(data)[0]})
+    added = {key for section in data.added.values() for key in section}
+    keys = set(data.key.values()) | set(data.core_key.values()) | added
+    for key in sorted((keys - added) - present_25) + sorted(added - present):
         problems.add('b', f'English key {key!r} is not in the code')
-    return keys
+    dropped = sorted((keys - added) & present_25 - present)
+    if dropped:
+        print(f'    {len(dropped)} keys of fix 25 no longer in the code (a later fix dropped them; still in '
+              f'the language files): {dropped[:5]}')
+    # Every literal the tree passes to Tr is a key as well, also those of fixes after fix 25 (or
+    # of any text added since), which the Portuguese map does not know: (c) and (d) check them.
+    tr_literals = set()
+    for rel, text in after.items():
+        _, lits = rekey.literals(text, rel)
+        tr_literals |= {lit.value for lit in lits if lit.call and lit.call[0] == 'Tr' and not lit.raw}
+    print(f'    keys: {len(keys)} from fix 25 and extra.txt [added], {len(tr_literals)} literals passed to Tr, '
+          f'{len(tr_literals - keys)} of them not from the map')
+    return keys | tr_literals
 
 
 def check_coverage(keys, lang, problems):

@@ -27,10 +27,12 @@ Portuguese (Brazil) as an ordinary translation (pt-BR.txt):
     The eboot reads them from /app0/assets/lang/ (fixes/README.md).
 
 Inputs: --tree, an assembled tree (assemble.py) with fixes up to 24; when fix 25 is already
-applied it is reversed in a copy first. english/official-lang/<code>.txt is the snapshot of the
+applied it is reversed in a copy first, after the fixes that follow it (those are written against
+English keys; extra.txt's [added <code>] sections translate the keys they add). english/official-lang/<code>.txt is the snapshot of the
 Portuguese-keyed language files (the official package's assets/lang merged with the fork's
 assets/lang-overrides exactly as tools/binary-release/build_package.py merges them); --zip and
---overrides rebuild it. --check regenerates everything in a temporary folder and fails if a
+--overrides rebuild it (SOURCES.json records the inputs' and the snapshot's SHA-256; --check
+verifies the snapshot against it, and against the inputs with --zip). --check regenerates everything in a temporary folder and fails if a
 committed output differs. Nothing here runs code from the tree or the package.
 """
 import argparse
@@ -519,6 +521,11 @@ GIT = ['git', '-c', 'core.autocrlf=false', '-c', 'core.safecrlf=false', '-c', 'c
        '-c', 'color.ui=false']
 
 
+def later_fixes():
+    """The fixes assemble.py applies after fix 25 (it applies fixes/*.patch in name order)."""
+    return [path for path in sorted(FIX.parent.glob('*.patch')) if path.name > FIX_NAME]
+
+
 def before_tree(tree, work):
     """A copy of the tree's code files with fix 25 reversed when it is applied."""
     before = work / 'before'
@@ -527,6 +534,24 @@ def before_tree(tree, work):
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(path, dest)
     env = git_env(work)
+    # Fixes after fix 25 (assemble.py applies fixes/*.patch in name order) are written against
+    # English keys; they are reversed first, newest first, in the title files copied here (their
+    # core and other paths are left out), so that fix 25 is regenerated from the tree it was
+    # made for and later fixes do not end up in it.
+    copied = {rel for rel, _ in code_files(before)}
+    included = [f'--include={rel}' for rel in sorted(copied)]
+    for later in reversed(later_fixes()):
+        touched = set(re.findall(r'^diff --git a/(\S+) b/', later.read_text(encoding='utf-8', errors='replace'), re.M))
+        if not touched & copied:
+            continue
+        def apply(*options):
+            return subprocess.run(GIT + ['apply', *options, '--whitespace=nowarn', *included, str(later)],
+                                  cwd=before, env=env, capture_output=True, text=True)
+        if apply('-R', '--check').returncode == 0:
+            apply('-R').check_returncode()
+        elif apply('--check').returncode:
+            raise SystemExit(f'{tree}: fix {later.name} (after fix 25) neither reverses nor applies: '
+                             f'{apply("-R", "--check").stderr}assemble the tree again with every fix')
     if FIX.exists():
         reverse = subprocess.run(GIT + ['apply', '-R', '--check', str(FIX)], cwd=before, env=env,
                                  capture_output=True)
@@ -670,7 +695,7 @@ def load_extra(path=EXTRA):
     for number, line in enumerate(path.read_text(encoding='utf-8').split('\n'), 1):
         if not line or line.startswith('#'):
             continue
-        m = re.fullmatch(r'\[([A-Za-z0-9-]+)\]', line)
+        m = re.fullmatch(r'\[((?:added )?[A-Za-z0-9-]+)\]', line)
         if m:
             current = m.group(1)
             sections.setdefault(current, {})
@@ -692,6 +717,9 @@ def strip_context(key):
 
 class Rekey:
     def __init__(self, before, official, extra):
+        # [added <code>]: translations of English keys that fixes after fix 25 add (no Portuguese).
+        extra = dict(extra)
+        self.added = {name.split(' ', 1)[1]: extra.pop(name) for name in list(extra) if name.startswith('added ')}
         self.before, self.official, self.extra = before, official, extra
         keys = set()
         for table in official.values():
@@ -856,6 +884,14 @@ class Rekey:
                 text = self.official[code].get(pt, extra.get(code, {}).get(pt))
                 if text is not None:
                     tables[code][key] = text
+        for code, section in sorted(self.added.items()):
+            if code not in tables or code == 'en':
+                raise SystemExit(f'extra.txt [added {code}]: no such language file (English is the key)')
+            for key, text in section.items():
+                if key in self.key.values() or key in self.core_key.values():
+                    raise SystemExit(f'extra.txt [added {code}]: {key!r} is a key of fix 25 (translate it there)')
+                tables[code][key] = text
+                tables['en'][key] = strip_context(key)
         return tables
 
 
