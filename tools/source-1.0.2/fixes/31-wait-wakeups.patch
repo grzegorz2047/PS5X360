@@ -1028,10 +1028,10 @@ index bb07c33..6d582a2 100644
    current_thread_ = nullptr;
 diff --git a/.deps/xenia-canary/src/xenia/base/wait_stats.h b/.deps/xenia-canary/src/xenia/base/wait_stats.h
 new file mode 100644
-index 0000000..e03a99f
+index 0000000..478fe12
 --- /dev/null
 +++ b/.deps/xenia-canary/src/xenia/base/wait_stats.h
-@@ -0,0 +1,428 @@
+@@ -0,0 +1,431 @@
 +/**
 + ******************************************************************************
 + * Xenia : Xbox 360 Emulator Research Project                                 *
@@ -1074,6 +1074,9 @@ index 0000000..e03a99f
 +#if __has_include(<pthread.h>)
 +#include <pthread.h>
 +#define XE_WAIT_STATS_HAVE_PTHREAD 1
++#endif
++#if __has_include(<pthread_np.h>)
++#include <pthread_np.h>  // FreeBSD and the PS5: pthread_getname_np
 +#endif
 +
 +namespace xe {
