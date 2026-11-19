@@ -1,4 +1,21 @@
 {
+ "files_sha256": {
+  "de.txt": "8ef0d86987ee0f049bd83e633ef439511c405f6e35f6bbfc01877f7c473b1595",
+  "en.txt": "ba4252315a23271d7762b954fddad9be6f8218c98365dc68938f825e2221ac9a",
+  "es-419.txt": "ae02441eaa8a1e297f363c8d773e0ecdafdf1e8a8ba8d279a96ae41e7d71cb6d",
+  "es.txt": "2cbc806301e03d4ca4f0775f07e5a1eb6695ee1a219cc04d45f9e0628c36dbf5",
+  "fr.txt": "b93f33f66e17ddc075d868efb7ca098df2040c73a196a2664eb66fc278486201",
+  "it.txt": "433429fc103acf051bb2a9c9620957f2f1e02a8d83cf4a9a15945b1e68a7ca2a",
+  "ja.txt": "06c9c504ab81619d0dfaabf1fecf0d3634b7554a8b89ae71212354de216d1278",
+  "ko.txt": "f86acb2238940d3eaf99d87b05275da177794096f46a783b2f76cce203cf6785",
+  "nl.txt": "0fc550d94d27677db5e91d3b38e2a11d45059a34b6c45fd9d1fe465809ddd593",
+  "pl.txt": "b39dc43ef84b2e704c651184df28e68b1fea42b63ac9f973fdb9f827de1ebc09",
+  "pt.txt": "08bfed26f6b1250128044cb020cde4d1cfa485ddbd4c867f3e0116f1331a48df",
+  "ru.txt": "956a031e23f8cff09a7ff28dd64fd019e1a3d29d74af2b1d719dd4457402697a",
+  "tr.txt": "29c5e80277c358ede5f4e864e9c64c09550ccb2a3df0c242186c61a2232c9b7f",
+  "zh-Hans.txt": "3c05c8d2956f361b5fec4a995df5798ba169731558f7be9a86f9bdc968294fe5",
+  "zh-Hant.txt": "6d3ed2a7a8a885c68938446f4a067d9299878c5afae582ef5670f2de452b7501"
+ },
  "overrides": "the fork's assets/lang-overrides/<code>.txt, merged as build_package.py merge_lang",
  "overrides_sha256": {
   "de.txt": "ba5396ea7209fb92cdc792a117b160d80208d318e7cff90c7a05d0f95262c722",

@@ -191,8 +191,26 @@ def official_snapshot(zip_path, overrides):
                 sources['overrides_sha256'][extra.name] = sha256(extra.read_bytes())
                 data = merge_lang(data, extra.read_bytes())
             files[f'{code}.txt'] = data
+    # The snapshot's own files, so that --check notices one edited by hand without the inputs.
+    sources['files_sha256'] = {name: sha256(data) for name, data in sorted(files.items())}
     files['SOURCES.json'] = (json.dumps(sources, indent=1, sort_keys=True) + '\n').encode()
     return files
+
+
+def check_snapshot(folder, problems):
+    """official-lang/ against the hashes SOURCES.json records for it (no --zip needed)."""
+    try:
+        recorded = json.loads((folder / 'SOURCES.json').read_text(encoding='utf-8'))['files_sha256']
+    except (OSError, ValueError, KeyError) as error:
+        problems.append(f'official-lang: SOURCES.json has no files_sha256 ({error})')
+        return
+    names = sorted(p.name for p in folder.iterdir() if p.name != 'SOURCES.json')
+    if names != sorted(recorded):
+        problems.append(f'official-lang: files {names} are not the ones SOURCES.json lists {sorted(recorded)}')
+    for name in names:
+        if name in recorded and sha256((folder / name).read_bytes()) != recorded[name]:
+            problems.append(f'official-lang: {name} is not the file SOURCES.json records (rebuild it with '
+                            '--zip and --overrides; it is not edited by hand)')
 
 
 def load_official(folder=OFFICIAL_DIR):
@@ -1211,6 +1229,7 @@ def main():
         print(f'tree: {args.tree} (fix 25 {"reversed in a copy" if reversed_fix else "not applied"})')
         report(rekey, counts)
         if args.check:
+            check_snapshot(OFFICIAL_DIR, problems)
             compare('patch', patch, FIX, problems)
             for name, data in langs.items():
                 compare('lang', data, LANG_DIR / name, problems)
@@ -1219,7 +1238,9 @@ def main():
             if problems:
                 print('\n'.join(problems), file=sys.stderr)
                 raise SystemExit('rekey.py --check: outputs out of date (run rekey.py without --check)')
-            print('rekey.py --check: fix 25, english/lang and official-lang are up to date')
+            print('rekey.py --check: fix 25 and english/lang are up to date; official-lang is ' +
+                  ('what the package and the overrides make' if args.zip else
+                   'the snapshot SOURCES.json records (the package itself not read: no --zip)'))
             return
         if args.zip:
             OFFICIAL_DIR.mkdir(exist_ok=True)
