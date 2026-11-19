@@ -37,7 +37,7 @@ int main() {
   using namespace xe::kernel::xam;
   // XOnlineCountry ids (xenia/xbox.h) and their XC_LOCALE_*.
   constexpr uint8_t kGermany = 24, kSpain = 31, kFrance = 34, kGreatBritain = 35,
-                    kJapan = 53, kPoland = 82, kRussia = 90, kUnitedStates = 103;
+                    kJapan = 53, kPoland = 82, kRussia = 88, kUnitedStates = 103;
   CHECK(XtlLocaleV1(kUnitedStates) == 36);  // the emulator's default country
   CHECK(XtlLocaleV1(kGreatBritain) == 35);
   CHECK(XtlLocaleV1(kGermany) == 13);
