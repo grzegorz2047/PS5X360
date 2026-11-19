@@ -154,10 +154,10 @@ index 9d80ad8..c7c4c8c 100644
    }
 diff --git a/.deps/xenia-canary/src/xenia/kernel/util/guest_path.h b/.deps/xenia-canary/src/xenia/kernel/util/guest_path.h
 new file mode 100644
-index 0000000..ffa1318
+index 0000000..58e75bd
 --- /dev/null
 +++ b/.deps/xenia-canary/src/xenia/kernel/util/guest_path.h
-@@ -0,0 +1,200 @@
+@@ -0,0 +1,219 @@
 +/**
 + ******************************************************************************
 + * Xenia : Xbox 360 Emulator Research Project                                 *
@@ -176,6 +176,7 @@ index 0000000..ffa1318
 +// 0x80 up with OBJECT_NAME_INVALID before anything was logged. Here a converted path may hold
 +// UTF-8, and every failed path is reported once with its raw bytes (Handball 16, 573607E4).
 +
++#include <atomic>
 +#include <cstdint>
 +#include <cstdio>
 +#include <mutex>
@@ -272,6 +273,24 @@ index 0000000..ffa1318
 +    }
 +  }
 +  return true;
++}
++
++// Xbox360PS5 (fix 26): an empty name under the DOS devices root (root handle 0 or
++// FFFFFFFD), as XAPI's DeleteFile("") opens it. Handball 16's file streams call that on every
++// close. It names nothing and fails on the console in microseconds. Here it fails at once, with
++// no device lookup and no log line: going through the VFS and its error log took about 11 ms.
++// The game's save manager clears its "busy" flag before that call and marks its job idle
++// after it, and the title screen polls once a frame. Inside an 11 ms window its next request
++// found the job not yet idle, was dropped, and left "saving" set for good, so the title screen
++// waited forever and ignored START (research/handball16/ANALYSIS.md section 10). A name under
++// a real directory handle is not this case: it opens that directory.
++inline bool IsQuietEmptyOpen(std::string_view path, uint32_t root) {
++  return path.empty() && (root == 0 || root == 0xFFFFFFFDu);
++}
++// How many such opens were answered (for the diagnostics).
++inline std::atomic<uint32_t>& QuietEmptyOpens() {
++  static std::atomic<uint32_t> count{0};
++  return count;
 +}
 +
 +// Failed guest paths, each distinct one (call, root, raw bytes) reported once and at most
@@ -1261,7 +1280,7 @@ index c215940..3399546 100644
  
  dword_result_t XamUserGetName_entry(dword_t user_index, dword_t buffer,
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io.cc
-index 48119ec..4f370a0 100644
+index 48119ec..c9538f1 100644
 --- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io.cc
 +++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io.cc
 @@ -20,6 +20,7 @@
@@ -1307,7 +1326,7 @@ index 48119ec..4f370a0 100644
  struct CreateOptions {
    // https://processhacker.sourceforge.io/doc/ntioapi_8h.html
    static constexpr uint32_t FILE_DIRECTORY_FILE = 0x00000001;
-@@ -72,8 +101,10 @@ dword_result_t NtCreateFile_entry(lpdword_t handle_out, dword_t desired_access,
+@@ -72,11 +101,27 @@ dword_result_t NtCreateFile_entry(lpdword_t handle_out, dword_t desired_access,
    // Compute path, possibly attrs relative.
    auto target_path = util::TranslateAnsiPath(kernel_memory(), object_name);
  
@@ -1319,7 +1338,24 @@ index 48119ec..4f370a0 100644
      return X_STATUS_OBJECT_NAME_INVALID;
    }
  
-@@ -96,7 +127,25 @@ dword_result_t NtCreateFile_entry(lpdword_t handle_out, dword_t desired_access,
++  // Xbox360PS5 (fix 26): DeleteFile("") and the like fail at once and quietly, as fast as on
++  // the console (guest_path.h IsQuietEmptyOpen; Handball 16's save manager races it).
++  if (util::IsQuietEmptyOpen(target_path, object_attrs->root_directory)) {
++    util::QuietEmptyOpens().fetch_add(1, std::memory_order_relaxed);
++    ReportGuestPath("NtCreateFile", X_STATUS_OBJECT_NAME_NOT_FOUND,
++                    object_attrs->root_directory, object_name, target_path);
++    if (io_status_block) {
++      io_status_block->status = X_STATUS_OBJECT_NAME_NOT_FOUND;
++      io_status_block->information = 0;
++    }
++    *handle_out = X_INVALID_HANDLE_VALUE;
++    return X_STATUS_OBJECT_NAME_NOT_FOUND;
++  }
++
+   if (object_attrs->root_directory != 0xFFFFFFFD &&  // ObDosDevices
+       object_attrs->root_directory != 0) {
+     auto root_file = kernel_state()->object_table()->LookupObject<XFile>(
+@@ -96,7 +141,25 @@ dword_result_t NtCreateFile_entry(lpdword_t handle_out, dword_t desired_access,
        (create_options & CreateOptions::FILE_DIRECTORY_FILE) != 0,
        (create_options & CreateOptions::FILE_NON_DIRECTORY_FILE) != 0, &vfs_file,
        &file_action);
@@ -1345,7 +1381,7 @@ index 48119ec..4f370a0 100644
      static std::atomic<uint32_t> recorded{0};
      if (recorded.fetch_add(1, std::memory_order_relaxed) < 64) {
        char text[1024];
-@@ -518,8 +567,10 @@ dword_result_t NtQueryFullAttributesFile_entry(
+@@ -518,8 +581,10 @@ dword_result_t NtQueryFullAttributesFile_entry(
  
    auto target_path = util::TranslateAnsiPath(kernel_memory(), object_name);
  
@@ -1357,7 +1393,7 @@ index 48119ec..4f370a0 100644
      return X_STATUS_OBJECT_NAME_INVALID;
    }
  
-@@ -538,6 +589,8 @@ dword_result_t NtQueryFullAttributesFile_entry(
+@@ -538,6 +603,8 @@ dword_result_t NtQueryFullAttributesFile_entry(
      return X_STATUS_SUCCESS;
    }
  
@@ -1366,7 +1402,7 @@ index 48119ec..4f370a0 100644
    return X_STATUS_NO_SUCH_FILE;
  }
  DECLARE_XBOXKRNL_EXPORT1(NtQueryFullAttributesFile, kFileSystem, kImplemented);
-@@ -557,8 +610,10 @@ dword_result_t NtQueryDirectoryFile_entry(
+@@ -557,8 +624,10 @@ dword_result_t NtQueryDirectoryFile_entry(
    auto file = kernel_state()->object_table()->LookupObject<XFile>(file_handle);
    auto name = util::TranslateAnsiPath(kernel_memory(), file_name);
  
@@ -1378,7 +1414,7 @@ index 48119ec..4f370a0 100644
      return X_STATUS_INVALID_PARAMETER;
    }
  
-@@ -614,8 +669,10 @@ dword_result_t NtOpenSymbolicLinkObject_entry(
+@@ -614,8 +683,10 @@ dword_result_t NtOpenSymbolicLinkObject_entry(
  
    auto target_path = util::TranslateAnsiPath(kernel_memory(), object_name);
  
@@ -1569,19 +1605,35 @@ index ef83058..213d7d2 100644
  
    typedef struct {
      size_t size;         // Size (bytes) of total image.
+diff --git a/.deps/xenia-canary/src/xenia/vfs/virtual_file_system.cc b/.deps/xenia-canary/src/xenia/vfs/virtual_file_system.cc
+index b808b92..63c7316 100644
+--- a/.deps/xenia-canary/src/xenia/vfs/virtual_file_system.cc
++++ b/.deps/xenia-canary/src/xenia/vfs/virtual_file_system.cc
+@@ -170,7 +170,9 @@ Entry* VirtualFileSystem::ResolvePath(const std::string_view path) {
+   if (it == devices_.cend()) {
+     // Supress logging the error for ShaderDumpxe:\CompareBackEnds as this is
+     // not an actual problem nor something we care about.
+-    if (path != "ShaderDumpxe:\\CompareBackEnds") {
++    // Xbox360PS5 (fix 26): nor for an empty path, which names no device (DeleteFile(""));
++    // the log line alone made that call take milliseconds.
++    if (path != "ShaderDumpxe:\\CompareBackEnds" && !path.empty()) {
+       XELOGE("ResolvePath({}) failed - device not found", path);
+     }
+     return nullptr;
 diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
-index bec0d5f..df08186 100644
+index bec0d5f..fe863ed 100644
 --- a/src/canary_game_main.cpp
 +++ b/src/canary_game_main.cpp
-@@ -75,6 +75,7 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
+@@ -75,6 +75,8 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
  #include <map>
  #include <set>
  #include "xenia/kernel/object_history.h"
 +#include "xenia/kernel/xam/call_trace.h"  // fix 26, diagnostic
++#include "xenia/kernel/util/guest_path.h"  // fix 26
  #include "xenia/kernel/user_module.h"
  #include "xenia/base/memory.h"
  #include "xbox360ps5/session_log.hpp"
-@@ -775,6 +776,80 @@ std::string ImportAt(const std::map<uint32_t, std::string>& thunks, uint32_t tar
+@@ -775,6 +777,82 @@ std::string ImportAt(const std::map<uint32_t, std::string>& thunks, uint32_t tar
    --found;
    return target - found->first < 16 ? found->second : "";
  }
@@ -1617,6 +1669,8 @@ index bec0d5f..df08186 100644
 +         when, byte(0x82E95479), byte(0x82E9547B), byte(0x82E95548), hex(word(0x82E954D0)),
 +         hex(word(0x82E95544)), byte(0x835A8914), hex(word(0x8354D454)), bytes(0x8354D458, 13),
 +         hex(word(0x8354D428)), hex(word(0x8354D438)));
++  XELOGW("Handball {}: empty-name opens answered quietly (DeleteFile(\"\")): {}", when,
++         xe::kernel::util::QuietEmptyOpens().load());
 +  const int64_t manager = word(0x8354D424);
 +  if (manager > 0) {
 +    XELOGW("Handball {}: save manager {} vtable {} +5B47C (loading, saving, declined, ?):{}", when,
@@ -1636,8 +1690,8 @@ index bec0d5f..df08186 100644
 +    scanned = true;
 +    const auto started = std::chrono::steady_clock::now();
 +    uint32_t pages = 0;
-+    for (const auto& [from, to] : {std::pair<uint64_t, uint64_t>{0x40000000ull, 0x80000000ull},
-+                                   std::pair<uint64_t, uint64_t>{0xA0000000ull, 0xC0000000ull}}) {
++    // candidate_22 found it at 40DA2E20; the whole of both heaps took 12.4 s.
++    for (const auto& [from, to] : {std::pair<uint64_t, uint64_t>{0x40000000ull, 0x48000000ull}}) {
 +      for (uint64_t page = from; page < to && screens.size() < 8; page += 0x1000) {
 +        if (!reader.Readable(uint32_t(page))) continue;
 +        ++pages;
@@ -1662,7 +1716,7 @@ index bec0d5f..df08186 100644
  void ReportStall(xe::Emulator& emulator, int pass) {
    namespace sd = xbox360ps5::stall_dump;
    namespace oh = xbox360ps5::object_history;
-@@ -2337,7 +2412,10 @@ int main(int argc, char** argv) {
+@@ -2337,7 +2415,10 @@ int main(int argc, char** argv) {
              if (ui_now != system_ui) {
                system_ui = ui_now;
                emulator.kernel_state()->BroadcastNotification(xe::kXNotificationSystemUI, ui_now ? 1 : 0);
@@ -1674,7 +1728,7 @@ index bec0d5f..df08186 100644
              }
            }
            if (guide.open) {
-@@ -2559,6 +2637,33 @@ int main(int argc, char** argv) {
+@@ -2559,6 +2640,33 @@ int main(int argc, char** argv) {
              swaps_sum += float(swaps - sampled_swaps) / elapsed;
              sampled_swaps = swaps;
              sample_at = at; sampled_frames = frames;

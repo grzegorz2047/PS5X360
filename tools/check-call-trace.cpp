@@ -136,6 +136,21 @@ int main() {
   CHECK(Has(game, "emulator.title_id() != 0x573607E4u"));
   CHECK(Has(game, "== 0x820261C0u"));
   CHECK(Has(game, "WatchHandball(emulator, \"+5 s after the storage prompt\")"));
+  // candidate_26: DeleteFile("") is answered before the VFS is asked, and the VFS no longer
+  // logs an empty path (Handball 16's save race, research/handball16/ANALYSIS.md section 10).
+  {
+    const std::string io = Read((k + "xboxkrnl/xboxkrnl_io.cc").c_str());
+    const size_t create = io.find("dword_result_t NtCreateFile_entry(");
+    const size_t quiet = io.find("util::IsQuietEmptyOpen(target_path, object_attrs->root_directory)", create);
+    const size_t open = io.find("kernel_state()->file_system()->OpenFile(", create);
+    CHECK(create != std::string::npos && quiet != std::string::npos && open != std::string::npos);
+    CHECK(quiet < open);
+    const size_t ret = io.find("return X_STATUS_OBJECT_NAME_NOT_FOUND;", quiet);
+    CHECK(ret != std::string::npos && ret < open);
+    CHECK(Has(Read(".deps/xenia-canary/src/xenia/vfs/virtual_file_system.cc"),
+              "&& !path.empty()) {\n      XELOGE(\"ResolvePath({}) failed - device not found\", path);"));
+    CHECK(Has(game, "empty-name opens answered quietly"));
+  }
 
   if (failures) {
     std::cout << failures << " check(s) failed\n";

@@ -272,9 +272,27 @@ static void CheckGuestPaths() {
   CHECK(reported == GuestPathFailures::kMaxReports - 3);  // three reported above
 }
 
+// candidate_26: DeleteFile("") (an empty name under the DOS devices root) is answered at once
+// and quietly; an empty name under a real directory handle is not (it opens that directory).
+static void CheckQuietEmptyOpen() {
+  using xe::kernel::util::IsQuietEmptyOpen;
+  CHECK(IsQuietEmptyOpen("", 0xFFFFFFFDu));  // ObDosDevices, as XAPI DeleteFile("") passes
+  CHECK(IsQuietEmptyOpen("", 0));
+  CHECK(!IsQuietEmptyOpen("", 0xF80000A8u));  // a directory handle the game opened
+  CHECK(!IsQuietEmptyOpen("save:\\Options.dat", 0xFFFFFFFDu));
+  CHECK(!IsQuietEmptyOpen(" ", 0xFFFFFFFDu));  // TranslateAnsiPath trims first; " " is not ""
+  // What the kernel gets for the game's empty ANSI name: "" (the conversion keeps it empty).
+  CHECK(IsQuietEmptyOpen(xe::kernel::util::GuestAnsiPathToUtf8(""), 0xFFFFFFFDu));
+  CHECK(IsQuietEmptyOpen(xe::kernel::util::GuestAnsiPathToUtf8("  "), 0xFFFFFFFDu));
+  const uint32_t before = xe::kernel::util::QuietEmptyOpens().load();
+  xe::kernel::util::QuietEmptyOpens().fetch_add(1);
+  CHECK(xe::kernel::util::QuietEmptyOpens().load() == before + 1);
+}
+
 int main() {
   CheckTable();
   CheckGuestPaths();
+  CheckQuietEmptyOpen();
 
   // 31 directories: one named with cp1252 letters holding the accented names, and 30 of
   // 1,000 files each (30,000 entries, Handball 16 has 27,811).
