@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: MIT
 // Fix 30 (tools/source-1.0.2/fixes/30-memexport-small-readback.patch): which draws' memory
 // exports are read back to guest memory (xenia/gpu/memexport_merge.h ShouldReadBack: all with
-// the option, small ones always, none of size 0), and how (Merge): Battlefield 3's job queue
-// with the GPU's export that makes a job runnable (0x3F in the slot's affinity byte, candidate
-// 21's log) reaches guest memory while the slots the CPU changed meanwhile keep the CPU's
-// values (a whole-range copy would lose them); a dword both changed keeps the CPU's; tails and
-// unaligned ranges; and a worker thread updating other slots with atomics while merges run
-// loses none of its updates; the GPU's copy refreshed from guest memory before the draw
-// (PrepareReadback), without which a stale copy wrote Battlefield 3's old dependency links back
-// (candidate 25's crash at 8346D64C). Built against the assembled 1.0.2 tree.
+// the option, small ones always, none of size 0), and what of them reaches guest memory
+// (ApplyExports): only the dwords in which the GPU's copy after the draw differs from its copy
+// just before it, stored as the GPU stores them, so the CPU keeps everything else of Battlefield
+// 3's job arena. Candidate 31's log: a link's next pointer set and cleared by the CPU around
+// the upload was taken for an export by the earlier comparison with guest memory and restored
+// (the crash at 8346D64C); here it stays cleared. Also the refresh of the GPU's copy before the
+// draw (RefreshRanges), the readback buffer layout, the per-store records and log line, tails
+// and unaligned ranges, and a worker updating other dwords with atomics while exports are
+// stored loses none of its updates. Built against the assembled 1.0.2 tree.
 #undef NDEBUG
 #include "xenia/gpu/memexport_merge.h"
 
@@ -42,101 +43,107 @@ void WhichDrawsAreReadBack() {
   assert(mm::ShouldReadBack(true, 4, mm::kDefaultSmallBytes));
   assert(mm::ShouldReadBack(true, 16u << 20, mm::kDefaultSmallBytes));
   assert(mm::ShouldReadBack(true, 16u << 20, 0));
-  // Off: the small ones (Battlefield 3's queue), not large buffers, and none if disabled.
+  // Off: the small ones, not large buffers, and none if disabled.
   assert(mm::ShouldReadBack(false, 4, mm::kDefaultSmallBytes));
-  assert(mm::ShouldReadBack(false, 0x1000, mm::kDefaultSmallBytes));
   assert(mm::ShouldReadBack(false, 64 * 1024, mm::kDefaultSmallBytes));
   assert(!mm::ShouldReadBack(false, 64 * 1024 + 4, mm::kDefaultSmallBytes));
   assert(!mm::ShouldReadBack(false, 4, 0));
   // No export: nothing to read.
   assert(!mm::ShouldReadBack(true, 0, mm::kDefaultSmallBytes) && !mm::ShouldReadBack(false, 0, 64));
+  // The copy from before the draw goes after the copy from after it, 256-byte aligned
+  // (Battlefield 3's arena: 393216 bytes).
+  assert(mm::BeforeOffset(393216) == 393216 && mm::BeforeOffset(4) == 256 && mm::BeforeOffset(256) == 256);
+  assert(mm::BeforeOffset(257) == 512 && mm::BeforeOffset(0) == 0);
 }
 
-// The job queue: 16 slots of 8 bytes (job pointer; affinity, priority, sequence), as 8346E3B0
-// pushes them. The sync job of a render job is pushed with affinity 0, so no worker takes it
-// until the GPU exports 3F|priority|sequence into the slot's second word.
-std::vector<uint8_t> Queue() {
-  std::vector<uint8_t> queue(16 * 8);
+// The job arena as candidate 31 saw it, in guest byte order: the queue (16 slots of 8 bytes,
+// job pointer; affinity, priority, sequence), the sync job in slot 5 pushed with affinity 0,
+// then in the next 64 bytes a dependency link (+0 state, +4 next, +8 callback, +C argument) and
+// a counter the workers increment.
+constexpr size_t kLink = 16 * 8, kCounter = kLink + 32;
+std::vector<uint8_t> Arena() {
+  std::vector<uint8_t> arena(kLink + 64, 0);
   for (size_t slot = 0; slot < 16; ++slot) {
-    Store(queue, slot * 8, 0xFFC4A000u + uint32_t(slot) * 0x60);
-    Store(queue, slot * 8 + 4, 0x3F002000u + uint32_t(slot));
+    Store(arena, slot * 8, 0xFFC4A000u + uint32_t(slot) * 0x60);
+    Store(arena, slot * 8 + 4, 0x3F002000u + uint32_t(slot));
   }
-  Store(queue, 5 * 8 + 4, 0x00002066);  // the sync job, not runnable yet
-  return queue;
+  Store(arena, 5 * 8 + 4, 0x00002045);  // the sync job, not runnable yet
+  Store(arena, kLink + 0, 0x0000049A);
+  Store(arena, kLink + 4, 0);           // next
+  Store(arena, kLink + 8, 0x8346EC28);  // callback
+  Store(arena, kLink + 12, 0xFFC4AAF0);
+  Store(arena, kCounter, 0x00003A28);
+  return arena;
 }
 
-void ExportReachesTheQueue() {
-  const std::vector<uint8_t> before = Queue();
-  std::vector<uint8_t> after = before;  // the GPU's copy once the draw is done
-  Store(after, 5 * 8 + 4, 0x3F002066);  // the export
-  std::vector<uint8_t> guest = before;
-  // Meanwhile workers took slot 2 and pushed into slot 9 (CPU only; the GPU's copy is older).
-  Store(guest, 2 * 8, 0);
-  Store(guest, 9 * 8, 0xFFC4C000);
-  Store(guest, 9 * 8 + 4, 0x3F0020AA);
+// Candidate 31's draw: the GPU's copy before the draw was uploaded after the CPU had set the
+// link's next pointer (FFC50210) and moved the counter; the shader wrote only slot 5's second
+// word. Meanwhile the CPU cleared the next pointer again and moved the counter on.
+void OnlyTheShadersWritesReachGuestMemory() {
+  std::vector<uint8_t> guest = Arena();
+  std::vector<uint8_t> gpu_before = guest;
+  Store(gpu_before, kLink + 4, 0xFFC50210);
+  Store(gpu_before, kCounter, 0x00003A31);
+  std::vector<uint8_t> gpu_after = gpu_before;
+  Store(gpu_after, 5 * 8 + 4, 0x3F002045);  // the export
+  Store(guest, kLink + 4, 0);               // the CPU detached the link again
+  Store(guest, kCounter, 0x00003A4D);
+  Store(guest, 2 * 8, 0);                   // and a worker took slot 2
 
-  // A whole-range copy, as the readback did before: the CPU's changes are lost.
-  std::vector<uint8_t> copied = guest;
-  std::memcpy(copied.data(), after.data(), after.size());
-  assert(Load(copied, 2 * 8) != 0 && Load(copied, 9 * 8) != 0xFFC4C000);
-
-  const mm::Merged merged = mm::Merge(guest.data(), before.data(), after.data(), guest.size());
-  assert(merged.written == 1 && merged.kept == 0);
-  assert(Load(guest, 5 * 8 + 4) == 0x3F002066);  // runnable now
-  assert(Load(guest, 2 * 8) == 0 && Load(guest, 9 * 8) == 0xFFC4C000 && Load(guest, 9 * 8 + 4) == 0x3F0020AA);
-  for (size_t slot = 0; slot < 16; ++slot) {
-    if (slot == 2 || slot == 5 || slot == 9) continue;
-    assert(Load(guest, slot * 8) == Load(before, slot * 8) && Load(guest, slot * 8 + 4) == Load(before, slot * 8 + 4));
+  const mm::Merged merged = mm::ApplyExports(guest.data(), gpu_before.data(), gpu_after.data(), guest.size());
+  assert(merged.written == 1 && merged.differed == 0);
+  assert(Load(guest, 5 * 8 + 4) == 0x3F002045);  // runnable now
+  assert(Load(guest, kLink + 4) == 0);           // the link stays detached
+  assert(Load(guest, kLink + 8) == 0x8346EC28 && Load(guest, kCounter) == 0x00003A4D && Load(guest, 2 * 8) == 0);
+  const std::vector<uint8_t> arena = Arena();
+  for (size_t at = 0; at < kLink; at += 4) {
+    if (at == 5 * 8 + 4 || at == 2 * 8) continue;
+    assert(Load(guest, at) == Load(arena, at));
   }
-  // Merging again changes nothing (the GPU's copy and guest memory agree on the export).
-  const mm::Merged again = mm::Merge(guest.data(), guest.data(), after.data(), 0);
-  assert(again.written == 0 && again.kept == 0);
 }
 
-void BothChangedKeepsTheCpu() {
-  const std::vector<uint8_t> before = Queue();
-  std::vector<uint8_t> after = before;
-  Store(after, 5 * 8 + 4, 0x3F002066);
-  std::vector<uint8_t> guest = before;
-  Store(guest, 5 * 8 + 4, 0x01002066);  // the CPU changed the same dword meanwhile
-  const mm::Merged merged = mm::Merge(guest.data(), before.data(), after.data(), guest.size());
-  assert(merged.written == 0 && merged.kept == 1 && Load(guest, 5 * 8 + 4) == 0x01002066);
-  // Nothing exported: nothing written, whatever the CPU did.
+// The export lands even where guest memory held another value than the GPU's copy (the GPU
+// stores, it does not compare), and is counted; nothing exported, nothing stored.
+void ExportsAreStoresNotSwaps() {
+  std::vector<uint8_t> guest = Arena();
+  std::vector<uint8_t> gpu_before = guest;
+  std::vector<uint8_t> gpu_after = guest;
+  Store(gpu_after, 5 * 8 + 4, 0x3F002045);
+  Store(guest, 5 * 8 + 4, 0x01002045);
+  mm::Merged merged = mm::ApplyExports(guest.data(), gpu_before.data(), gpu_after.data(), guest.size());
+  assert(merged.written == 1 && merged.differed == 1 && Load(guest, 5 * 8 + 4) == 0x3F002045);
   Store(guest, 0, 0x12345678);
-  const mm::Merged none = mm::Merge(guest.data(), before.data(), before.data(), guest.size());
-  assert(none.written == 0 && none.kept == 0 && Load(guest, 0) == 0x12345678);
+  merged = mm::ApplyExports(guest.data(), gpu_before.data(), gpu_before.data(), guest.size());
+  assert(merged.written == 0 && merged.differed == 0 && Load(guest, 0) == 0x12345678);
+  // An export of the value the GPU's copy already held is not a change (nothing to store).
+  merged = mm::ApplyExports(guest.data(), gpu_after.data(), gpu_after.data(), guest.size());
+  assert(merged.written == 0);
 }
 
 void TailsAndUnaligned() {
-  // 10 bytes: two dwords and a 2-byte tail; the export changes dword 1 and tail byte 9.
-  std::vector<uint8_t> before = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
-  std::vector<uint8_t> after = {1, 2, 3, 4, 0x3F, 6, 7, 8, 9, 0xAA};
+  // 10 bytes: two dwords and a 2-byte tail; the shader changed dword 1 and tail byte 9.
+  const std::vector<uint8_t> before = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
+  const std::vector<uint8_t> after = {1, 2, 3, 4, 0x3F, 6, 7, 8, 9, 0xAA};
   std::vector<uint8_t> guest = before;
-  guest[8] = 0x77;  // the CPU's change in the tail, not exported
-  mm::Merged merged = mm::Merge(guest.data(), before.data(), after.data(), 10);
-  assert(merged.written == 2 && merged.kept == 0);
-  assert((guest == std::vector<uint8_t>{1, 2, 3, 4, 0x3F, 6, 7, 8, 0x77, 0xAA}));
-  // A tail byte both changed keeps the CPU's.
-  guest = before;
-  guest[9] = 0x55;
-  merged = mm::Merge(guest.data(), before.data(), after.data(), 10);
-  assert(merged.written == 1 && merged.kept == 1 && guest[9] == 0x55 && guest[4] == 0x3F);
+  guest[8] = 0x77;  // the CPU's change in the tail, not exported: kept
+  guest[0] = 0x55;  // and in dword 0: kept
+  mm::Merged merged = mm::ApplyExports(guest.data(), before.data(), after.data(), 10);
+  assert(merged.written == 2 && merged.differed == 0);
+  assert((guest == std::vector<uint8_t>{0x55, 2, 3, 4, 0x3F, 6, 7, 8, 0x77, 0xAA}));
   // A range at an odd host address (no 32-bit atomic there): the same result.
   std::vector<uint8_t> buffer(16, 0);
   uint8_t* odd = buffer.data() + 1;
   std::memcpy(odd, before.data(), 10);
-  merged = mm::Merge(odd, before.data(), after.data(), 10);
+  merged = mm::ApplyExports(odd, before.data(), after.data(), 10);
   assert(merged.written == 2 && odd[4] == 0x3F && odd[9] == 0xAA && odd[0] == 1 && buffer[0] == 0);
-  assert(mm::SwapIfUnchanged(odd, 0x01020304, 0x04030201) == false);  // host order differs from bytes
+  mm::StoreWord(odd, 0xDEADBEEF);
   uint32_t host_value;
-  std::memcpy(&host_value, odd, 4);
-  assert(mm::SwapIfUnchanged(odd, host_value, 0xDEADBEEF));
   std::memcpy(&host_value, odd, 4);
   assert(host_value == 0xDEADBEEF);
 }
 
-// A worker updating other dwords of the range with atomics (as ldarx/stdcx. do) while the GPU
-// thread merges exports: none of the worker's updates is lost, and every export lands.
+// A worker updating other dwords with atomics (as ldarx/stdcx. do) while the GPU thread stores
+// exports: none of the worker's updates is lost, and every export lands.
 void ConcurrentWorkerKeepsItsUpdates() {
   alignas(8) static uint32_t guest[32];
   std::memset(guest, 0, sizeof(guest));
@@ -151,26 +158,24 @@ void ConcurrentWorkerKeepsItsUpdates() {
   });
   uint32_t exports = 0;
   while (!stop.load() || exports < 1000) {
+    // The GPU's copies before and after the draw: older than the worker's later updates; the
+    // shader wrote dword 10.
     uint8_t before[sizeof(guest)], after[sizeof(guest)];
-    // The snapshot before the draw, then the GPU's copy: dword 10 exported, the rest as of the
-    // snapshot (older than the worker's later updates).
     std::memcpy(before, guest, sizeof(guest));
     std::memcpy(after, before, sizeof(guest));
     uint32_t value = 0x3F000000u + exports;
     std::memcpy(after + 10 * 4, &value, 4);
-    const mm::Merged merged = mm::Merge(reinterpret_cast<uint8_t*>(guest), before, after, sizeof(guest));
+    const mm::Merged merged = mm::ApplyExports(reinterpret_cast<uint8_t*>(guest), before, after, sizeof(guest));
     assert(merged.written <= 1);
-    assert(guest[10] == value || merged.kept == 1);
+    assert(guest[10] == value || merged.written == 0);
     ++exports;
   }
   worker.join();
   assert(guest[3] == uint32_t(kIncrements) && guest[17] == uint32_t(kIncrements));
 }
 
-// The GPU's copy of guest memory as SharedMemory keeps it, in 64-byte pages: a valid page is
-// not uploaded again by RequestRange; MemoryInvalidationCallback(exact) makes pages invalid.
-// A "kept" page is valid but older than guest memory: what the fork's kept GPU-written units
-// leave after CPU writes next to data the GPU wrote (the job arena after fix 30's readback).
+// The GPU's copy of guest memory as SharedMemory keeps it, in 64-byte pages:
+// MemoryInvalidationCallback(exact) makes pages invalid; RequestRange uploads invalid ones.
 struct FakeShared {
   static constexpr uint32_t kPage = 64;
   std::vector<uint8_t>& guest;
@@ -186,7 +191,6 @@ struct FakeShared {
     return {0, 0};
   }
   void RequestRange(uint32_t start, uint32_t length) {
-    events.push_back("request");
     for (uint32_t page = start / kPage; page <= (start + length - 1) / kPage; ++page) {
       if (valid[page]) continue;
       std::memcpy(gpu.data() + page * kPage, guest.data() + page * kPage, kPage);
@@ -195,150 +199,66 @@ struct FakeShared {
   }
 };
 
-// Battlefield 3's arena: the queue (slot 5's sync job not runnable yet) and, in the next page,
-// a dependency link whose callback (+8) the worker cleared after running it. The GPU's copy of
-// that page is kept from before: the callback still set.
-std::vector<uint8_t> Arena() {
-  std::vector<uint8_t> arena(4 * FakeShared::kPage, 0);
-  std::vector<uint8_t> queue = Queue();
-  std::memcpy(arena.data(), queue.data(), queue.size());  // pages 0-1
-  Store(arena, 2 * FakeShared::kPage + 0, 0xFFC50270);   // link: next
-  Store(arena, 2 * FakeShared::kPage + 8, 0);            // callback, already run
-  Store(arena, 2 * FakeShared::kPage + 12, 0xFFC4AA40);  // its job
-  return arena;
-}
-void MakeStale(FakeShared& shared) {
-  Store(shared.gpu, 2 * FakeShared::kPage + 8, 0x8346EC28);  // the copy from before the run
-  Store(shared.gpu, 2 * FakeShared::kPage + 0, 0xFFC50100);
-}
-void Export(FakeShared& shared) { Store(shared.gpu, 5 * 8 + 4, 0x3F002066); }
-
-void StaleCopyNeedsTheRefresh() {
-  // Without the refresh (candidate 25): the snapshot is current, the GPU's copy is not, and
-  // the merge writes the stale link back besides the export: the crash at 8346D64C.
-  {
-    std::vector<uint8_t> guest = Arena();
-    FakeShared shared(guest);
-    MakeStale(shared);
-    std::vector<uint8_t> before = guest;
-    shared.RequestRange(0, uint32_t(guest.size()));
-    Export(shared);
-    const mm::Merged merged = mm::Merge(guest.data(), before.data(), shared.gpu.data(), guest.size());
-    assert(merged.written == 3 && Load(guest, 5 * 8 + 4) == 0x3F002066);
-    assert(Load(guest, 2 * FakeShared::kPage + 8) == 0x8346EC28);  // a run callback is back
-  }
-  // With it (candidate 28): snapshot, exact invalidation, upload, export: only the export lands.
-  {
-    std::vector<uint8_t> guest = Arena();
-    const std::vector<uint8_t> arena = guest;
-    FakeShared shared(guest);
-    MakeStale(shared);
-    std::vector<uint8_t> before;
-    const std::vector<mm::Range> ranges = {{0, uint32_t(guest.size())}};
-    mm::PrepareReadback(
-        shared,
-        [&](uint32_t start, uint8_t* destination, uint32_t length) {
-          shared.events.push_back("snapshot");
-          std::memcpy(destination, guest.data() + start, length);
-        },
-        ranges, before);
-    // The snapshot first, then one exact invalidation of the whole range.
-    assert((shared.events == std::vector<std::string>{"snapshot", "invalidate 0+256"}));
-    assert(before == arena);
-    shared.RequestRange(0, uint32_t(guest.size()));
-    assert(shared.gpu == arena);  // the copy is guest memory again
-    Export(shared);
-    const mm::Merged merged = mm::Merge(guest.data(), before.data(), shared.gpu.data(), guest.size());
-    assert(merged.written == 1 && merged.kept == 0);
-    std::vector<uint8_t> expected = arena;
-    Store(expected, 5 * 8 + 4, 0x3F002066);
-    assert(guest == expected);
-  }
-  // A worker writing between the snapshot and the upload (its value is in the copy too), and
-  // one writing during the draw (not in the copy): both keep the worker's value.
-  {
-    std::vector<uint8_t> guest = Arena();
-    FakeShared shared(guest);
-    MakeStale(shared);
-    std::vector<uint8_t> before;
-    mm::PrepareReadback(
-        shared, [&](uint32_t start, uint8_t* destination, uint32_t length) {
-          std::memcpy(destination, guest.data() + start, length);
-        },
-        {{0, uint32_t(guest.size())}}, before);
-    Store(guest, 9 * 8, 0xFFC4C000);  // before the upload
-    shared.RequestRange(0, uint32_t(guest.size()));
-    Export(shared);
-    Store(guest, 2 * 8, 0);  // during the draw
-    const mm::Merged merged = mm::Merge(guest.data(), before.data(), shared.gpu.data(), guest.size());
-    assert(merged.written == 1 && merged.kept == 1);
-    assert(Load(guest, 9 * 8) == 0xFFC4C000 && Load(guest, 2 * 8) == 0 && Load(guest, 5 * 8 + 4) == 0x3F002066);
-    assert(Load(guest, 2 * FakeShared::kPage + 8) == 0);
-  }
-  // Several ranges: one snapshot buffer in order, each range invalidated.
-  {
-    std::vector<uint8_t> guest = Arena();
-    FakeShared shared(guest);
-    std::vector<uint8_t> before;
-    mm::PrepareReadback(
-        shared, [&](uint32_t start, uint8_t* destination, uint32_t length) {
-          std::memcpy(destination, guest.data() + start, length);
-        },
-        {{128, 16}, {0, 8}}, before);
-    assert(before.size() == 24 && std::memcmp(before.data(), guest.data() + 128, 16) == 0);
-    assert(std::memcmp(before.data() + 16, guest.data(), 8) == 0);
-    assert((shared.events == std::vector<std::string>{"invalidate 128+16", "invalidate 0+8"}));
-    assert(!shared.valid[2] && !shared.valid[0] && shared.valid[1] && shared.valid[3]);
-  }
+// The refresh: the shader reads current data, and a stale page of the GPU's copy is no export.
+void RefreshAndStaleCopy() {
+  std::vector<uint8_t> guest = Arena();
+  FakeShared shared(guest);
+  Store(shared.gpu, kLink + 8, 0);  // a kept page, older than guest memory
+  mm::RefreshRanges(shared, {{0, uint32_t(guest.size())}, {64, 8}});
+  assert((shared.events == std::vector<std::string>{"invalidate 0+192", "invalidate 64+8"}));
+  shared.RequestRange(0, uint32_t(guest.size()));
+  assert(shared.gpu == guest);
+  // Even had the copy stayed stale, comparing it with itself before and after the draw finds
+  // only what the shader wrote.
+  std::vector<uint8_t> stale = guest;
+  Store(stale, kLink + 8, 0);
+  std::vector<uint8_t> after = stale;
+  Store(after, 5 * 8 + 4, 0x3F002045);
+  const mm::Merged merged = mm::ApplyExports(guest.data(), stale.data(), after.data(), guest.size());
+  assert(merged.written == 1 && Load(guest, kLink + 8) == 0x8346EC28);
 }
 
-// Candidate 31: the per-dword record of a merge, for the log of Battlefield 3's queue.
+// The per-store records and the log line (Battlefield 3's queue at physical 1FC4E200).
 void ChangesAreRecorded() {
-  const std::vector<uint8_t> before = Queue();
+  const std::vector<uint8_t> before = Arena();
   std::vector<uint8_t> after = before;
-  Store(after, 5 * 8 + 4, 0x3F002066);  // the export, written
-  Store(after, 7 * 8 + 4, 0x3F002033);  // an export into a slot the CPU changed: kept
-  Store(after, 9 * 8, 0x11111111);      // a third change
+  Store(after, 5 * 8 + 4, 0x3F002045);
+  Store(after, 7 * 8 + 4, 0x3F002033);
+  Store(after, 9 * 8, 0x11111111);
   std::vector<uint8_t> guest = before;
   Store(guest, 7 * 8 + 4, 0x00002077);
   std::vector<mm::Change> changes;
-  mm::Merged merged = mm::Merge(guest.data(), before.data(), after.data(), guest.size(), &changes, 2);
-  // Every change is merged, only the first `limit` recorded, in address order.
-  assert(merged.written == 2 && merged.kept == 1 && changes.size() == 2);
-  assert(changes[0].offset == 5 * 8 + 4 && changes[0].before == 0x00002066 && changes[0].after == 0x3F002066);
-  assert(changes[0].guest == 0x3F002066 && changes[0].written);
+  const mm::Merged merged = mm::ApplyExports(guest.data(), before.data(), after.data(), guest.size(), &changes, 2);
+  assert(merged.written == 3 && merged.differed == 1 && changes.size() == 2);
+  assert(changes[0].offset == 5 * 8 + 4 && changes[0].before == 0x00002045 && changes[0].after == 0x3F002045);
+  assert(changes[0].guest == 0x00002045);
   assert(changes[1].offset == 7 * 8 + 4 && changes[1].before == 0x3F002007 && changes[1].after == 0x3F002033);
-  assert(changes[1].guest == 0x00002077 && !changes[1].written);
-  assert(Load(guest, 9 * 8) == 0x11111111);
-  // The line, with the other half of the doubleword (the slot's job pointer).
+  assert(changes[1].guest == 0x00002077);
+  assert(Load(guest, 9 * 8) == 0x11111111 && Load(guest, 7 * 8 + 4) == 0x3F002033);
   assert(mm::ChangeLine(0x1FC4E200, changes[0], 0xFFC4A1E0) ==
-         "memexport 1FC4E22C (+2C): 00002066 -> 3F002066, guest 3F002066, written; other half of the "
-         "doubleword FFC4A1E0");
-  assert(mm::ChangeLine(0x1FC4E200, changes[1], 0xFFC4A2A0) ==
-         "memexport 1FC4E23C (+3C): 3F002007 -> 3F002033, guest 00002077, kept (the CPU changed it); other "
-         "half of the doubleword FFC4A2A0");
-  // Without a record: the same merge, nothing recorded.
-  guest = before;
-  merged = mm::Merge(guest.data(), before.data(), after.data(), guest.size());
-  assert(merged.written == 3 && merged.kept == 0);
-  assert(mm::GuestWord(guest.data() + 5 * 8 + 4) == 0x3F002066);
-  // The title's switch and the total budget start off and at zero.
+         "memexport 1FC4E22C (+2C): 00002045 -> 3F002045, guest was 00002045; other half of the doubleword "
+         "FFC4A1E0");
+  assert(mm::GuestWord(guest.data() + 5 * 8 + 4) == 0x3F002045);
+  // The title's switch and the budgets.
   assert(!mm::DetailEnabled().load() && mm::DetailLines().load() == 0);
   assert(mm::kChangesPerRange == 64 && mm::kChangeLinesTotal == 800);
+  // The exporting shader is dumped the first time per shader, for the first 3 shaders.
+  assert(mm::FirstDumpOf(0xA) && !mm::FirstDumpOf(0xA) && mm::FirstDumpOf(0xB) && mm::FirstDumpOf(0xC));
+  assert(!mm::FirstDumpOf(0xD) && !mm::FirstDumpOf(0xB));
 }
 
 }  // namespace
 
 int main() {
   WhichDrawsAreReadBack();
-  ExportReachesTheQueue();
-  BothChangedKeepsTheCpu();
+  OnlyTheShadersWritesReachGuestMemory();
+  ExportsAreStoresNotSwaps();
   TailsAndUnaligned();
   ConcurrentWorkerKeepsItsUpdates();
-  StaleCopyNeedsTheRefresh();
+  RefreshAndStaleCopy();
   ChangesAreRecorded();
   std::printf(
-      "PASS: small memory exports reach guest memory, only the dwords the draw changed and only "
-      "where the CPU did not change them meanwhile (fix 30)\n");
+      "PASS: small memory exports reach guest memory, only the dwords the shader wrote (the GPU's copy "
+      "before and after the draw compared), stored as the GPU stores them (fix 30)\n");
   return 0;
 }
