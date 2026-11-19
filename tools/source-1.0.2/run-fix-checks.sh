@@ -17,6 +17,7 @@ checks=(
   check-english-fallback.cpp       # fixes 23 and 25
   check-stall-dump.cpp             # fix 24
   check-label-owner.cpp            # fix 24, candidate 21
+  check-memexport-merge.cpp        # fix 30
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
