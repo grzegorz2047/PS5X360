@@ -5,6 +5,9 @@
 # here every object is compiled from the assembled tree. Flags follow the author's recorded
 # recipes: the core with Canary's own CMake files (Release, -O3), the port's title objects with
 # -O2 -mavx, everything with -march=znver2 -fno-stack-protector (0.5.9's canary/CMakeLists.txt).
+# GitHub issue 2 (from candidate 37): the title objects with -O3 as the core (their -O2 came
+# after the Release -O3 and won). PS5X360_LTO=thin compiles the core and the title for ThinLTO
+# (build.sh links them with it); off by default.
 cmake_minimum_required(VERSION 3.20)
 project(ps5x360_102 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 20)
@@ -23,6 +26,10 @@ include_directories(BEFORE SYSTEM "${ROOT}/platform/ps5/compat")
 # folders: include/, the dash-mode include, the framegen, disc and kinect build folders).
 include_directories("${ROOT}/include" "${ROOT}/port" "${ROOT}/reconstructed")
 add_compile_options(-march=znver2 -fno-stack-protector)
+set(PS5X360_LTO "" CACHE STRING "thin: ThinLTO for the core and the title objects")
+if(PS5X360_LTO STREQUAL "thin")
+  add_compile_options(-flto=thin)
+endif()
 add_compile_definitions(ZSTD_TRACE=0)
 # build_online.py's EXTRA_FLAGS for the online core: std::jthread is experimental in libc++ 18.
 add_compile_definitions(_LIBCPP_ENABLE_EXPERIMENTAL CURL_STATICLIB MINIUPNP_STATICLIB)
@@ -95,7 +102,7 @@ target_compile_definitions(xbox360ps5-title-objects PRIVATE XBOX360PS5_CANARY=1 
 if(PS5X360_OPENGL_GAME_RENDERER)
   target_compile_definitions(xbox360ps5-title-objects PRIVATE PS5X360_OPENGL_GAME_RENDERER=1)
 endif()
-target_compile_options(xbox360ps5-title-objects PRIVATE -O2 -mavx)
+target_compile_options(xbox360ps5-title-objects PRIVATE -O3)
 # ps5-framegen (Swordpdf, GPL-3.0-or-later) as 0.5.9-framegen.3-local-SOURCE/build.py compiles it:
 # its Vulkan entry points are function pointers bound at run time (sword_dispatch.hpp).
 set_source_files_properties("${ROOT}/port/vendor/ps5_framegen.cpp" PROPERTIES
