@@ -6,7 +6,9 @@
 // 21's log) reaches guest memory while the slots the CPU changed meanwhile keep the CPU's
 // values (a whole-range copy would lose them); a dword both changed keeps the CPU's; tails and
 // unaligned ranges; and a worker thread updating other slots with atomics while merges run
-// loses none of its updates. Built against the assembled 1.0.2 tree.
+// loses none of its updates; the GPU's copy refreshed from guest memory before the draw
+// (PrepareReadback), without which a stale copy wrote Battlefield 3's old dependency links back
+// (candidate 25's crash at 8346D64C). Built against the assembled 1.0.2 tree.
 #undef NDEBUG
 #include "xenia/gpu/memexport_merge.h"
 
@@ -15,7 +17,9 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -163,6 +167,131 @@ void ConcurrentWorkerKeepsItsUpdates() {
   assert(guest[3] == uint32_t(kIncrements) && guest[17] == uint32_t(kIncrements));
 }
 
+// The GPU's copy of guest memory as SharedMemory keeps it, in 64-byte pages: a valid page is
+// not uploaded again by RequestRange; MemoryInvalidationCallback(exact) makes pages invalid.
+// A "kept" page is valid but older than guest memory: what the fork's kept GPU-written units
+// leave after CPU writes next to data the GPU wrote (the job arena after fix 30's readback).
+struct FakeShared {
+  static constexpr uint32_t kPage = 64;
+  std::vector<uint8_t>& guest;
+  std::vector<uint8_t> gpu;
+  std::vector<bool> valid;
+  std::vector<std::string> events;
+  explicit FakeShared(std::vector<uint8_t>& guest_memory)
+      : guest(guest_memory), gpu(guest_memory), valid(guest_memory.size() / kPage, true) {}
+  std::pair<uint32_t, uint32_t> MemoryInvalidationCallback(uint32_t start, uint32_t length, bool exact) {
+    assert(exact);
+    events.push_back("invalidate " + std::to_string(start) + "+" + std::to_string(length));
+    for (uint32_t page = start / kPage; page <= (start + length - 1) / kPage; ++page) valid[page] = false;
+    return {0, 0};
+  }
+  void RequestRange(uint32_t start, uint32_t length) {
+    events.push_back("request");
+    for (uint32_t page = start / kPage; page <= (start + length - 1) / kPage; ++page) {
+      if (valid[page]) continue;
+      std::memcpy(gpu.data() + page * kPage, guest.data() + page * kPage, kPage);
+      valid[page] = true;
+    }
+  }
+};
+
+// Battlefield 3's arena: the queue (slot 5's sync job not runnable yet) and, in the next page,
+// a dependency link whose callback (+8) the worker cleared after running it. The GPU's copy of
+// that page is kept from before: the callback still set.
+std::vector<uint8_t> Arena() {
+  std::vector<uint8_t> arena(4 * FakeShared::kPage, 0);
+  std::vector<uint8_t> queue = Queue();
+  std::memcpy(arena.data(), queue.data(), queue.size());  // pages 0-1
+  Store(arena, 2 * FakeShared::kPage + 0, 0xFFC50270);   // link: next
+  Store(arena, 2 * FakeShared::kPage + 8, 0);            // callback, already run
+  Store(arena, 2 * FakeShared::kPage + 12, 0xFFC4AA40);  // its job
+  return arena;
+}
+void MakeStale(FakeShared& shared) {
+  Store(shared.gpu, 2 * FakeShared::kPage + 8, 0x8346EC28);  // the copy from before the run
+  Store(shared.gpu, 2 * FakeShared::kPage + 0, 0xFFC50100);
+}
+void Export(FakeShared& shared) { Store(shared.gpu, 5 * 8 + 4, 0x3F002066); }
+
+void StaleCopyNeedsTheRefresh() {
+  // Without the refresh (candidate 25): the snapshot is current, the GPU's copy is not, and
+  // the merge writes the stale link back besides the export: the crash at 8346D64C.
+  {
+    std::vector<uint8_t> guest = Arena();
+    FakeShared shared(guest);
+    MakeStale(shared);
+    std::vector<uint8_t> before = guest;
+    shared.RequestRange(0, uint32_t(guest.size()));
+    Export(shared);
+    const mm::Merged merged = mm::Merge(guest.data(), before.data(), shared.gpu.data(), guest.size());
+    assert(merged.written == 3 && Load(guest, 5 * 8 + 4) == 0x3F002066);
+    assert(Load(guest, 2 * FakeShared::kPage + 8) == 0x8346EC28);  // a run callback is back
+  }
+  // With it (candidate 28): snapshot, exact invalidation, upload, export: only the export lands.
+  {
+    std::vector<uint8_t> guest = Arena();
+    const std::vector<uint8_t> arena = guest;
+    FakeShared shared(guest);
+    MakeStale(shared);
+    std::vector<uint8_t> before;
+    const std::vector<mm::Range> ranges = {{0, uint32_t(guest.size())}};
+    mm::PrepareReadback(
+        shared,
+        [&](uint32_t start, uint8_t* destination, uint32_t length) {
+          shared.events.push_back("snapshot");
+          std::memcpy(destination, guest.data() + start, length);
+        },
+        ranges, before);
+    // The snapshot first, then one exact invalidation of the whole range.
+    assert((shared.events == std::vector<std::string>{"snapshot", "invalidate 0+256"}));
+    assert(before == arena);
+    shared.RequestRange(0, uint32_t(guest.size()));
+    assert(shared.gpu == arena);  // the copy is guest memory again
+    Export(shared);
+    const mm::Merged merged = mm::Merge(guest.data(), before.data(), shared.gpu.data(), guest.size());
+    assert(merged.written == 1 && merged.kept == 0);
+    std::vector<uint8_t> expected = arena;
+    Store(expected, 5 * 8 + 4, 0x3F002066);
+    assert(guest == expected);
+  }
+  // A worker writing between the snapshot and the upload (its value is in the copy too), and
+  // one writing during the draw (not in the copy): both keep the worker's value.
+  {
+    std::vector<uint8_t> guest = Arena();
+    FakeShared shared(guest);
+    MakeStale(shared);
+    std::vector<uint8_t> before;
+    mm::PrepareReadback(
+        shared, [&](uint32_t start, uint8_t* destination, uint32_t length) {
+          std::memcpy(destination, guest.data() + start, length);
+        },
+        {{0, uint32_t(guest.size())}}, before);
+    Store(guest, 9 * 8, 0xFFC4C000);  // before the upload
+    shared.RequestRange(0, uint32_t(guest.size()));
+    Export(shared);
+    Store(guest, 2 * 8, 0);  // during the draw
+    const mm::Merged merged = mm::Merge(guest.data(), before.data(), shared.gpu.data(), guest.size());
+    assert(merged.written == 1 && merged.kept == 1);
+    assert(Load(guest, 9 * 8) == 0xFFC4C000 && Load(guest, 2 * 8) == 0 && Load(guest, 5 * 8 + 4) == 0x3F002066);
+    assert(Load(guest, 2 * FakeShared::kPage + 8) == 0);
+  }
+  // Several ranges: one snapshot buffer in order, each range invalidated.
+  {
+    std::vector<uint8_t> guest = Arena();
+    FakeShared shared(guest);
+    std::vector<uint8_t> before;
+    mm::PrepareReadback(
+        shared, [&](uint32_t start, uint8_t* destination, uint32_t length) {
+          std::memcpy(destination, guest.data() + start, length);
+        },
+        {{128, 16}, {0, 8}}, before);
+    assert(before.size() == 24 && std::memcmp(before.data(), guest.data() + 128, 16) == 0);
+    assert(std::memcmp(before.data() + 16, guest.data(), 8) == 0);
+    assert((shared.events == std::vector<std::string>{"invalidate 128+16", "invalidate 0+8"}));
+    assert(!shared.valid[2] && !shared.valid[0] && shared.valid[1] && shared.valid[3]);
+  }
+}
+
 }  // namespace
 
 int main() {
@@ -171,6 +300,7 @@ int main() {
   BothChangedKeepsTheCpu();
   TailsAndUnaligned();
   ConcurrentWorkerKeepsItsUpdates();
+  StaleCopyNeedsTheRefresh();
   std::printf(
       "PASS: small memory exports reach guest memory, only the dwords the draw changed and only "
       "where the CPU did not change them meanwhile (fix 30)\n");

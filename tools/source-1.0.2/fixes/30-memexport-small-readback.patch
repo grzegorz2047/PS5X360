@@ -19,10 +19,10 @@ index 369853d..2492054 100644
  namespace xbox360ps5 {
 diff --git a/.deps/xenia-canary/src/xenia/gpu/memexport_merge.h b/.deps/xenia-canary/src/xenia/gpu/memexport_merge.h
 new file mode 100644
-index 0000000..4117bf6
+index 0000000..2bed628
 --- /dev/null
 +++ b/.deps/xenia-canary/src/xenia/gpu/memexport_merge.h
-@@ -0,0 +1,94 @@
+@@ -0,0 +1,126 @@
 +// Xbox360PS5 (tools/source-1.0.2/fixes/30-memexport-small-readback.patch): which memory
 +// exports of a draw the CPU must see, and how they reach guest memory.
 +//
@@ -48,6 +48,7 @@ index 0000000..4117bf6
 +#include <cstddef>
 +#include <cstdint>
 +#include <cstring>
++#include <vector>
 +
 +namespace xbox360ps5 {
 +namespace memexport_merge {
@@ -60,6 +61,37 @@ index 0000000..4117bf6
 +  if (!total_bytes) return false;
 +  if (setting) return true;
 +  return small_limit != 0 && total_bytes <= small_limit;
++}
++
++// A memexport range in physical memory.
++struct Range {
++  uint32_t start, length;
++};
++
++// Before a draw whose exports are read back: guest memory of each range into `before`
++// (concatenated), then each range invalidated exactly in the GPU's copy of guest memory, so
++// the RequestRange that follows uploads all of it from guest memory. Without that the copy can
++// be older than guest memory: the range was marked GPU-written by the previous readback, and
++// CPU writes next to GPU-written data are kept off the copy until a later hash check, so the
++// draw's copy differs from `before` in dwords no shader wrote and Merge wrote them back
++// (Battlefield 3, candidate 25 with the option on: 8 dwords "written" for one export, old
++// dependency links of its job manager restored, a worker calling a cleared callback at
++// 8346D64C). The snapshot comes first: a dword the CPU changes between it and the upload then
++// differs from `before` in the GPU's copy and in guest memory alike, and Merge keeps the CPU's.
++//   shared.MemoryInvalidationCallback(start, length, true)
++//   read_guest(start, destination, length)
++template <typename Shared, typename ReadGuest>
++void PrepareReadback(Shared& shared, ReadGuest read_guest, const std::vector<Range>& ranges,
++                     std::vector<uint8_t>& before) {
++  size_t total = 0;
++  for (const Range& range : ranges) total += range.length;
++  before.resize(total);
++  size_t offset = 0;
++  for (const Range& range : ranges) {
++    read_guest(range.start, before.data() + offset, range.length);
++    offset += range.length;
++  }
++  for (const Range& range : ranges) shared.MemoryInvalidationCallback(range.start, range.length, true);
 +}
 +
 +struct Merged {
@@ -118,7 +150,7 @@ index 0000000..4117bf6
 +
 +#endif  // XENIA_GPU_MEMEXPORT_MERGE_H_
 diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
-index ffd416c..25a8cc1 100644
+index ffd416c..e35e750 100644
 --- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
 +++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
 @@ -34,6 +34,7 @@
@@ -153,7 +185,7 @@ index ffd416c..25a8cc1 100644
    }
  
    // Pixel shader analysis.
-@@ -3304,6 +3315,30 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+@@ -3304,6 +3315,34 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
      }
    }
  
@@ -169,22 +201,26 @@ index ffd416c..25a8cc1 100644
 +      GetGPUSetting(GPUSetting::ReadbackMemexport), memexport_total_bytes,
 +      cvars::readback_memexport_small);
 +  if (memexport_readback) {
-+    memexport_before_.resize(size_t(memexport_total_bytes));
-+    size_t before_offset = 0;
++    // Candidate 28: and the GPU's copy of the ranges refreshed from guest
++    // memory before the draw (see PrepareReadback).
++    std::vector<xbox360ps5::memexport_merge::Range> ranges;
 +    for (const draw_util::MemExportRange& memexport_range :
 +         memexport_ranges_) {
-+      std::memcpy(memexport_before_.data() + before_offset,
-+                  memory_->TranslatePhysical(memexport_range.base_address_dwords
-+                                             << 2),
-+                  memexport_range.size_bytes);
-+      before_offset += memexport_range.size_bytes;
++      ranges.push_back({memexport_range.base_address_dwords << 2,
++                        memexport_range.size_bytes});
 +    }
++    xbox360ps5::memexport_merge::PrepareReadback(
++        *shared_memory_,
++        [this](uint32_t start, uint8_t* destination, uint32_t length) {
++          std::memcpy(destination, memory_->TranslatePhysical(start), length);
++        },
++        ranges, memexport_before_);
 +  }
 +
    // Synchronize the memory pages backing memory scatter export streams, and
    // calculate the range that includes the streams for the buffer barrier.
    uint32_t memexport_extent_start = UINT32_MAX, memexport_extent_end = 0;
-@@ -3419,9 +3454,8 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+@@ -3419,9 +3458,8 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
                                        memexport_range.size_bytes);
    }
  
@@ -196,7 +232,7 @@ index ffd416c..25a8cc1 100644
      // Calculate total size of all memexport ranges.
      uint32_t memexport_total_size = 0;
      for (const draw_util::MemExportRange& memexport_range : memexport_ranges_) {
-@@ -3475,12 +3509,31 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+@@ -3475,12 +3513,31 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
              if (mapped_data) {
                const uint8_t* readback_bytes =
                    static_cast<const uint8_t*>(mapped_data);
