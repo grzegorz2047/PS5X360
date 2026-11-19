@@ -10,11 +10,6 @@ name: Rebuild v1.0.2 from source drops (not for release)
 # build-only packages are needed only when that key changes; and ccache for the compile.
 on:
   workflow_dispatch:
-  # TEMPORARY while iterating on branch source-1.0.2 (dispatch needs the file on main);
-  # removed before the work is finished.
-  push:
-    branches: [source-1.0.2]
-    paths: ['tools/source-1.0.2/**', '.github/workflows/build-source-1.0.2.yml']
 
 permissions:
   contents: read

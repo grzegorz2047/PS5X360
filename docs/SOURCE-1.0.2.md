@@ -14,9 +14,24 @@ is missing, and how close a rebuild gets.
 **It builds.** [Run 44497867041](https://github.com/grzegorz2047/PS5X360/actions/runs/44497867041)
 assembled the tree, compiled every core and title object and linked a signed `eboot.bin`
 (37,551,301 bytes, SHA-256 `65e6e9c0…`; `eboot.elf` `9ef24b10…`). It is a Vulkan-only
-reconstruction of 1.0.2, **not tested on a console**: about 22 MiB smaller than the official
-executable, almost all of it the OpenGL renderer stack that was never published (see
+reconstruction of 1.0.2, about 22 MiB smaller than the official executable, almost all of it
+the OpenGL renderer stack that was never published (see
 [Comparison](#comparison-with-the-official-executable)).
+
+On the console (user's test of that build): the launcher, Modern Warfare 2, Black Ops and Dragon
+Age II run like the official build; the visible difference was the missing dark home theme,
+reconstructed since.
+
+Latest build: [run 44507850129](https://github.com/grzegorz2047/PS5X360/actions/runs/44507850129),
+with the `gameinfo.txt` reader ([run 44502949131](https://github.com/grzegorz2047/PS5X360/actions/runs/44502949131))
+and the dark theme: `eboot.bin` 37,574,693 bytes, SHA-256 `b7525acb…` (`eboot.elf` `a251fd04…`).
+Its official-only strings drop to 18,074; the dark theme's and `gameinfo.txt`'s are now in both.
+Not yet tested on a console.
+
+The workflow keeps the built RADV driver and payload SDK in the Actions cache (keyed by the
+pinned reference commits) and uses ccache: with the cache, the RADV build and Mesa's packages are
+skipped (dependencies 36 s instead of up to 9 min). It runs on `workflow_dispatch` only, which
+GitHub offers once the workflow file is on the default branch.
 
 Earlier runs, each fixing what the previous one found:
 [44482112072](https://github.com/grzegorz2047/PS5X360/actions/runs/44482112072) (stale core
