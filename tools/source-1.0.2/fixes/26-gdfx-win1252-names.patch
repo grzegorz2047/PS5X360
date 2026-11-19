@@ -1113,7 +1113,7 @@ index 40aed40..674eb5c 100644
   private:
    void LoadOnlineSchema();
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
-index bf19396..314aa03 100644
+index bf19396..cbbb430 100644
 --- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
 +++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
 @@ -28,6 +28,7 @@
@@ -1124,29 +1124,66 @@ index bf19396..314aa03 100644
  #include "xenia/ui/file_picker.h"
  #include "xenia/ui/imgui_dialog.h"
  #include "xenia/ui/imgui_drawer.h"
-@@ -101,6 +102,10 @@ X_RESULT xeXamDispatchDialog(T* dialog,
+@@ -100,7 +101,14 @@ X_RESULT xeXamDispatchDialog(T* dialog,
+             [&dialog, &fence]() { dialog->Then(&fence); })) {
        fence.Wait();
        kernel_state()->xam_state()->is_xam_dialog_present_.store(false);
++      XELOGW("System UI: dialog closed, result {:08X}", uint32_t(result));  // fix 26
      } else {
 +      // Xbox360PS5 (fix 26): the dialog was not shown; it holds the system interface no
-+      // longer (1.0.2 left the flag set, and the game got no buttons from then on).
++      // longer (1.0.2 left the flag set, and the game got no buttons from then on), and the
++      // game gets a failure (1.0.2 returned the uninitialized result).
 +      XELOGW("System UI: a dialog could not be shown on the UI thread; released");
 +      kernel_state()->xam_state()->is_xam_dialog_present_.store(false);
++      result = X_ERROR_FUNCTION_FAILED;
        delete dialog;
      }
      // dialog should be deleted at this point!
-@@ -145,6 +150,10 @@ X_RESULT xeXamDispatchDialogEx(
+@@ -144,7 +152,14 @@ X_RESULT xeXamDispatchDialogEx(
+             [&dialog, &fence]() { dialog->Then(&fence); })) {
        fence.Wait();
        kernel_state()->xam_state()->is_xam_dialog_present_.store(false);
++      XELOGW("System UI: dialog closed, result {:08X}", uint32_t(result));  // fix 26
      } else {
 +      // Xbox360PS5 (fix 26): the dialog was not shown; it holds the system interface no
-+      // longer (1.0.2 left the flag set, and the game got no buttons from then on).
++      // longer (1.0.2 left the flag set, and the game got no buttons from then on), and the
++      // game gets a failure (1.0.2 returned the uninitialized result).
 +      XELOGW("System UI: a dialog could not be shown on the UI thread; released");
 +      kernel_state()->xam_state()->is_xam_dialog_present_.store(false);
++      result = X_ERROR_FUNCTION_FAILED;
        delete dialog;
      }
      // dialog should be deleted at this point!
-@@ -723,6 +732,7 @@ dword_result_t XamShowDeviceSelectorUI_entry(
+@@ -373,6 +388,20 @@ static dword_result_t XamShowMessageBoxUi(
+     buttons.push_back("OK");
+   }
+ 
++  // Xbox360PS5 (fix 26, diagnostic): what the game asks (Handball 16 shows one with OK before
++  // the device selector).
++  {
++    std::string listed;
++    for (const auto& button : buttons) {
++      listed += listed.empty() ? "" : ", ";
++      listed += button;
++    }
++    XELOGW("Message box: user {} title '{}' text '{}' buttons [{}] active {} flags {:08X}{}",
++           uint32_t(user_index), title.substr(0, 120), text.substr(0, 240), listed,
++           uint32_t(active_button), uint32_t(flags),
++           overlapped ? " (overlapped)" : "");
++  }
++
+   X_RESULT result;
+   if (cvars::headless) {
+     // Auto-pick the focused button.
+@@ -420,6 +449,7 @@ static dword_result_t XamShowMessageBoxUi(
+     } else {
+       auto close = [result_ptr](MessageBoxDialog* dialog) -> X_RESULT {
+         result_ptr->ButtonPressed = dialog->chosen_button();
++        XELOGW("Message box: button {} chosen", dialog->chosen_button());  // fix 26
+         kernel_state()->xam_state()->is_xam_dialog_present_.store(false);
+         return X_ERROR_SUCCESS;
+       };
+@@ -723,6 +753,7 @@ dword_result_t XamShowDeviceSelectorUI_entry(
      if (button >= devices.size()) {
        XELOGW("Storage: the game asked where to save (user {}); cancelled",
               user);
@@ -1154,7 +1191,7 @@ index bf19396..314aa03 100644
        return X_ERROR_CANCELLED;
      }
  
-@@ -730,6 +740,7 @@ dword_result_t XamShowDeviceSelectorUI_entry(
+@@ -730,6 +761,7 @@ dword_result_t XamShowDeviceSelectorUI_entry(
      *device_id_ptr = static_cast<uint32_t>(device_info->device_id);
      XELOGW("Storage: the game asked where to save (user {}); {} chosen", user,
             to_utf8(device_info->name));

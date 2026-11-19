@@ -111,6 +111,12 @@ int main() {
   CHECK(Count(state_h, "SystemUiFlag is_xam_dialog_present_;") == 1);
   CHECK(Count(state_cc, "is_xam_dialog_present_.set_hook(") == 1);
   CHECK(Count(ui_cc, "a dialog could not be shown on the UI thread; released") == 2);
+  // ... and the game gets a failure there, not 1.0.2's uninitialized result; every closed
+  // dialog's result and the message box's text and button are logged.
+  CHECK(Count(ui_cc, "      result = X_ERROR_FUNCTION_FAILED;\n      delete dialog;") == 2);
+  CHECK(Count(ui_cc, "System UI: dialog closed, result {:08X}") == 2);
+  CHECK(Count(ui_cc, "Message box: user {} title '{}' text '{}' buttons [{}]") == 1);
+  CHECK(Count(ui_cc, "Message box: button {} chosen") == 1);
   CHECK(Count(game, "SystemUiFlag::kGuide, ui_now") == 1);
   CHECK(Count(game, "is_xam_dialog_present_.store(ui_now)") == 0);
 
