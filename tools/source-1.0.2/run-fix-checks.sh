@@ -13,6 +13,7 @@ checks=(
   check-guide-network.cpp          # fix 22
   check-english-fallback.cpp       # fix 23
   check-stall-dump.cpp             # fix 24
+  check-save-devices.cpp           # fix 27
 )
 mkdir -p "$tree/tools" "$tree/build/fix-checks"
 status=0

@@ -1,0 +1,1309 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.cc b/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.cc
+index 2baadbe..9c2508b 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.cc
+@@ -34,6 +34,8 @@ namespace xam {
+ 
+ static std::string_view kSpaFilename = "spa.bin";
+ 
++const char* external_storage_root = nullptr;
++
+ namespace {
+ 
+ // Read-only slices share an open guest file. This avoids copying a nested
+@@ -175,7 +177,11 @@ std::unique_ptr<ContentPackage> ContentManager::OpenPackage(
+     return nullptr;
+   }
+ 
+-  return OpenPackage(host_path);
++  auto package = OpenPackage(host_path);
++  if (package) {
++    package->set_device_id(MetadataDeviceId(data.device_id));
++  }
++  return package;
+ }
+ 
+ std::unique_ptr<ContentPackage> ContentManager::CreatePackage(
+@@ -186,10 +192,12 @@ std::unique_ptr<ContentPackage> ContentManager::CreatePackage(
+ 
+   return package->GetContainerHeader() ? std::move(package) : nullptr;
+ #else
+-  return std::make_unique<ContentPackageDirectory>(
++  auto package = std::make_unique<ContentPackageDirectory>(
+       kernel_state_->file_system(), GeneratePackageDevicePath(host_path),
+       host_path, data, kernel_state_->GetExecutionInfo(),
+       kernel_state_->xam_state()->spa_info());
++  package->set_device_id(MetadataDeviceId(data.device_id));
++  return package;
+ #endif
+ }
+ 
+@@ -274,19 +282,17 @@ std::unique_ptr<vfs::Device> ContentManager::MountPackageUnregistered(
+ }
+ 
+ std::filesystem::path ContentManager::ResolvePackageRoot(
+-    uint64_t xuid, uint32_t title_id, XContentType content_type) const {
++    const std::filesystem::path& root, uint64_t xuid, uint32_t title_id,
++    XContentType content_type) const {
+   if (title_id == kCurrentlyRunningTitleId) {
+     title_id = kernel_state_->title_id();
+   }
+ 
+-  auto xuid_str = fmt::format("{:016X}", xuid);
+-  auto title_id_str = fmt::format("{:08X}", title_id);
+-  auto content_type_str =
+-      fmt::format("{:08X}", static_cast<uint32_t>(content_type));
+-
+   // Package root path:
+-  // content_root/title_id/content_type/
+-  return root_path_ / xuid_str / title_id_str / content_type_str;
++  // content_root/xuid/title_id/content_type/
++  // Xbox360PS5 (fix 27): content_root is the device's (DeviceRoot).
++  return storage::PackageRoot(root, xuid, title_id,
++                              static_cast<uint32_t>(content_type));
+ }
+ 
+ std::filesystem::path ContentManager::ResolvePackagePath(
+@@ -303,15 +309,16 @@ std::filesystem::path ContentManager::ResolvePackagePath(
+       used_xuid = 0;
+     }
+ 
+-    auto package_root =
+-        ResolvePackageRoot(used_xuid, title_id, data.content_type);
++    auto package_root = ResolvePackageRoot(DeviceRoot(data.device_id),
++                                           used_xuid, title_id,
++                                           data.content_type);
+     std::string final_name = xe::string_util::trim(data.file_name());
+     return package_root / xe::to_path(final_name);
+   };
+ 
+   if (data.content_type == XContentType::kPublisher) {
+-    const std::unordered_set<uint32_t> title_ids =
+-        FindPublisherTitleIds(xuid, data.title_id);
++    const std::unordered_set<uint32_t> title_ids = FindPublisherTitleIds(
++        DeviceRoot(data.device_id), xuid, data.title_id);
+ 
+     for (const auto& title_id : title_ids) {
+       auto package_path = get_package_path(title_id);
+@@ -328,7 +335,8 @@ std::filesystem::path ContentManager::ResolvePackagePath(
+ }
+ 
+ std::unordered_set<uint32_t> ContentManager::FindPublisherTitleIds(
+-    const uint64_t xuid, uint32_t base_title_id) const {
++    const std::filesystem::path& root, const uint64_t xuid,
++    uint32_t base_title_id) const {
+   if (base_title_id == kCurrentlyRunningTitleId) {
+     base_title_id = kernel_state_->title_id();
+   }
+@@ -338,8 +346,7 @@ std::unordered_set<uint32_t> ContentManager::FindPublisherTitleIds(
+       fmt::format("^{:04X}.*", static_cast<uint16_t>(base_title_id >> 16));
+   // Get all publisher entries
+   auto publisher_entries = xe::filesystem::FilterByName(
+-      xe::filesystem::ListDirectories(root_path_ /
+-                                      fmt::format("{:016X}", xuid)),
++      xe::filesystem::ListDirectories(root / fmt::format("{:016X}", xuid)),
+       std::regex(publisher_id_regex));
+ 
+   for (const auto& entry : publisher_entries) {
+@@ -367,12 +374,18 @@ std::vector<XCONTENT_DATA_INTERNAL> ContentManager::ListContent(
+     const XContentType content_type, const XContentFlag content_flags) {
+   std::vector<XCONTENT_DATA_INTERNAL> result;
+ 
++  // Xbox360PS5 (fix 27): the content of the device asked for, in its own
++  // folder; each package found reports that device. Profiles stay in the
++  // internal folder.
++  const std::filesystem::path root = DeviceRoot(device_id);
++  const uint32_t metadata_device_id = MetadataDeviceId(device_id);
++
+   std::unordered_set<uint32_t> title_ids = {title_id};
+   std::set<uint64_t> xuids = {xuid};
+   std::set<XContentType> content_types = {content_type};
+ 
+   if (content_type == XContentType::kPublisher) {
+-    title_ids = FindPublisherTitleIds(xuid, title_id);
++    title_ids = FindPublisherTitleIds(root, xuid, title_id);
+   }
+ 
+   if (content_type == XContentType::kProfile) {
+@@ -382,7 +395,8 @@ std::vector<XCONTENT_DATA_INTERNAL> ContentManager::ListContent(
+ 
+     for (const auto& xuid : xuid_dir) {
+       auto package_root =
+-          ResolvePackageRoot(xe::string_util::from_string<uint64_t>(
++          ResolvePackageRoot(root_path_,
++                             xe::string_util::from_string<uint64_t>(
+                                  xe::path_to_utf8(xuid.name), true),
+                              kDashboardID, content_type);
+       auto file_infos = xe::filesystem::ListFiles(package_root);
+@@ -400,7 +414,7 @@ std::vector<XCONTENT_DATA_INTERNAL> ContentManager::ListContent(
+   if (content_flags & XContentFlag::kEnumerateAllProfiles ||
+       content_type == XContentType::kAll) {
+     const auto xuid_dir = xe::filesystem::FilterByName(
+-        xe::filesystem::ListDirectories(root_path_),
++        xe::filesystem::ListDirectories(root),
+         std::regex("[A-Fa-f0-9]{16}"));
+ 
+     for (const auto& xuid : xuid_dir) {
+@@ -433,7 +447,7 @@ std::vector<XCONTENT_DATA_INTERNAL> ContentManager::ListContent(
+   // Search for all titles. Used in 1888 dashboard
+   if (title_id == kDashboardID && xuid == 0) {
+     const auto common_titles = xe::filesystem::FilterByName(
+-        xe::filesystem::ListDirectories(root_path_ / kCommonContentDirectory),
++        xe::filesystem::ListDirectories(root / kCommonContentDirectory),
+         std::regex("[A-Fa-f0-9]{8}"));
+ 
+     for (const auto& title : common_titles) {
+@@ -447,7 +461,8 @@ std::vector<XCONTENT_DATA_INTERNAL> ContentManager::ListContent(
+       for (const XContentType content_type : content_types) {
+         // Search path:
+         // content_root/xuid/title_id/type_name/*
+-        auto package_root = ResolvePackageRoot(xuid, title_id, content_type);
++        auto package_root =
++            ResolvePackageRoot(root, xuid, title_id, content_type);
+         auto file_infos = xe::filesystem::ListFiles(package_root);
+ 
+         for (const auto& file_info : file_infos) {
+@@ -456,6 +471,7 @@ std::vector<XCONTENT_DATA_INTERNAL> ContentManager::ListContent(
+             if (!package->IsValidPackage()) {
+               continue;
+             }
++            package->set_device_id(metadata_device_id);
+             result.emplace_back(package->GetContentMetadata());
+           }
+         }
+@@ -559,6 +575,7 @@ X_RESULT ContentManager::OpenContent(const std::string_view root_name,
+   if (!package) {
+     return X_ERROR_FILE_NOT_FOUND;
+   }
++  package->set_device_id(MetadataDeviceId(data.device_id));
+ 
+   content_license =
+       GetContentLicense(package->GetContentMetadata().license_mask);
+@@ -748,9 +765,18 @@ void ContentManager::CloseOpenedFilesFromContent(
+   }
+ }
+ 
+-uint64_t ContentManager::GetContentTotalSpace() const {
++// Xbox360PS5 (fix 27): a drive's own space (at its mount point: its saves
++// folder may not exist yet), the internal folder's for the rest.
++std::filesystem::path ContentManager::SpacePath(uint32_t device_id) const {
++  if (!storage::FindSlot(device_id)) return root_path_;
++  const auto devices = StorageDevices();
++  const storage::Device* device = storage::Find(devices, device_id);
++  return device ? std::filesystem::path(device->mount) : root_path_;
++}
++
++uint64_t ContentManager::GetContentTotalSpace(uint32_t device_id) const {
+   std::error_code ec;
+-  const auto drive_stats = std::filesystem::space(root_path_, ec);
++  const auto drive_stats = std::filesystem::space(SpacePath(device_id), ec);
+   if (ec) {
+     XELOGW("{}: {} (:08X)", __func__, ec.message(), ec.value());
+     return 0;
+@@ -759,9 +785,9 @@ uint64_t ContentManager::GetContentTotalSpace() const {
+   return drive_stats.capacity;
+ }
+ 
+-uint64_t ContentManager::GetContentFreeSpace() const {
++uint64_t ContentManager::GetContentFreeSpace(uint32_t device_id) const {
+   std::error_code ec;
+-  const auto drive_stats = std::filesystem::space(root_path_, ec);
++  const auto drive_stats = std::filesystem::space(SpacePath(device_id), ec);
+   if (ec) {
+     XELOGW("{}: {} (:08X)", __func__, ec.message(), ec.value());
+     return 0;
+@@ -770,6 +796,53 @@ uint64_t ContentManager::GetContentFreeSpace() const {
+   return drive_stats.free;
+ }
+ 
++void ContentManager::ScanStorageDevicesLocked() const {
++  std::vector<std::string> skipped;
++  storage::PosixFs fs;
++  auto devices = storage::Scan(
++      fs, root_path_,
++      external_storage_root ? std::filesystem::path(external_storage_root)
++                            : std::filesystem::path(),
++      &skipped);
++  bool changed =
++      !storage_scanned_ || devices.size() != storage_devices_.size();
++  for (size_t i = 0; !changed && i < devices.size(); ++i) {
++    changed = devices[i].id != storage_devices_[i].id ||
++              devices[i].root != storage_devices_[i].root;
++  }
++  if (changed) {
++    XELOGW("Storage: devices {}", storage::Describe(devices));
++    for (const auto& mount : skipped) {
++      XELOGW("Storage: {} is mounted but not writable; not offered", mount);
++    }
++  }
++  storage_devices_ = std::move(devices);
++  storage_scanned_ = true;
++}
++
++void ContentManager::RefreshStorageDevices() {
++  std::lock_guard<std::mutex> guard(storage_lock_);
++  ScanStorageDevicesLocked();
++}
++
++std::vector<storage::Device> ContentManager::StorageDevices() const {
++  std::lock_guard<std::mutex> guard(storage_lock_);
++  if (!storage_scanned_) ScanStorageDevicesLocked();
++  return storage_devices_;
++}
++
++std::filesystem::path ContentManager::DeviceRoot(uint32_t device_id) const {
++  // The hard drive and IDs of no drive slot need no scan (profiles and title
++  // updates are read before any game asks for a drive).
++  if (!storage::FindSlot(device_id)) return root_path_;
++  return storage::RootFor(StorageDevices(), device_id);
++}
++
++uint32_t ContentManager::MetadataDeviceId(uint32_t device_id) const {
++  if (!storage::FindSlot(device_id)) return storage::kInternalDeviceId;
++  return storage::MetadataId(StorageDevices(), device_id);
++}
++
+ bool ContentManager::UpdateSpaData(vfs::Entry* spa_file_update) {
+   vfs::File* file;
+   if (spa_file_update->Open(vfs::FileAccess::kFileReadData, &file) !=
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.h b/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.h
+index 448c273..fda80cf 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.h
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.h
+@@ -12,6 +12,7 @@
+ 
+ #include <filesystem>
+ #include <memory>
++#include <mutex>
+ #include <string>
+ #include <unordered_map>
+ #include <unordered_set>
+@@ -24,6 +25,7 @@
+ #include "xenia/vfs/entry.h"
+ #include "xenia/xbox.h"
+ 
++#include "xenia/kernel/xam/storage_devices.h"
+ #include "xenia/kernel/xam/xcontent/xcontent.h"
+ #include "xenia/kernel/xam/xcontent/xcontent_package.h"
+ 
+@@ -41,6 +43,11 @@ namespace xam {
+ 
+ static std::string_view kCommonContentDirectory = "0000000000000000";
+ 
++// Xbox360PS5 (fix 27): where the console mounts drives ("/mnt"), set by the
++// title. Each writable drive there is a storage device of its own
++// (storage_devices.h); without it the internal folder is the only one.
++extern const char* external_storage_root;
++
+ class ContentManager {
+  public:
+   ContentManager(KernelState* kernel_state,
+@@ -112,8 +119,21 @@ class ContentManager {
+ 
+   void CloseOpenedFilesFromContent(const std::string_view root_name);
+ 
+-  uint64_t GetContentTotalSpace() const;
+-  uint64_t GetContentFreeSpace() const;
++  // Xbox360PS5 (fix 27): the space of a device's drive (the internal folder's
++  // for the hard drive and any device that is not present).
++  uint64_t GetContentTotalSpace(
++      uint32_t device_id = storage::kInternalDeviceId) const;
++  uint64_t GetContentFreeSpace(
++      uint32_t device_id = storage::kInternalDeviceId) const;
++
++  // Xbox360PS5 (fix 27): the storage devices, the internal folder first. The
++  // drives are looked for once on first use and again on each Refresh (when a
++  // game asks where to save or lists the devices), so a drive plugged in
++  // later shows up then.
++  void RefreshStorageDevices();
++  std::vector<storage::Device> StorageDevices() const;
++  // The saves root of a device (storage::RootFor).
++  std::filesystem::path DeviceRoot(uint32_t device_id) const;
+ 
+   X_STATUS InstallContentPackage(const ContentPackage* package,
+                                  const std::filesystem::path& installation_path,
+@@ -130,13 +150,16 @@ class ContentManager {
+                                const std::string_view root_path = "");
+ 
+   std::filesystem::path ResolvePackageRoot(
+-      const uint64_t xuid, const uint32_t title_id,
+-      const XContentType content_type) const;
++      const std::filesystem::path& root, const uint64_t xuid,
++      const uint32_t title_id, const XContentType content_type) const;
+   std::filesystem::path ResolvePackagePath(const uint64_t xuid,
+                                            const XCONTENT_DATA_INTERNAL& data);
+   std::unordered_set<uint32_t> FindPublisherTitleIds(
+-      const uint64_t xuid,
++      const std::filesystem::path& root, const uint64_t xuid,
+       uint32_t base_title_id = kCurrentlyRunningTitleId) const;
++  // The device ID a package of device_id reports (storage::MetadataId).
++  uint32_t MetadataDeviceId(uint32_t device_id) const;
++  std::filesystem::path SpacePath(uint32_t device_id) const;
+ 
+   bool UpdateSpaData(vfs::Entry* spa_file_update);
+ 
+@@ -149,6 +172,12 @@ class ContentManager {
+   xe::global_critical_region global_critical_region_;
+   std::unordered_map<std::string, std::unique_ptr<ContentPackage>>
+       mounted_packages_;
++
++  // Xbox360PS5 (fix 27): the last scan (storage_devices.h).
++  mutable std::mutex storage_lock_;
++  mutable bool storage_scanned_ = false;
++  mutable std::vector<storage::Device> storage_devices_;
++  void ScanStorageDevicesLocked() const;
+ };
+ 
+ }  // namespace xam
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/storage_devices.h b/.deps/xenia-canary/src/xenia/kernel/xam/storage_devices.h
+new file mode 100644
+index 0000000..095b020
+--- /dev/null
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/storage_devices.h
+@@ -0,0 +1,385 @@
++/**
++ ******************************************************************************
++ * Xenia : Xbox 360 Emulator Research Project                                 *
++ ******************************************************************************
++ * Released under the BSD license - see LICENSE in the root for more details. *
++ ******************************************************************************
++ */
++
++// Xbox360PS5 (fix 27): the storage devices a game can keep its saves on.
++//
++// The internal folder (the content root the title gives the emulator,
++// /data/homebrew/PPSA50011/saves) is the hard drive, device 1, as before.
++// Each writable drive mounted at one of the console's mount points
++// (/mnt/ext0.., /mnt/usb0..) is a device of its own, with an ID fixed by
++// its mount point, and keeps its saves in <drive>/PS5X360/saves, laid out
++// as the internal folder (<xuid>/<title>/<content type>/<name>).
++//
++// Header only and free of the rest of the core, so that
++// tools/check-save-devices.cpp drives the same decisions with a fake
++// filesystem: the scan, the folder of each device, and what the "where to
++// save" window offers.
++
++#ifndef XENIA_KERNEL_XAM_STORAGE_DEVICES_H_
++#define XENIA_KERNEL_XAM_STORAGE_DEVICES_H_
++
++#include <fcntl.h>
++#include <sys/stat.h>
++#include <unistd.h>
++
++#include <cstdint>
++#include <cstdio>
++#include <filesystem>
++#include <string>
++#include <string_view>
++#include <system_error>
++#include <vector>
++
++namespace xe {
++namespace kernel {
++namespace xam {
++namespace storage {
++
++enum class Kind { kInternal, kExtended, kUsb };
++
++inline constexpr uint32_t kInternalDeviceId = 1;  // DummyDeviceId::HDD
++inline constexpr uint32_t kDiscDeviceId = 2;      // DummyDeviceId::ODD
++
++// A mount point the console may have. The device ID belongs to the mount
++// point, so a drive keeps its ID whatever else is plugged in, and a game that
++// remembers it finds the drive again. The guest name is what
++// XamContentGetDeviceName and XamContentGetDeviceData give (27 characters at
++// most).
++struct Slot {
++  const char* mount;
++  uint32_t device_id;
++  Kind kind;
++  const char16_t* guest_name;
++};
++
++inline constexpr Slot kSlots[] = {
++    {"ext0", 3, Kind::kExtended, u"Extended Storage (ext0)"},
++    {"ext1", 4, Kind::kExtended, u"Extended Storage (ext1)"},
++    {"ext2", 5, Kind::kExtended, u"Extended Storage (ext2)"},
++    {"ext3", 6, Kind::kExtended, u"Extended Storage (ext3)"},
++    {"usb0", 7, Kind::kUsb, u"USB Storage (usb0)"},
++    {"usb1", 8, Kind::kUsb, u"USB Storage (usb1)"},
++    {"usb2", 9, Kind::kUsb, u"USB Storage (usb2)"},
++    {"usb3", 10, Kind::kUsb, u"USB Storage (usb3)"},
++    {"usb4", 11, Kind::kUsb, u"USB Storage (usb4)"},
++    {"usb5", 12, Kind::kUsb, u"USB Storage (usb5)"},
++    {"usb6", 13, Kind::kUsb, u"USB Storage (usb6)"},
++    {"usb7", 14, Kind::kUsb, u"USB Storage (usb7)"},
++};
++inline constexpr size_t kSlotCount = sizeof(kSlots) / sizeof(kSlots[0]);
++
++inline const Slot* FindSlot(uint32_t device_id) {
++  for (const auto& slot : kSlots) {
++    if (slot.device_id == device_id) return &slot;
++  }
++  return nullptr;
++}
++
++// Where a drive keeps its saves.
++inline std::filesystem::path SaveRoot(const std::filesystem::path& mount) {
++  return mount / "PS5X360" / "saves";
++}
++
++// A package's folder below a device's saves root (ContentManager's layout).
++inline std::filesystem::path PackageRoot(const std::filesystem::path& root,
++                                         uint64_t xuid, uint32_t title_id,
++                                         uint32_t content_type) {
++  char xuid_text[17], title_text[9], type_text[9];
++  std::snprintf(xuid_text, sizeof(xuid_text), "%016llX",
++                static_cast<unsigned long long>(xuid));
++  std::snprintf(title_text, sizeof(title_text), "%08X", title_id);
++  std::snprintf(type_text, sizeof(type_text), "%08X", content_type);
++  return root / xuid_text / title_text / type_text;
++}
++
++struct Device {
++  uint32_t id = kInternalDeviceId;
++  Kind kind = Kind::kInternal;
++  std::string mount;           // "/mnt/usb0"; empty for the internal folder
++  std::string name;            // "usb0"; empty for the internal folder
++  std::filesystem::path root;  // where its saves are
++  bool space_known = false;
++  uint64_t capacity = 0;
++  uint64_t free = 0;
++};
++
++// What Scan needs from the filesystem (PosixFs below on the console, a fake
++// in the checks):
++//   bool IsMountPoint(const path&)   a directory that is a filesystem's root
++//   bool IsDirectory(const path&)
++//   bool ProbeWritable(const path&)  a file can be made in this directory
++//                                    (and is removed again)
++//   bool Space(const path&, uint64_t& capacity, uint64_t& free)
++//   std::vector<std::string> ListDirectories(const path&)
++//
++// The internal folder always comes first. A slot counts only when its mount
++// point is a mount point: the console keeps empty, read-only placeholders
++// (/mnt/usb3 with nothing in that port), and writing there would put saves on
++// the system's own filesystem. The write probe runs in the saves folder when
++// the drive has one, else at the drive's top: the folder itself is made only
++// when a game creates a save there. skipped gets each mounted drive that is
++// not writable.
++template <class Fs>
++std::vector<Device> Scan(Fs& fs, const std::filesystem::path& internal_root,
++                         const std::filesystem::path& mount_root,
++                         std::vector<std::string>* skipped = nullptr) {
++  std::vector<Device> devices;
++  Device internal;
++  internal.root = internal_root;
++  internal.space_known =
++      fs.Space(internal_root, internal.capacity, internal.free);
++  devices.push_back(internal);
++  if (mount_root.empty()) return devices;
++  for (const auto& slot : kSlots) {
++    const auto mount = mount_root / slot.mount;
++    if (!fs.IsMountPoint(mount)) continue;
++    Device device;
++    device.id = slot.device_id;
++    device.kind = slot.kind;
++    device.mount = mount.string();
++    device.name = slot.mount;
++    device.root = SaveRoot(mount);
++    const auto probe = fs.IsDirectory(device.root) ? device.root : mount;
++    if (!fs.ProbeWritable(probe)) {
++      if (skipped) skipped->push_back(device.mount);
++      continue;
++    }
++    device.space_known = fs.Space(mount, device.capacity, device.free);
++    devices.push_back(device);
++  }
++  return devices;
++}
++
++inline const Device* Find(const std::vector<Device>& devices, uint32_t id) {
++  for (const auto& device : devices) {
++    if (device.id == id) return &device;
++  }
++  return nullptr;
++}
++
++// The saves root of a package that names device_id: that drive's while it is
++// present, else the internal folder (the only answer before fix 27, for every
++// device: also for 0 and for IDs a game makes up).
++inline std::filesystem::path RootFor(const std::vector<Device>& devices,
++                                     uint32_t device_id) {
++  if (const Device* device = Find(devices, device_id)) return device->root;
++  return devices.empty() ? std::filesystem::path() : devices.front().root;
++}
++
++// The device ID a package found or created for device_id reports back to the
++// game (XCONTENT_DATA.device_id): a present drive's own, else the hard
++// drive's, as before.
++inline uint32_t MetadataId(const std::vector<Device>& devices,
++                           uint32_t device_id) {
++  return Find(devices, device_id) ? device_id : kInternalDeviceId;
++}
++
++// The devices whose content an enumeration of device_id lists: every device
++// for 0, the one asked for while present, none for the disc or a drive that
++// is gone.
++inline std::vector<uint32_t> ListFor(const std::vector<Device>& devices,
++                                     uint32_t device_id) {
++  std::vector<uint32_t> ids;
++  for (const auto& device : devices) {
++    if (!device_id || device.id == device_id) ids.push_back(device.id);
++  }
++  return ids;
++}
++
++inline bool IsHexName(std::string_view name, size_t length) {
++  if (name.size() != length) return false;
++  for (char c : name) {
++    const bool hex = (c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') ||
++                     (c >= 'a' && c <= 'f');
++    if (!hex) return false;
++  }
++  return true;
++}
++
++// Whether a device already keeps something of this title (any profile's, or
++// the common folder's).
++template <class Fs>
++bool HoldsTitle(Fs& fs, const Device& device, uint32_t title_id) {
++  char title_text[9];
++  std::snprintf(title_text, sizeof(title_text), "%08X", title_id);
++  for (const auto& name : fs.ListDirectories(device.root)) {
++    if (!IsHexName(name, 16)) continue;
++    if (fs.IsDirectory(device.root / name / title_text)) return true;
++  }
++  return false;
++}
++
++// What the "where to save" window offers.
++//   shown  the devices offered (indices into the scan), in the scan's order
++//   focus  the button selected first (index into shown): the first device
++//          that already keeps this title's saves, else the first one
++//   list   more than one device: the list of drives; one: the window of
++//          1.0.2 (that device and Cancel)
++// A device with less free space than the game asked for is left out, unless
++// that leaves none: then all are offered, as before, and the game reports the
++// full drive itself. A device whose free space is unknown is offered.
++struct Prompt {
++  std::vector<size_t> shown;
++  size_t focus = 0;
++  bool list = false;
++};
++
++template <class HoldsTitleFn>
++Prompt Decide(const std::vector<Device>& devices, uint64_t requested,
++              HoldsTitleFn holds_title) {
++  Prompt prompt;
++  for (size_t i = 0; i < devices.size(); ++i) {
++    const Device& device = devices[i];
++    if (!requested || !device.space_known || device.free >= requested) {
++      prompt.shown.push_back(i);
++    }
++  }
++  if (prompt.shown.empty()) {
++    for (size_t i = 0; i < devices.size(); ++i) prompt.shown.push_back(i);
++  }
++  for (size_t k = 0; k < prompt.shown.size(); ++k) {
++    if (holds_title(devices[prompt.shown[k]])) {
++      prompt.focus = k;
++      break;
++    }
++  }
++  prompt.list = prompt.shown.size() > 1;
++  return prompt;
++}
++
++// The device a button stands for (index into the scan), or -1 for Cancel and
++// anything past it.
++inline int Chosen(const Prompt& prompt, uint32_t button) {
++  return button < prompt.shown.size() ? static_cast<int>(prompt.shown[button])
++                                      : -1;
++}
++
++// A translated text with its one "%s" replaced. Never a printf format: the
++// text may come from a language file.
++inline std::string Fill(std::string_view text, std::string_view value) {
++  const size_t at = text.find("%s");
++  if (at == std::string_view::npos) {
++    return std::string(text) + " " + std::string(value);
++  }
++  return std::string(text.substr(0, at)) + std::string(value) +
++         std::string(text.substr(at + 2));
++}
++
++// "16.0" for 16 GB, "931" from 100 GB up (decimal gigabytes, as the PS5's
++// own storage screens).
++inline std::string Gigabytes(uint64_t bytes) {
++  char text[32];
++  const double gigabytes = static_cast<double>(bytes) / 1e9;
++  std::snprintf(text, sizeof(text), gigabytes < 100 ? "%.1f" : "%.0f",
++                gigabytes);
++  return text;
++}
++
++// A device's button. tr translates the English text (UiText). One device:
++// "Hard drive" as in 1.0.2, or the drive's name. Several: each with its free
++// space when known.
++template <class Tr>
++std::string Label(const Device& device, bool several, Tr tr) {
++  std::string label;
++  switch (device.kind) {
++    case Kind::kInternal:
++      label = several ? tr("Console storage") : tr("Hard drive");
++      break;
++    case Kind::kExtended:
++      label = Fill(tr("Extended storage %s"), device.name);
++      break;
++    case Kind::kUsb:
++      label = Fill(tr("USB drive %s"), device.name);
++      break;
++  }
++  if (several && device.space_known) {
++    label += " \xE2\x80\x93 " + Fill(tr("%s GB free"), Gigabytes(device.free));
++  }
++  return label;
++}
++
++// Every text of the window that goes through UiText: the title translates
++// each (CoreUiText in canary_game_main.cpp; the host check finds them there).
++inline constexpr const char* kUiTexts[] = {
++    "Where should the game save?",
++    "The game asks where to keep its saved data.",
++    "Each drive keeps its saves in its own PS5X360/saves folder.",
++    "Hard drive",
++    "Console storage",
++    "Extended storage %s",
++    "USB drive %s",
++    "%s GB free",
++    "Cancel",
++};
++
++// One line for the log: each device's ID, folder and free space.
++inline std::string Describe(const std::vector<Device>& devices) {
++  std::string text;
++  for (const auto& device : devices) {
++    if (!text.empty()) text += ", ";
++    text += std::to_string(device.id) + " " + device.root.string();
++    if (device.space_known) text += " (" + Gigabytes(device.free) + " GB free)";
++  }
++  return text;
++}
++
++// The console's filesystem (also the host's, for the checks).
++struct PosixFs {
++  bool IsMountPoint(const std::filesystem::path& path) {
++    struct stat self {}, parent {};
++    if (::stat(path.c_str(), &self) != 0 || !S_ISDIR(self.st_mode)) {
++      return false;
++    }
++    if (::stat((path / "..").c_str(), &parent) != 0) return false;
++    // Another filesystem than its parent's; or "/", its own parent.
++    return self.st_dev != parent.st_dev || self.st_ino == parent.st_ino;
++  }
++  bool IsDirectory(const std::filesystem::path& path) {
++    std::error_code error;
++    return std::filesystem::is_directory(path, error);
++  }
++  bool ProbeWritable(const std::filesystem::path& directory) {
++    const auto probe = directory / ".ps5x360-write-test";
++    const int file =
++        ::open(probe.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
++    if (file < 0) return false;
++    const char byte = 0;
++    bool written = ::write(file, &byte, 1) == 1;
++    written = ::close(file) == 0 && written;
++    ::unlink(probe.c_str());
++    return written;
++  }
++  bool Space(const std::filesystem::path& path, uint64_t& capacity,
++             uint64_t& free) {
++    std::error_code error;
++    const auto space = std::filesystem::space(path, error);
++    if (error) return false;
++    capacity = space.capacity;
++    free = space.available;
++    return true;
++  }
++  std::vector<std::string> ListDirectories(const std::filesystem::path& path) {
++    std::vector<std::string> names;
++    std::error_code error;
++    for (std::filesystem::directory_iterator entry(path, error), end;
++         !error && entry != end; entry.increment(error)) {
++      std::error_code type_error;
++      if (entry->is_directory(type_error)) {
++        names.push_back(entry->path().filename().string());
++      }
++    }
++    return names;
++  }
++};
++
++}  // namespace storage
++}  // namespace xam
++}  // namespace kernel
++}  // namespace xe
++
++#endif  // XENIA_KERNEL_XAM_STORAGE_DEVICES_H_
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_content.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_content.cc
+index 0585f80..f67bf5f 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_content.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_content.cc
+@@ -218,7 +218,9 @@ dword_result_t XamContentCreateEnumeratorInternal_entry(
+ 
+   std::vector<XCONTENT_DATA_INTERNAL> enumerated_content{};
+ 
+-  if (!device_info || device_info->device_id == DummyDeviceId::HDD) {
++  // Xbox360PS5 (fix 27): the hard drive and each drive present (all of them
++  // for device 0, else the one asked for), each in its own folder.
++  if (!device_info || device_info->device_type != DeviceType::ODD) {
+     std::vector<uint64_t> xuids_to_enumerate = {};
+     if (xuid) {
+       xuids_to_enumerate.push_back(xuid);
+@@ -228,16 +230,26 @@ dword_result_t XamContentCreateEnumeratorInternal_entry(
+       xuids_to_enumerate.push_back(0);  // Common content
+     }
+ 
+-    for (const auto& xuid : xuids_to_enumerate) {
+-      auto user_enumerated_data =
+-          kernel_state()->content_manager()->ListContent(
+-              static_cast<uint32_t>(DummyDeviceId::HDD), xuid, title,
+-              static_cast<XContentType>(content_type.value()),
+-              static_cast<XContentFlag>(content_flags.value()));
++    std::vector<uint32_t> devices_to_enumerate;
++    for (const auto& storage_device : ListStorageDevices()) {
++      const uint32_t id = static_cast<uint32_t>(storage_device->device_id);
++      if (!device_info || id == static_cast<uint32_t>(device_id)) {
++        devices_to_enumerate.push_back(id);
++      }
++    }
+ 
+-      enumerated_content.insert(enumerated_content.end(),
+-                                user_enumerated_data.cbegin(),
+-                                user_enumerated_data.cend());
++    for (const uint32_t enumerated_device_id : devices_to_enumerate) {
++      for (const auto& xuid : xuids_to_enumerate) {
++        auto user_enumerated_data =
++            kernel_state()->content_manager()->ListContent(
++                enumerated_device_id, xuid, title,
++                static_cast<XContentType>(content_type.value()),
++                static_cast<XContentFlag>(content_flags.value()));
++
++        enumerated_content.insert(enumerated_content.end(),
++                                  user_enumerated_data.cbegin(),
++                                  user_enumerated_data.cend());
++      }
+     }
+ 
+     // Remove duplicates
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_content_aggregate.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_content_aggregate.cc
+index 0cb6027..7647ca4 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_content_aggregate.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_content_aggregate.cc
+@@ -112,7 +112,7 @@ dword_result_t XamContentAggregateCreateEnumerator_entry(qword_t xuid,
+   extra->magic = kXObjSignature;
+   extra->handle = e->handle();
+ 
+-  if (!device_info || device_info->device_type == DeviceType::HDD) {
++  if (!device_info || device_info->device_type != DeviceType::ODD) {
+     // Fetch any alternate title IDs defined in the XEX header
+     // (used by games to load saves from other titles, etc)
+     std::vector<uint32_t> title_ids{title_id ? title_id.value()
+@@ -123,14 +123,20 @@ dword_result_t XamContentAggregateCreateEnumerator_entry(qword_t xuid,
+       std::ranges::copy(alt_ids, std::back_inserter(title_ids));
+     }
+ 
+-    for (const auto& title_id : title_ids) {
+-      // Get all content data.
+-      auto content_datas = kernel_state()->content_manager()->ListContent(
+-          static_cast<uint32_t>(DummyDeviceId::HDD),
+-          xuid == -1 ? 0 : static_cast<uint64_t>(xuid), title_id,
+-          content_type_enum, XContentFlag::kNone);
+-      for (const auto& content_data : content_datas) {
+-        e->AppendItem(content_data);
++    // Xbox360PS5 (fix 27): the hard drive and each drive present.
++    for (const auto& storage_device : ListStorageDevices()) {
++      const uint32_t id = static_cast<uint32_t>(storage_device->device_id);
++      if (device_info && id != static_cast<uint32_t>(device_id)) {
++        continue;
++      }
++      for (const auto& title_id : title_ids) {
++        // Get all content data.
++        auto content_datas = kernel_state()->content_manager()->ListContent(
++            id, xuid == -1 ? 0 : static_cast<uint64_t>(xuid), title_id,
++            content_type_enum, XContentFlag::kNone);
++        for (const auto& content_data : content_datas) {
++          e->AppendItem(content_data);
++        }
+       }
+     }
+   }
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_content_device.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_content_device.cc
+index 550be0a..a5b3b7d 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_content_device.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_content_device.cc
+@@ -9,7 +9,11 @@
+ 
+ #include "xenia/kernel/xam/xam_content_device.h"
+ 
++#include <array>
++#include <utility>
++
+ #include "xenia/base/logging.h"
++#include "xenia/kernel/xam/storage_devices.h"
+ #include "xenia/base/math.h"
+ #include "xenia/kernel/kernel_state.h"
+ #include "xenia/kernel/util/shim_utils.h"
+@@ -51,29 +55,85 @@ static const DummyDeviceInfo* dummy_device_infos_[] = {
+ };
+ #undef ONE_GB
+ 
++// Xbox360PS5 (fix 27): one device per drive slot (storage::kSlots), with the
++// slot's fixed ID and name. Shown to the game as memory units, the type of an
++// Xbox 360's USB storage; sizes come from the drive itself.
++template <size_t... I>
++static constexpr std::array<DummyDeviceInfo, sizeof...(I)> MakeDriveInfos(
++    std::index_sequence<I...>) {
++  return {DummyDeviceInfo{
++      static_cast<DummyDeviceId>(storage::kSlots[I].device_id), DeviceType::MU,
++      0, 0, storage::kSlots[I].guest_name}...};
++}
++static constexpr auto drive_device_infos_ =
++    MakeDriveInfos(std::make_index_sequence<storage::kSlotCount>());
++
++static const DummyDeviceInfo* DriveDeviceInfo(uint32_t device_id) {
++  for (size_t i = 0; i < storage::kSlotCount; ++i) {
++    if (storage::kSlots[i].device_id == device_id) {
++      return &drive_device_infos_[i];
++    }
++  }
++  return nullptr;
++}
++
++static std::vector<storage::Device> PresentDrives() {
++  auto* content_manager =
++      kernel_state() ? kernel_state()->content_manager() : nullptr;
++  return content_manager ? content_manager->StorageDevices()
++                         : std::vector<storage::Device>{};
++}
++
+ const DummyDeviceInfo* GetDummyDeviceInfo(uint32_t device_id) {
+   const auto& begin = std::begin(dummy_device_infos_);
+   const auto& end = std::end(dummy_device_infos_);
+   auto it = std::find_if(begin, end, [device_id](const auto& item) {
+     return static_cast<uint32_t>(item->device_id) == device_id;
+   });
+-  return it == end ? nullptr : *it;
++  if (it != end) {
++    return *it;
++  }
++  const DummyDeviceInfo* drive = DriveDeviceInfo(device_id);
++  if (!drive || !storage::Find(PresentDrives(), device_id)) {
++    return nullptr;
++  }
++  return drive;
+ }
+ 
+ std::vector<const DummyDeviceInfo*> ListStorageDevices(bool include_readonly) {
+   // FIXME: Should probably check content flags here instead.
+   std::vector<const DummyDeviceInfo*> devices;
+ 
+-  for (const auto& device_info : dummy_device_infos_) {
+-    if (!include_readonly && device_info->device_type == DeviceType::ODD) {
+-      continue;
++  // The hard drive, the drives in the scan's order, then the disc.
++  devices.emplace_back(&dummy_hdd_device_info_);
++  for (const auto& drive : PresentDrives()) {
++    if (const DummyDeviceInfo* info = DriveDeviceInfo(drive.id)) {
++      devices.emplace_back(info);
+     }
+-    devices.emplace_back(device_info);
++  }
++  if (include_readonly) {
++    devices.emplace_back(&dummy_odd_device_info_);
+   }
+ 
+   return devices;
+ }
+ 
++uint64_t DeviceTotalBytes(const DummyDeviceInfo* device_info) {
++  if (device_info->device_type == DeviceType::ODD) {
++    return device_info->total_bytes;
++  }
++  return kernel_state()->content_manager()->GetContentTotalSpace(
++      static_cast<uint32_t>(device_info->device_id));
++}
++
++uint64_t DeviceFreeBytes(const DummyDeviceInfo* device_info) {
++  if (device_info->device_type == DeviceType::ODD) {
++    return device_info->free_bytes;
++  }
++  return kernel_state()->content_manager()->GetContentFreeSpace(
++      static_cast<uint32_t>(device_info->device_id));
++}
++
+ dword_result_t XamContentGetDeviceName_entry(dword_t device_id,
+                                              dword_t name_buffer_ptr,
+                                              dword_t name_capacity) {
+@@ -149,13 +209,14 @@ dword_result_t XamContentGetDeviceData_entry(
+     if ((bytes & 0xFFFFFFFFull) < kLow) --high;
+     return (high << 32) | kLow;
+   };
++  // Xbox360PS5 (fix 27): a drive's own sizes, as the hard drive's.
+   device_data->total_bytes =
+-      device_info->device_type == DeviceType::HDD
+-          ? low_half_safe(kernel_state()->content_manager()->GetContentTotalSpace())
++      device_info->device_type != DeviceType::ODD
++          ? low_half_safe(DeviceTotalBytes(device_info))
+           : device_info->total_bytes;
+   device_data->free_bytes =
+-      device_info->device_type == DeviceType::HDD
+-          ? low_half_safe(kernel_state()->content_manager()->GetContentFreeSpace())
++      device_info->device_type != DeviceType::ODD
++          ? low_half_safe(DeviceFreeBytes(device_info))
+           : device_info->free_bytes;
+   xe::string_util::copy_and_swap_truncating(
+       device_data->name_chars, device_info->name,
+@@ -195,13 +256,14 @@ dword_result_t XamContentGetLocalizedDeviceData_entry(
+     if ((bytes & 0xFFFFFFFFull) < kLow) --high;
+     return (high << 32) | kLow;
+   };
++  // Xbox360PS5 (fix 27): a drive's own sizes, as the hard drive's.
+   device_data->total_bytes =
+-      device_info->device_type == DeviceType::HDD
+-          ? low_half_safe(kernel_state()->content_manager()->GetContentTotalSpace())
++      device_info->device_type != DeviceType::ODD
++          ? low_half_safe(DeviceTotalBytes(device_info))
+           : device_info->total_bytes;
+   device_data->free_bytes =
+-      device_info->device_type == DeviceType::HDD
+-          ? low_half_safe(kernel_state()->content_manager()->GetContentFreeSpace())
++      device_info->device_type != DeviceType::ODD
++          ? low_half_safe(DeviceFreeBytes(device_info))
+           : device_info->free_bytes;
+   // enforces name by device type
+   const std::u16string_view device_name =
+@@ -235,11 +297,17 @@ dword_result_t XamContentCreateDeviceEnumerator_entry(dword_t content_type,
+     return result;
+   }
+ 
+-  for (const auto& device_info : dummy_device_infos_) {
++  // Xbox360PS5 (fix 27): the hard drive, each drive present (looked for
++  // again now), then the disc.
++  kernel_state()->content_manager()->RefreshStorageDevices();
++  for (const auto& device_info : ListStorageDevices(true)) {
+     if (device_info->device_type == DeviceType::ODD &&
+         (content_flags & XContentFlag::kExcludeReadOnlyDevices)) {
+       continue;
+     }
++    if (e->item_count() >= static_cast<uint32_t>(max_count)) {
++      break;
++    }
+ 
+     // Copy our dummy device into the enumerator
+     auto device_data = e->AppendItem();
+@@ -248,14 +316,8 @@ dword_result_t XamContentCreateDeviceEnumerator_entry(dword_t content_type,
+       device_data->device_id = static_cast<uint32_t>(device_info->device_id);
+       device_data->device_type =
+           static_cast<uint32_t>(device_info->device_type);
+-      device_data->total_bytes =
+-          device_info->device_type == DeviceType::HDD
+-              ? kernel_state()->content_manager()->GetContentTotalSpace()
+-              : device_info->total_bytes;
+-      device_data->free_bytes =
+-          device_info->device_type == DeviceType::HDD
+-              ? kernel_state()->content_manager()->GetContentFreeSpace()
+-              : device_info->free_bytes;
++      device_data->total_bytes = DeviceTotalBytes(device_info);
++      device_data->free_bytes = DeviceFreeBytes(device_info);
+       xe::string_util::copy_and_swap_truncating(
+           device_data->name_chars, device_info->name,
+           xe::countof(device_data->name_chars));
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_content_device.h b/.deps/xenia-canary/src/xenia/kernel/xam/xam_content_device.h
+index d5ce5b0..68d414e 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_content_device.h
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_content_device.h
+@@ -42,9 +42,15 @@ struct DummyDeviceInfo {
+   const std::u16string_view name;
+ };
+ 
++// Xbox360PS5 (fix 27): besides the hard drive and the disc, each writable
++// drive the console has mounted (storage_devices.h), while it is present.
+ const DummyDeviceInfo* GetDummyDeviceInfo(uint32_t device_id);
+ std::vector<const DummyDeviceInfo*> ListStorageDevices(
+     bool include_readonly = false);
++// The size and free space a device reports: its drive's, the internal
++// folder's for the hard drive, the fixed figures for the disc.
++uint64_t DeviceTotalBytes(const DummyDeviceInfo* device_info);
++uint64_t DeviceFreeBytes(const DummyDeviceInfo* device_info);
+ 
+ }  // namespace xam
+ }  // namespace kernel
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
+index bf19396..3b4e012 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
+@@ -8,6 +8,8 @@
+  */
+ 
+ #include "xenia/kernel/xam/xam_ui.h"
++
++#include <algorithm>
+ #if XE_PLATFORM_PS5
+ #include "xbox360ps5/title_switch.hpp"
+ #include "xbox360ps5/crash_report.hpp"
+@@ -26,6 +28,7 @@
+ #include "xenia/kernel/user_module.h"
+ #include "xenia/kernel/util/friends_util.h"
+ #include "xenia/kernel/util/shim_utils.h"
++#include "xenia/kernel/xam/storage_devices.h"
+ #include "xenia/kernel/xam/xam_content_device.h"
+ #include "xenia/kernel/xam/xam_private.h"
+ #include "xenia/ui/file_picker.h"
+@@ -684,6 +687,67 @@ dword_result_t XamShowKeyboardUI_entry(
+ }
+ DECLARE_XAM_EXPORT1(XamShowKeyboardUI, kUI, kImplemented);
+ 
++// Xbox360PS5 (fix 27): where to save, with more than one drive: one button
++// per drive, one under the other with its free space, the drive that already
++// keeps the game's saves selected first, then Cancel.
++class StorageDeviceDialog : public XamDialog {
++ public:
++  StorageDeviceDialog(xe::ui::ImGuiDrawer* imgui_drawer, std::string title,
++                      std::string description,
++                      std::vector<std::string> buttons, uint32_t focus)
++      : XamDialog(imgui_drawer),
++        title_(std::move(title)),
++        description_(std::move(description)),
++        buttons_(std::move(buttons)),
++        focus_(focus),
++        chosen_button_(static_cast<uint32_t>(buttons_.size())) {}
++
++  uint32_t chosen_button() const { return chosen_button_; }
++
++  void OnDraw(ImGuiIO& io) override {
++    bool first_draw = false;
++    if (!has_opened_) {
++      ImGui::OpenPopup(title_.c_str());
++      has_opened_ = true;
++      first_draw = true;
++    }
++    if (ImGui::BeginPopupModal(title_.c_str(), nullptr,
++                               ImGuiWindowFlags_AlwaysAutoResize)) {
++      if (description_.size()) {
++        ImGui::TextUnformatted(description_.c_str());
++      }
++      ImGui::Spacing();
++      float width = 0.0f;
++      for (const auto& button : buttons_) {
++        width = std::max(width, ImGui::CalcTextSize(button.c_str()).x);
++      }
++      width += ImGui::GetStyle().FramePadding.x * 2.0f;
++      for (size_t i = 0; i < buttons_.size(); ++i) {
++        if (first_draw && i == focus_) {
++          ImGui::SetKeyboardFocusHere();
++        }
++        if (ImGui::Button(buttons_[i].c_str(), ImVec2(width, 0.0f))) {
++          chosen_button_ = static_cast<uint32_t>(i);
++          ImGui::CloseCurrentPopup();
++          Close();
++        }
++      }
++      ImGui::Spacing();
++      ImGui::EndPopup();
++    } else {
++      Close();
++    }
++  }
++
++ private:
++  bool has_opened_ = false;
++  std::string title_;
++  std::string description_;
++  std::vector<std::string> buttons_;
++  uint32_t focus_ = 0;
++  uint32_t chosen_button_ = 0;  // Cancel until a button is pressed
++};
++
+ dword_result_t XamShowDeviceSelectorUI_entry(
+     dword_t user_index, dword_t content_type, dword_t content_flags,
+     qword_t total_requested, lpdword_t device_id_ptr,
+@@ -715,47 +779,84 @@ dword_result_t XamShowDeviceSelectorUI_entry(
+         overlapped);
+   }
+ 
++  if (kernel_state()->xam_state()->IsUIActive()) {
++    XELOGW("Storage: the game asked where to save while another system window "
++           "was open; refused");
++    return X_ERROR_ACCESS_DENIED;
++  }
++
++  // Xbox360PS5 (fix 27): every drive the game can save to (the internal
++  // folder and each writable drive mounted now), storage_devices.h. Those
++  // with less room than the game asked for are left out; the one that
++  // already keeps this game's saves is selected first.
++  auto* content_manager = kernel_state()->content_manager();
++  content_manager->RefreshStorageDevices();
++  const std::vector<storage::Device> drives =
++      content_manager->StorageDevices();
++  storage::PosixFs fs;
++  const uint32_t title_id = kernel_state()->title_id();
++  const storage::Prompt prompt = storage::Decide(
++      drives, uint64_t(total_requested),
++      [&fs, title_id](const storage::Device& drive) {
++        return storage::HoldsTitle(fs, drive, title_id);
++      });
++  std::vector<storage::Device> offered;
++  for (const size_t index : prompt.shown) {
++    offered.push_back(drives[index]);
++  }
++  XELOGW("Storage: the game asks where to save (user {}, {} bytes); offering {}",
++         uint32_t(user_index), uint64_t(total_requested),
++         storage::Describe(offered));
++
+   // Xbox360PS5: the game log says what each request got (games that ask again
+   // or say they will not save are found this way).
+-  auto close = [device_id_ptr, devices,
+-                user = uint32_t(user_index)](MessageBoxDialog* dialog) -> X_RESULT {
+-    uint32_t button = dialog->chosen_button();
+-    if (button >= devices.size()) {
++  auto choose = [device_id_ptr, offered, user = uint32_t(user_index)](
++                    uint32_t button) -> X_RESULT {
++    if (button >= offered.size()) {
+       XELOGW("Storage: the game asked where to save (user {}); cancelled",
+              user);
+       return X_ERROR_CANCELLED;
+     }
+ 
+-    const DummyDeviceInfo* device_info = devices.at(button);
+-    *device_id_ptr = static_cast<uint32_t>(device_info->device_id);
+-    XELOGW("Storage: the game asked where to save (user {}); {} chosen", user,
+-           to_utf8(device_info->name));
++    const storage::Device& drive = offered[button];
++    *device_id_ptr = drive.id;
++    const DummyDeviceInfo* device_info = GetDummyDeviceInfo(drive.id);
++    XELOGW("Storage: the game asked where to save (user {}); {} chosen ({})",
++           user, device_info ? to_utf8(device_info->name) : std::string("?"),
++           drive.root.string());
+     return X_ERROR_SUCCESS;
+   };
+ 
+-  if (kernel_state()->xam_state()->IsUIActive()) {
+-    XELOGW("Storage: the game asked where to save while another system window "
+-           "was open; refused");
+-    return X_ERROR_ACCESS_DENIED;
+-  }
+-
+   kernel_state()->xam_state()->is_xam_dialog_present_.store(true);
+ 
+   std::string title = UiText("Where should the game save?");
+   std::string desc = UiText("The game asks where to keep its saved data.");
+ 
+-  cxxopts::OptionNames buttons;
+-  for (auto& device_info : devices) {
+-    buttons.push_back(device_info->device_type == DeviceType::HDD
+-                          ? std::string(UiText("Hard drive"))
+-                          : to_utf8(device_info->name));
++  std::vector<std::string> buttons;
++  for (const auto& drive : offered) {
++    buttons.push_back(storage::Label(drive, prompt.list, UiText));
+   }
+   buttons.push_back(UiText("Cancel"));
+ 
+   const Emulator* emulator = kernel_state()->emulator();
+   xe::ui::ImGuiDrawer* imgui_drawer = emulator->imgui_drawer();
+-  return xeXamDispatchDialog<MessageBoxDialog>(
+-      new MessageBoxDialog(imgui_drawer, title, desc, buttons, 0), close,
++  if (!prompt.list) {
++    // One drive: the window of 1.0.2 ("Hard drive" and Cancel).
++    return xeXamDispatchDialog<MessageBoxDialog>(
++        new MessageBoxDialog(imgui_drawer, title, desc, buttons, 0),
++        [choose](MessageBoxDialog* dialog) {
++          return choose(dialog->chosen_button());
++        },
++        overlapped);
++  }
++  desc += "\n";
++  desc += UiText("Each drive keeps its saves in its own PS5X360/saves folder.");
++  return xeXamDispatchDialog<StorageDeviceDialog>(
++      new StorageDeviceDialog(imgui_drawer, title, desc, buttons,
++                              static_cast<uint32_t>(prompt.focus)),
++      [choose](StorageDeviceDialog* dialog) {
++        return choose(dialog->chosen_button());
++      },
+       overlapped);
+ }
+ DECLARE_XAM_EXPORT1(XamShowDeviceSelectorUI, kUI, kImplemented);
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xcontent/xcontent_package.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xcontent/xcontent_package.cc
+index e7e379a..9c1cb01 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xcontent/xcontent_package.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xcontent/xcontent_package.cc
+@@ -117,7 +117,7 @@ bool ContentPackage::RegisterRootName(string_key_insensitive root_name) {
+ XCONTENT_DATA_INTERNAL ContentPackage::GetContentMetadata() const {
+   XCONTENT_DATA_INTERNAL metadata{};
+ 
+-  metadata.device_id = 1;
++  metadata.device_id = device_id_;
+   metadata.title_id = header_.content_metadata.execution_info.title_id;
+   metadata.content_type = header_.content_metadata.content_type;
+   metadata.content_size = header_.content_metadata.content_size;
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xcontent/xcontent_package.h b/.deps/xenia-canary/src/xenia/kernel/xam/xcontent/xcontent_package.h
+index 066be50..b9ddb74 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xcontent/xcontent_package.h
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xcontent/xcontent_package.h
+@@ -62,6 +62,9 @@ class ContentPackage {
+   vfs::Device* GetDevice() const { return device_; }
+ 
+   XCONTENT_DATA_INTERNAL GetContentMetadata() const;
++  // Xbox360PS5 (fix 27): the device the package was found on or created for
++  // (GetContentMetadata's device_id; the hard drive's until set).
++  void set_device_id(uint32_t device_id) { device_id_ = device_id; }
+   const XContentContainerHeader* const GetContainerHeader() const {
+     return &header_;
+   }
+@@ -98,6 +101,7 @@ class ContentPackage {
+   vfs::Device* device_;
+   // Separate entry for license for backward compatibility
+   uint32_t license_mask_ = 0;
++  uint32_t device_id_ = 1;
+ 
+   void ComputePackageLicenseMask();
+ 
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+index 2f9b489..2575e51 100644
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -32,6 +32,7 @@ extern std::filesystem::path config_folder;  // xenia/config.cc: LoadGameConfig
+ }
+ namespace xe::kernel::xam {
+ extern const char* (*ui_text)(const char* english);  // xam_ui.cc: the system windows' text
++extern const char* external_storage_root;  // content_manager.cc: drives to save on (fix 27)
+ }
+ DECLARE_bool(storage_selection_dialog);
+ // The core's system windows (where to save, who is playing) in the emulator's language.
+@@ -42,6 +43,14 @@ static const char* CoreUiText(const char* english) {
+     {"The game asks where to keep its saved data.", "O jogo quer saber onde guardar o progresso.",
+      "El juego pregunta dónde guardar el progreso."},
+     {"Hard drive", "Disco rígido", "Disco duro"},
++    // Fix 27: where to save, with the drives plugged into the console.
++    {"Console storage", "Armazenamento do console", "Almacenamiento de la consola"},
++    {"Extended storage %s", "Armazenamento estendido %s", "Almacenamiento ampliado %s"},
++    {"USB drive %s", "Unidade USB %s", "Unidad USB %s"},
++    {"%s GB free", "%s GB livres", "%s GB libres"},
++    {"Each drive keeps its saves in its own PS5X360/saves folder.",
++     "Cada unidade guarda os salvamentos na própria pasta PS5X360/saves.",
++     "Cada unidad guarda las partidas en su propia carpeta PS5X360/saves."},
+     {"Cancel", "Cancelar", "Cancelar"},
+     {"Who is playing?", "Quem vai jogar?", "¿Quién va a jugar?"},
+     {"Choose the profile for this game.", "Escolha o perfil para este jogo.", "Elige el perfil para este juego."},
+@@ -1374,6 +1383,9 @@ int main(int argc, char** argv) {
+   // and the system windows in the emulator's language.
+   cvars::storage_selection_dialog = true;
+   xe::kernel::xam::ui_text = &CoreUiText;
++  // Fix 27: each writable drive mounted under /mnt (ext0.., usb0..) is offered too,
++  // its saves in <drive>/PS5X360/saves.
++  xe::kernel::xam::external_storage_root = "/mnt";
+   const std::filesystem::path storage = "/download0/xbox360ps5";
+   std::error_code error;
+   std::filesystem::create_directories(storage, error);
