@@ -1,5 +1,5 @@
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xthread.cc b/.deps/xenia-canary/src/xenia/kernel/xthread.cc
-index 8b4b9b0..46d4ec7 100644
+index 8b4b9b0..f25992c 100644
 --- a/.deps/xenia-canary/src/xenia/kernel/xthread.cc
 +++ b/.deps/xenia-canary/src/xenia/kernel/xthread.cc
 @@ -11,6 +11,7 @@
@@ -32,7 +32,7 @@ index 8b4b9b0..46d4ec7 100644
    kthread->header.signal_state = 1;
    kthread->exit_status = exit_code;
 +  if (is_guest_thread()) {
-+    LogThreadEnd("exit", thread_name(), handles_.empty() ? 0 : handle(), thread_id_, exit_code);
++    LogThreadEnd("exit", thread_name(), handles().empty() ? 0 : handle(), thread_id_, exit_code);
 +  }
  
    auto kprocess = cpu_context->TranslateVirtual(kthread->process);
@@ -42,7 +42,7 @@ index 8b4b9b0..46d4ec7 100644
    thread->header.signal_state = 1;
    thread->exit_status = exit_code;
 +  if (is_guest_thread()) {
-+    LogThreadEnd("terminated", thread_name(), handles_.empty() ? 0 : handle(), thread_id_,
++    LogThreadEnd("terminated", thread_name(), handles().empty() ? 0 : handle(), thread_id_,
 +                 exit_code);
 +  }
  
