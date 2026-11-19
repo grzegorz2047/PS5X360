@@ -1,5 +1,5 @@
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.cc b/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.cc
-index 2baadbe..9c2508b 100644
+index 2baadbe..9924466 100644
 --- a/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.cc
 +++ b/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.cc
 @@ -34,6 +34,8 @@ namespace xam {
@@ -212,7 +212,7 @@ index 2baadbe..9c2508b 100644
    if (ec) {
      XELOGW("{}: {} (:08X)", __func__, ec.message(), ec.value());
      return 0;
-@@ -770,6 +796,53 @@ uint64_t ContentManager::GetContentFreeSpace() const {
+@@ -770,6 +796,60 @@ uint64_t ContentManager::GetContentFreeSpace() const {
    return drive_stats.free;
  }
  
@@ -237,6 +237,7 @@ index 2baadbe..9c2508b 100644
 +    }
 +  }
 +  storage_devices_ = std::move(devices);
++  unwritable_drives_ = std::move(skipped);
 +  storage_scanned_ = true;
 +}
 +
@@ -249,6 +250,12 @@ index 2baadbe..9c2508b 100644
 +  std::lock_guard<std::mutex> guard(storage_lock_);
 +  if (!storage_scanned_) ScanStorageDevicesLocked();
 +  return storage_devices_;
++}
++
++std::vector<std::string> ContentManager::UnwritableDrives() const {
++  std::lock_guard<std::mutex> guard(storage_lock_);
++  if (!storage_scanned_) ScanStorageDevicesLocked();
++  return unwritable_drives_;
 +}
 +
 +std::filesystem::path ContentManager::DeviceRoot(uint32_t device_id) const {
@@ -267,7 +274,7 @@ index 2baadbe..9c2508b 100644
    vfs::File* file;
    if (spa_file_update->Open(vfs::FileAccess::kFileReadData, &file) !=
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.h b/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.h
-index 448c273..fda80cf 100644
+index 448c273..b23e190 100644
 --- a/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.h
 +++ b/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.h
 @@ -12,6 +12,7 @@
@@ -298,7 +305,7 @@ index 448c273..fda80cf 100644
  class ContentManager {
   public:
    ContentManager(KernelState* kernel_state,
-@@ -112,8 +119,21 @@ class ContentManager {
+@@ -112,8 +119,24 @@ class ContentManager {
  
    void CloseOpenedFilesFromContent(const std::string_view root_name);
  
@@ -317,12 +324,15 @@ index 448c273..fda80cf 100644
 +  // later shows up then.
 +  void RefreshStorageDevices();
 +  std::vector<storage::Device> StorageDevices() const;
++  // The mount points of the last scan's drives that are mounted but not
++  // writable.
++  std::vector<std::string> UnwritableDrives() const;
 +  // The saves root of a device (storage::RootFor).
 +  std::filesystem::path DeviceRoot(uint32_t device_id) const;
  
    X_STATUS InstallContentPackage(const ContentPackage* package,
                                   const std::filesystem::path& installation_path,
-@@ -130,13 +150,16 @@ class ContentManager {
+@@ -130,13 +153,16 @@ class ContentManager {
                                 const std::string_view root_path = "");
  
    std::filesystem::path ResolvePackageRoot(
@@ -342,7 +352,7 @@ index 448c273..fda80cf 100644
  
    bool UpdateSpaData(vfs::Entry* spa_file_update);
  
-@@ -149,6 +172,12 @@ class ContentManager {
+@@ -149,6 +175,13 @@ class ContentManager {
    xe::global_critical_region global_critical_region_;
    std::unordered_map<std::string, std::unique_ptr<ContentPackage>>
        mounted_packages_;
@@ -351,16 +361,17 @@ index 448c273..fda80cf 100644
 +  mutable std::mutex storage_lock_;
 +  mutable bool storage_scanned_ = false;
 +  mutable std::vector<storage::Device> storage_devices_;
++  mutable std::vector<std::string> unwritable_drives_;
 +  void ScanStorageDevicesLocked() const;
  };
  
  }  // namespace xam
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/storage_devices.h b/.deps/xenia-canary/src/xenia/kernel/xam/storage_devices.h
 new file mode 100644
-index 0000000..095b020
+index 0000000..2a9f281
 --- /dev/null
 +++ b/.deps/xenia-canary/src/xenia/kernel/xam/storage_devices.h
-@@ -0,0 +1,385 @@
+@@ -0,0 +1,471 @@
 +/**
 + ******************************************************************************
 + * Xenia : Xbox 360 Emulator Research Project                                 *
@@ -666,6 +677,89 @@ index 0000000..095b020
 +  return label;
 +}
 +
++// The save drive setting (the title's "save_drive" option, general or per
++// game): its value is the index of a choice, kept in settings.txt and
++// game-settings/<title>.txt. 0 asks every time (the default: 1.0.2 asked each
++// time), 1 is the console's storage, 2 and on the slots in kSlots' order
++// (ext0-ext3, then usb0-usb7): each choice is one mount point, so the setting
++// names the same drive after a restart. The device ID it stands for, 0 for
++// asking (and for a value out of range).
++inline constexpr int kSaveDriveChoices = 2 + static_cast<int>(kSlotCount);
++inline uint32_t SaveDriveDeviceId(int choice) {
++  if (choice == 1) return kInternalDeviceId;
++  if (choice >= 2 && choice < kSaveDriveChoices) {
++    return kSlots[choice - 2].device_id;
++  }
++  return 0;
++}
++
++// What the save drive setting gives when a game asks where to save.
++//   kAsk         no saved drive (or an ID of no device): the window, as before
++//   kUse         the saved drive is mounted, writable and has the room the
++//                game asked for: its device, without the window (index)
++//   kNotMounted  the saved drive is not mounted (unplugged): the window, with
++//                a notice naming it (mount)
++//   kReadOnly    it is mounted but cannot be written: the window and a notice
++//   kNoSpace     it has less free space than the game asked for: the same
++// A saved drive is never replaced by another one without asking.
++enum class Saved { kAsk, kUse, kNotMounted, kReadOnly, kNoSpace };
++struct SavedDrive {
++  Saved state = Saved::kAsk;
++  size_t index = 0;   // into the scan, for kUse and kNoSpace
++  std::string mount;  // the saved drive's mount point (its folder: internal)
++};
++
++inline SavedDrive CheckSaved(const std::vector<Device>& devices,
++                             const std::vector<std::string>& unwritable,
++                             uint32_t saved_id, uint64_t requested,
++                             const std::filesystem::path& mount_root) {
++  SavedDrive saved;
++  if (!saved_id) return saved;
++  const Slot* slot = FindSlot(saved_id);
++  if (!slot && saved_id != kInternalDeviceId) return saved;
++  for (size_t i = 0; i < devices.size(); ++i) {
++    if (devices[i].id != saved_id) continue;
++    saved.index = i;
++    saved.mount =
++        devices[i].mount.empty() ? devices[i].root.string() : devices[i].mount;
++    const bool room = !requested || !devices[i].space_known ||
++                      devices[i].free >= requested;
++    saved.state = room ? Saved::kUse : Saved::kNoSpace;
++    return saved;
++  }
++  if (!slot) return saved;  // the internal folder is always scanned
++  saved.mount = (mount_root.empty() ? std::filesystem::path("/mnt")
++                                    : mount_root) /
++                slot->mount;
++  saved.state = Saved::kReadOnly;
++  for (const auto& mount : unwritable) {
++    if (mount == saved.mount) return saved;
++  }
++  saved.state = Saved::kNotMounted;
++  return saved;
++}
++
++// The window's notice for a saved drive that cannot be used (empty for the
++// others). tr translates the English text (UiText).
++template <class Tr>
++std::string Notice(const SavedDrive& saved, Tr tr) {
++  switch (saved.state) {
++    case Saved::kNotMounted:
++      return Fill(tr("The saved drive (%s) is not mounted; choose another."),
++                  saved.mount);
++    case Saved::kReadOnly:
++      return Fill(tr("The saved drive (%s) cannot be written; choose another."),
++                  saved.mount);
++    case Saved::kNoSpace:
++      return Fill(
++          tr("The saved drive (%s) does not have enough free space; choose "
++             "another."),
++          saved.mount);
++    default:
++      return std::string();
++  }
++}
++
 +// Every text of the window that goes through UiText: the title translates
 +// each (CoreUiText in canary_game_main.cpp; the host check finds them there).
 +inline constexpr const char* kUiTexts[] = {
@@ -678,6 +772,9 @@ index 0000000..095b020
 +    "USB drive %s",
 +    "%s GB free",
 +    "Cancel",
++    "The saved drive (%s) is not mounted; choose another.",
++    "The saved drive (%s) cannot be written; choose another.",
++    "The saved drive (%s) does not have enough free space; choose another.",
 +};
 +
 +// One line for the log: each device's ID, folder and free space.
@@ -1041,7 +1138,7 @@ index d5ce5b0..68d414e 100644
  }  // namespace xam
  }  // namespace kernel
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
-index bf19396..3b4e012 100644
+index bf19396..718b738 100644
 --- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
 +++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
 @@ -8,6 +8,8 @@
@@ -1061,7 +1158,21 @@ index bf19396..3b4e012 100644
  #include "xenia/kernel/xam/xam_content_device.h"
  #include "xenia/kernel/xam/xam_private.h"
  #include "xenia/ui/file_picker.h"
-@@ -684,6 +687,67 @@ dword_result_t XamShowKeyboardUI_entry(
+@@ -51,6 +54,13 @@ DEFINE_bool(storage_selection_dialog, false,
+             "Show storage device selection dialog when the game requests it.",
+             "UI");
+ 
++// Xbox360PS5 (fix 27): the save drive setting (storage::SaveDriveDeviceId).
++DEFINE_uint32(saved_storage_device, 0,
++              "Device a game saves to without asking while it is mounted and "
++              "writable: 0 asks every time, 1 the internal folder, 3-14 the "
++              "drive slots of storage_devices.h.",
++              "UI");
++
+ DECLARE_int32(license_mask);
+ 
+ DECLARE_int32(network_mode);
+@@ -684,6 +694,67 @@ dword_result_t XamShowKeyboardUI_entry(
  }
  DECLARE_XAM_EXPORT1(XamShowKeyboardUI, kUI, kImplemented);
  
@@ -1129,16 +1240,10 @@ index bf19396..3b4e012 100644
  dword_result_t XamShowDeviceSelectorUI_entry(
      dword_t user_index, dword_t content_type, dword_t content_flags,
      qword_t total_requested, lpdword_t device_id_ptr,
-@@ -715,47 +779,84 @@ dword_result_t XamShowDeviceSelectorUI_entry(
+@@ -715,47 +786,117 @@ dword_result_t XamShowDeviceSelectorUI_entry(
          overlapped);
    }
  
-+  if (kernel_state()->xam_state()->IsUIActive()) {
-+    XELOGW("Storage: the game asked where to save while another system window "
-+           "was open; refused");
-+    return X_ERROR_ACCESS_DENIED;
-+  }
-+
 +  // Xbox360PS5 (fix 27): every drive the game can save to (the internal
 +  // folder and each writable drive mounted now), storage_devices.h. Those
 +  // with less room than the game asked for are left out; the one that
@@ -1157,6 +1262,40 @@ index bf19396..3b4e012 100644
 +  std::vector<storage::Device> offered;
 +  for (const size_t index : prompt.shown) {
 +    offered.push_back(drives[index]);
++  }
++  // The save drive setting: its drive without the window while it can be
++  // used; otherwise the window, saying why (never another drive silently).
++  const storage::SavedDrive saved = storage::CheckSaved(
++      drives, content_manager->UnwritableDrives(),
++      cvars::saved_storage_device, uint64_t(total_requested),
++      external_storage_root ? std::filesystem::path(external_storage_root)
++                            : std::filesystem::path());
++  if (saved.state == storage::Saved::kUse) {
++    const storage::Device drive = drives[saved.index];
++    XELOGW("Storage: the game asked where to save (user {}); {} {} from the "
++           "settings",
++           uint32_t(user_index), drive.id, drive.root.string());
++    return xeXamDispatchHeadless(
++        [device_id_ptr, id = drive.id]() -> X_RESULT {
++          *device_id_ptr = id;
++          return X_ERROR_SUCCESS;
++        },
++        overlapped);
++  }
++  // The window is needed from here on.
++  if (kernel_state()->xam_state()->IsUIActive()) {
++    XELOGW("Storage: the game asked where to save while another system window "
++           "was open; refused");
++    return X_ERROR_ACCESS_DENIED;
++  }
++
++  const std::string notice = storage::Notice(saved, UiText);
++  if (!notice.empty()) {
++    XELOGW("Storage: the saved drive {} (from the settings) cannot be used "
++           "({}); asking",
++           saved.mount, saved.state == storage::Saved::kNotMounted ? "not mounted"
++                        : saved.state == storage::Saved::kReadOnly ? "not writable"
++                                                                   : "not enough free space");
 +  }
 +  XELOGW("Storage: the game asks where to save (user {}, {} bytes); offering {}",
 +         uint32_t(user_index), uint64_t(total_requested),
@@ -1199,6 +1338,11 @@ index bf19396..3b4e012 100644
  
    std::string title = UiText("Where should the game save?");
    std::string desc = UiText("The game asks where to keep its saved data.");
++  if (!notice.empty()) {
++    desc += "
++";
++    desc += notice;
++  }
  
 -  cxxopts::OptionNames buttons;
 -  for (auto& device_info : devices) {
@@ -1270,8 +1414,22 @@ index 066be50..b9ddb74 100644
  
    void ComputePackageLicenseMask();
  
+diff --git a/include/xbox360ps5/launcher.hpp b/include/xbox360ps5/launcher.hpp
+index 572a353..5a47bad 100644
+--- a/include/xbox360ps5/launcher.hpp
++++ b/include/xbox360ps5/launcher.hpp
+@@ -92,6 +92,9 @@ struct Settings {
+   int achievement_toasts = 1;
+   int web_page = 1;             // The settings page for a phone on the same network.
+   int arcade_full = 0;          // Arcade packages run with their full-version licence.
++  // Fix 27: where a game saves without asking. 0 asks every time, 1 the console's storage,
++  // 2 and on one drive slot each (storage::SaveDriveDeviceId: /mnt/ext0-ext3, /mnt/usb0-usb7).
++  int save_drive = 0;
+   static const char* ScaleName(int scale);
+   static const char* FilterName(int filter);
+   void Load();
 diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
-index e49255c..543af5c 100644
+index e49255c..fc89ec3 100644
 --- a/src/canary_game_main.cpp
 +++ b/src/canary_game_main.cpp
 @@ -32,6 +32,7 @@ extern std::filesystem::path config_folder;  // xenia/config.cc: LoadGameConfig
@@ -1282,7 +1440,7 @@ index e49255c..543af5c 100644
  }
  DECLARE_bool(storage_selection_dialog);
  // The core's system windows (where to save, who is playing) in the emulator's language.
-@@ -42,6 +43,13 @@ static const char* CoreUiText(const char* english) {
+@@ -42,6 +43,19 @@ static const char* CoreUiText(const char* english) {
      {"Where should the game save?", "Where should the game save?"},
      {"The game asks where to keep its saved data.", "The game asks where to keep its saved data."},
      {"Hard drive", "Hard drive"},
@@ -1293,10 +1451,16 @@ index e49255c..543af5c 100644
 +    {"%s GB free", "%s GB free"},
 +    {"Each drive keeps its saves in its own PS5X360/saves folder.",
 +     "Each drive keeps its saves in its own PS5X360/saves folder."},
++    {"The saved drive (%s) is not mounted; choose another.",
++     "The saved drive (%s) is not mounted; choose another."},
++    {"The saved drive (%s) cannot be written; choose another.",
++     "The saved drive (%s) cannot be written; choose another."},
++    {"The saved drive (%s) does not have enough free space; choose another.",
++     "The saved drive (%s) does not have enough free space; choose another."},
      {"Cancel", "Cancel"},
      {"Who is playing?", "Who is playing?"},
      {"Choose the profile for this game.", "Choose the profile for this game."},
-@@ -1422,6 +1430,9 @@ int main(int argc, char** argv) {
+@@ -1422,6 +1436,9 @@ int main(int argc, char** argv) {
    // and the system windows in the emulator's language.
    cvars::storage_selection_dialog = true;
    xe::kernel::xam::ui_text = &CoreUiText;
@@ -1306,3 +1470,42 @@ index e49255c..543af5c 100644
    const std::filesystem::path storage = "/download0/xbox360ps5";
    std::error_code error;
    std::filesystem::create_directories(storage, error);
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+index 5da890b..60c7e44 100644
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -70,6 +70,7 @@ DECLARE_bool(use_fast_dot_product);
+ DECLARE_bool(protect_zero);
+ DECLARE_string(xma_decoder);
+ DECLARE_bool(use_dedicated_xma_thread);
++DECLARE_uint32(saved_storage_device);  // xam_ui.cc: fix 27's save drive setting
+ // The core defines these three inside its input namespace.
+ namespace xe {
+ namespace hid {
+@@ -83,6 +84,7 @@ extern "C" int sceSystemServiceParamGetInt(int parameter_id, int* value);
+ #endif
+ #include <atomic>
+ #include "xbox360ps5/game_info.hpp"
++#include "xenia/kernel/xam/storage_devices.h"  // fix 27: the save drive setting
+ 
+ namespace xbox360ps5 {
+ namespace {
+@@ -415,6 +417,10 @@ const std::vector<Option>& Options() {
+       {"arcade_full", &S::arcade_full, 4, W::launch, 0, true, "Arcade games",
+        "Xbox Live Arcade games start as a trial or as the full version. Use the full version with the games you bought.",
+        {"Trial", "Full version"}},
++      // Fix 27: the choices are storage::SaveDriveDeviceId's, in its order (one mount point each).
++      {"save_drive", &S::save_drive, 4, W::live, 0, true, "Save drive",
++       "Where games keep their saves. A drive chosen here is used without asking while it is plugged in and writable; otherwise the game asks again and says why.",
++       {"Ask every time", "Console storage", "Extended storage ext0", "Extended storage ext1", "Extended storage ext2", "Extended storage ext3", "USB drive usb0", "USB drive usb1", "USB drive usb2", "USB drive usb3", "USB drive usb4", "USB drive usb5", "USB drive usb6", "USB drive usb7"}},
+       {"detailed_logs", &S::detailed_logs, 4, W::live, 0, false, "Detailed logs",
+        "Log every game system call. Slows games down; enable only for troubleshooting.",
+        {"Off||plural", "On||plural"}},
+@@ -563,6 +569,7 @@ void Settings::Apply() const {
+   cvars::log_level = detailed_logs ? 3 : 1;
+   // Read by the core each time they matter, so they also apply to a running game.
+   cvars::anisotropic_override = anisotropic ? anisotropic + 1 : -1;  // 2x is 2 ... 16x is 5.
++  cvars::saved_storage_device = xe::kernel::xam::storage::SaveDriveDeviceId(save_drive);
+   static const char* const kOcclusion[] = {"fast", "fake", "fast-alt", "strict"};
+   if (cvars::occlusion_query != kOcclusion[occlusion & 3]) cvars::occlusion_query = kOcclusion[occlusion & 3];
+   static const char* const kReadback[] = {"none", "fast", "full"};

@@ -114,6 +114,8 @@ const char* Portuguese(const char* text) {
       {"Extended storage %s", "Armazenamento estendido %s"},
       {"USB drive %s", "Unidade USB %s"},
       {"%s GB free", "%s GB livres"},
+      {"The saved drive (%s) is not mounted; choose another.",
+       "A unidade definida nas configurações (%s) não está montada; escolha outra."},
   };
   const auto found = table.find(text);
   return found == table.end() ? text : found->second.c_str();
@@ -367,12 +369,143 @@ void CheckPosix() {
             "are not drives");
 }
 
-void CheckTranslations() {
-  std::ifstream file("src/canary_game_main.cpp", std::ios::binary);
+// The save drive setting: its value is the index of a choice, one mount point each.
+void CheckSettingValues() {
+  assert(storage::kSaveDriveChoices == 14);
+  assert(storage::SaveDriveDeviceId(0) == 0);  // ask every time (the default)
+  assert(storage::SaveDriveDeviceId(1) == storage::kInternalDeviceId);
+  for (int choice = 2; choice < storage::kSaveDriveChoices; ++choice) {
+    assert(storage::SaveDriveDeviceId(choice) == storage::kSlots[choice - 2].device_id);
+  }
+  assert(storage::SaveDriveDeviceId(2) == 3 && storage::SaveDriveDeviceId(5) == 6);   // ext0, ext3
+  assert(storage::SaveDriveDeviceId(6) == 7 && storage::SaveDriveDeviceId(13) == 14);  // usb0, usb7
+  for (int bad : {-1, 14, 99}) assert(storage::SaveDriveDeviceId(bad) == 0);  // out of range: ask
+  std::puts("ok setting values: 0 ask, 1 console, 2-5 ext0-ext3, 6-13 usb0-usb7, else ask");
+}
+
+void CheckSavedDrive() {
+  FakeFs fs = Console();
+  std::vector<std::string> unwritable;
+  const auto devices = storage::Scan(fs, kInternal, "/mnt", &unwritable);
+  const auto check = [&](uint32_t id, uint64_t requested = 0) {
+    return storage::CheckSaved(devices, unwritable, id, requested, "/mnt");
+  };
+  // No setting (ask every time): the window, no notice.
+  auto saved = check(0);
+  assert(saved.state == storage::Saved::kAsk && storage::Notice(saved, English).empty());
+  // A valid setting: that drive without the window.
+  saved = check(7);  // usb0
+  assert(saved.state == storage::Saved::kUse && saved.index == 2 && saved.mount == "/mnt/usb0");
+  assert(devices[saved.index].root == "/mnt/usb0/PS5X360/saves");
+  saved = check(4);  // ext1, its saves folder already there
+  assert(saved.state == storage::Saved::kUse && saved.index == 1);
+  saved = check(1);  // the console's storage
+  assert(saved.state == storage::Saved::kUse && saved.index == 0 && saved.mount == kInternal);
+  // A stale setting: the drive was unplugged (usb0 gone), or never there (usb3, a placeholder).
+  FakeFs unplugged = Console();
+  unplugged.mounts.erase("/mnt/usb0");
+  std::vector<std::string> unplugged_unwritable;
+  const auto after = storage::Scan(unplugged, kInternal, "/mnt", &unplugged_unwritable);
+  saved = storage::CheckSaved(after, unplugged_unwritable, 7, 0, "/mnt");
+  assert(saved.state == storage::Saved::kNotMounted && saved.mount == "/mnt/usb0");
+  assert(Same(storage::Notice(saved, English),
+              "The saved drive (/mnt/usb0) is not mounted; choose another."));
+  assert(Same(storage::Notice(saved, Portuguese),
+              "A unidade definida nas configurações (/mnt/usb0) não está montada; escolha outra."));
+  saved = check(10);  // usb3
+  assert(saved.state == storage::Saved::kNotMounted && saved.mount == "/mnt/usb3");
+  // Mounted but read-only (the installer stick in usb1).
+  saved = check(8);
+  assert(saved.state == storage::Saved::kReadOnly && saved.mount == "/mnt/usb1");
+  assert(Same(storage::Notice(saved, English),
+              "The saved drive (/mnt/usb1) cannot be written; choose another."));
+  // Less free space than the game asks for (usb2: 31 GB).
+  saved = check(9, 100000000000ull);
+  assert(saved.state == storage::Saved::kNoSpace && saved.index == 3 && saved.mount == "/mnt/usb2");
+  assert(Same(storage::Notice(saved, English),
+              "The saved drive (/mnt/usb2) does not have enough free space; choose another."));
+  assert(check(9, 31000000000ull).state == storage::Saved::kUse);  // exactly enough
+  // Unknown space counts as enough, as in the window.
+  FakeFs no_space = Console();
+  no_space.space.erase("/mnt/usb2");
+  const auto unknown = storage::Scan(no_space, kInternal, "/mnt");
+  assert(storage::CheckSaved(unknown, {}, 9, 100000000000ull, "/mnt").state == storage::Saved::kUse);
+  // IDs of no device: as if no drive were saved (the disc, 99).
+  assert(check(2).state == storage::Saved::kAsk && check(99).state == storage::Saved::kAsk);
+  // A title without a mount root: a saved drive is reported as not mounted, never replaced.
+  FakeFs plain = Console();
+  const auto internal_only = storage::Scan(plain, kInternal, "");
+  saved = storage::CheckSaved(internal_only, {}, 7, 0, "");
+  assert(saved.state == storage::Saved::kNotMounted && saved.mount == "/mnt/usb0");
+  std::puts("ok saved drive: none asks; valid used without the window; unplugged, placeholder, "
+            "read-only and full drives ask with a notice; unknown IDs ask");
+}
+
+std::string ReadTreeFile(const char* rel) {
+  std::ifstream file(rel, std::ios::binary);
   assert(file && "run from the assembled tree's root");
   std::stringstream text;
   text << file.rdbuf();
-  const std::string source = text.str();
+  return text.str();
+}
+
+std::string DriveChoice(const storage::Slot& slot) {
+  return std::string(slot.kind == storage::Kind::kExtended ? "Extended storage " : "USB drive ") +
+         slot.mount;
+}
+
+// The option's choices in launcher.cpp, in SaveDriveDeviceId's order.
+void CheckOption() {
+  const std::string source = ReadTreeFile("src/launcher.cpp");
+  std::string choices = "{\"Ask every time\", \"Console storage\"";
+  for (const auto& slot : storage::kSlots) choices += ", \"" + DriveChoice(slot) + "\"";
+  choices += "}";
+  const size_t option =
+      source.find("{\"save_drive\", &S::save_drive, 4, W::live, 0, true, \"Save drive\",");
+  assert(option != std::string::npos && "save_drive: System, live, ask by default, per game");
+  if (source.find(choices, option) == std::string::npos) {
+    std::fprintf(stderr, "  launcher.cpp lacks the choices %s\n", choices.c_str());
+    assert(false);
+  }
+  assert(source.find("cvars::saved_storage_device = "
+                     "xe::kernel::xam::storage::SaveDriveDeviceId(save_drive);") != std::string::npos);
+  std::puts("ok option: save_drive in System, per game, live, Ask every time by default, choices "
+            "in slot order, applied to the core");
+}
+
+// Language files keyed by English (fix 25, tools/source-1.0.2/english/lang): every new text of
+// fix 27 is translated in each language.
+void CheckLanguageFiles(const char* folder) {
+  std::vector<std::string> keys = {
+      "Console storage", "Extended storage %s", "USB drive %s", "%s GB free",
+      "Each drive keeps its saves in its own PS5X360/saves folder.",
+      "The saved drive (%s) is not mounted; choose another.",
+      "The saved drive (%s) cannot be written; choose another.",
+      "The saved drive (%s) does not have enough free space; choose another.",
+      "Save drive", "Ask every time"};
+  for (const auto& slot : storage::kSlots) keys.push_back(DriveChoice(slot));
+  const char* codes[] = {"pt-BR", "pt", "es", "es-419", "de", "fr", "it", "ja",
+                         "ko", "nl", "pl", "ru", "tr", "zh-Hans", "zh-Hant", "en"};
+  for (const char* code : codes) {
+    std::ifstream file(std::string(folder) + "/" + code + ".txt", std::ios::binary);
+    assert(file);
+    std::stringstream text;
+    text << file.rdbuf();
+    const std::string data = "\n" + text.str();
+    for (const auto& key : keys) {
+      std::string encoded;
+      for (char c : key) encoded += c == ' ' ? std::string("\\s") : std::string(1, c);
+      if (data.find("\n" + encoded + " = ") == std::string::npos) {
+        std::fprintf(stderr, "  %s.txt lacks \"%s\"\n", code, key.c_str());
+        assert(false);
+      }
+    }
+  }
+  std::printf("ok language files: %zu texts of fix 27 in 16 files\n", keys.size());
+}
+
+void CheckTranslations() {
+  const std::string source = ReadTreeFile("src/canary_game_main.cpp");
   for (const char* english : storage::kUiTexts) {
     const std::string entry = std::string("{\"") + english + "\", \"";
     const std::string entry_wrapped = std::string("{\"") + english + "\",";
@@ -386,7 +519,7 @@ void CheckTranslations() {
 }
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
   CheckSlots();
   CheckScan();
   CheckFolders();
@@ -394,7 +527,11 @@ int main() {
   CheckPrompt();
   CheckLabels();
   CheckPosix();
+  CheckSettingValues();
+  CheckSavedDrive();
   CheckTranslations();
+  CheckOption();
+  if (argc > 1) CheckLanguageFiles(argv[1]);
   std::puts("check-save-devices: all passed");
   return 0;
 }

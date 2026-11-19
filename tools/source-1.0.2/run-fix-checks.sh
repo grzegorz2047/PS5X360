@@ -19,6 +19,7 @@ checks=(
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-save-devices.cpp]="$repo/tools/source-1.0.2/english/lang"
 )
 mkdir -p "$tree/tools" "$tree/build/fix-checks"
 status=0
