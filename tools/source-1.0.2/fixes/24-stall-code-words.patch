@@ -1,0 +1,40 @@
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+index cad0b6b..e9bc8ab 100644
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -724,6 +724,23 @@ std::string CallersText(xe::Memory* memory, uint32_t stack) {
+   }
+   return text.empty() ? " none read" : text;
+ }
++// Fix 24: eight guest code words from `address` - 16 (when readable), for a loop a thread spins
++// in outside any wait (Battlefield 3's loaders at lr 838D4514), to disassemble from the log.
++std::string CodeText(xe::Memory* memory, uint32_t address) {
++  std::string text;
++  for (uint32_t at = (address & ~3u) - 16, n = 0; n < 8; ++n, at += 4) {
++    auto* heap = memory->LookupHeap(at);
++    uint32_t protection = 0;
++    if (!heap || !heap->QueryProtect(at, &protection) || !(protection & xe::kMemoryProtectRead)) {
++      text += " ????????";
++      continue;
++    }
++    char item[16];
++    std::snprintf(item, sizeof(item), " %08X", xe::load_and_swap<uint32_t>(memory->TranslateVirtual(at)));
++    text += item;
++  }
++  return text;
++}
+ void ReportStall(xe::Emulator& emulator, int pass) {
+   const auto threads = emulator.kernel_state()->object_table()->GetObjectsByType<xe::kernel::XThread>();
+   XELOGW("STALL pass {}: {} threads", pass, threads.size());
+@@ -736,6 +753,11 @@ void ReportStall(xe::Emulator& emulator, int pass) {
+            thread->handle(), thread->thread_id(), thread->thread_name(), thread->is_guest_thread() ? 1 : 0,
+            thread->suspend_count(), uint32_t(context->lr), uint32_t(context->ctr), uint32_t(context->r[1]),
+            uint32_t(context->r[3]), uint32_t(context->r[4]), uint32_t(context->r[5]));
++    // Fix 24: the thread's KTHREAD (what a wait on the thread names) and the code it is in.
++    if (thread->is_guest_thread())
++      XELOGW("STALL thread {:08X} kthread {:08X} r6 {:08X} r31 {:08X}; code at lr-16:{}; at ctr-16:{}",
++             thread->handle(), thread->guest_object(), uint32_t(context->r[6]), uint32_t(context->r[31]),
++             CodeText(emulator.memory(), uint32_t(context->lr)), CodeText(emulator.memory(), uint32_t(context->ctr)));
+   }
+   xe::FlushLog();
+   for (const auto& thread : threads) {

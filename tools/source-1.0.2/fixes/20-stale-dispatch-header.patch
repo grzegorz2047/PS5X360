@@ -1,45 +1,46 @@
 diff --git a/.deps/xenia-canary/src/xenia/kernel/kernel_state.cc b/.deps/xenia-canary/src/xenia/kernel/kernel_state.cc
-index 27a3bbc..cc207b3 100644
+index 27a3bbc..9d80ad8 100644
 --- a/.deps/xenia-canary/src/xenia/kernel/kernel_state.cc
 +++ b/.deps/xenia-canary/src/xenia/kernel/kernel_state.cc
-@@ -1008,6 +1008,17 @@ void KernelState::RegisterThread(XThread* thread) {
+@@ -1008,6 +1008,16 @@ void KernelState::RegisterThread(XThread* thread) {
    threads_by_id_[thread->thread_id()] = thread;
  }
  
-+bool KernelState::IsRunningThreadObject(uint32_t guest_object) {
++object_ref<XThread> KernelState::GetThreadByGuestObject(uint32_t guest_object) {
 +  auto global_lock = global_critical_region_.Acquire();
 +  for (const auto& [thread_id, thread] : threads_by_id_) {
-+    if (thread && thread->guest_object() == guest_object &&
-+        thread->is_running()) {
-+      return true;
++    if (thread && thread->guest_object() == guest_object) {
++      return retain_object(thread);
 +    }
 +  }
-+  return false;
++  return object_ref<XThread>();
 +}
 +
  void KernelState::UnregisterThread(XThread* thread) {
    auto global_lock = global_critical_region_.Acquire();
    auto it = threads_by_id_.find(thread->thread_id());
 diff --git a/.deps/xenia-canary/src/xenia/kernel/kernel_state.h b/.deps/xenia-canary/src/xenia/kernel/kernel_state.h
-index 76184c6..7d56c74 100644
+index 76184c6..e11b094 100644
 --- a/.deps/xenia-canary/src/xenia/kernel/kernel_state.h
 +++ b/.deps/xenia-canary/src/xenia/kernel/kernel_state.h
-@@ -293,6 +293,9 @@ class KernelState {
+@@ -293,6 +293,11 @@ class KernelState {
    void OnThreadExecute(XThread* thread);
    void OnThreadExit(XThread* thread);
    object_ref<XThread> GetThreadByID(uint32_t thread_id);
-+  // Xbox360PS5 (fix 20): whether a running thread's guest object (KTHREAD) is
-+  // at this guest address.
-+  bool IsRunningThreadObject(uint32_t guest_object);
++  // Xbox360PS5 (fix 20): the thread whose guest object (KTHREAD) is at this
++  // guest address, retained, running or finished; null when no thread object
++  // has it. Found by address: the game may have closed the thread's handle and
++  // the table given that handle to another object.
++  object_ref<XThread> GetThreadByGuestObject(uint32_t guest_object);
    std::vector<uint32_t> GetAllThreadIDs();
  
    void RegisterNotifyListener(XNotifyListener* listener);
 diff --git a/.deps/xenia-canary/src/xenia/kernel/native_object_resolve.h b/.deps/xenia-canary/src/xenia/kernel/native_object_resolve.h
 new file mode 100644
-index 0000000..658eaa6
+index 0000000..9c73fc2
 --- /dev/null
 +++ b/.deps/xenia-canary/src/xenia/kernel/native_object_resolve.h
-@@ -0,0 +1,105 @@
+@@ -0,0 +1,113 @@
 +// Xbox360PS5 (tools/source-1.0.2/fixes/20-stale-dispatch-header.patch): what
 +// XObject::GetNativeObject does with a guest dispatch header, as a template over the kernel
 +// operations it needs, so the host check tools/check-stale-dispatch-header.cpp drives the
@@ -50,9 +51,12 @@ index 0000000..658eaa6
 +// (the object this header named was released, the header was not reset). The other object is
 +// then left alone and the header gets a new object, as on its first use: answering "no
 +// object" made the game's event or semaphore disappear, and Battlefield 3 (45410950) hung
-+// loading the campaign. A stale thread header whose thread no longer runs names a thread that
-+// has exited: it gets an event signalled for good, so waits on it end at once. A running
-+// thread can also have lost its handle; that one is left alone.
++// loading the campaign. A stale thread header is the KTHREAD of a thread whose handle the game
++// closed (normal after creating it) and the table gave to another object: the thread object is
++// found by its guest address and used, running or finished, so a wait on it lasts until the
++// thread really ends (Battlefield 3's ClientLoad joins ServerLoad this way). Only when no
++// thread object has that address any more does the header get an event signalled for good,
++// so waits on it end at once, as on a thread that has exited.
 +#ifndef XENIA_KERNEL_NATIVE_OBJECT_RESOLVE_H_
 +#define XENIA_KERNEL_NATIVE_OBJECT_RESOLVE_H_
 +
@@ -64,15 +68,15 @@ index 0000000..658eaa6
 +enum class Outcome : uint8_t {
 +  kRecorded,      // the object the header's handle names
 +  kCreated,       // a new event, mutant or semaphore (first use, or a stale header)
-+  kExitedThread,  // a stale thread header of an exited thread: the signalled stand-in
-+  kNone,          // no object: the handle is gone, the type has no object, or a running
-+                  // thread's stale header
++  kThread,        // a stale thread header: the thread object found by its guest address
++  kExitedThread,  // a stale thread header with no thread object left: the signalled stand-in
++  kNone,          // no object: the handle is gone, or the type has no object
 +};
 +
 +struct Report {
 +  Outcome outcome = Outcome::kNone;
 +  bool stale = false;           // the recorded handle belonged to another object
-+  bool running_thread = false;  // a stale thread header whose thread still runs
++  bool thread_found = false;  // a stale thread header's thread object was found
 +  uint32_t stale_handle = 0;
 +};
 +
@@ -87,9 +91,11 @@ index 0000000..658eaa6
 +//   Object* Create();                   a new event, mutant or semaphore for the header's
 +//                                       type, bound to the header (one reference), or null
 +//   bool IsThreadType();                the header's type is ThreadObject
-+//   bool ThreadRunning();               a running thread's guest object is this header
++//   Object* FindThread();               the thread object whose guest object is this
++//                                       header, retained (running or finished), or null
 +//   Object* CreateExitedThread();       the signalled stand-in, bound to the header
-+//   void Stamp(Object*);                records the object's handle in the header
++//   void Stamp(Object*);                records the object's handle in the header (a thread
++//                                       with no handle left is not recorded)
 +//   void NoteUnsupported(bool stale);   nothing could be made for the header's type
 +// The returned object carries one reference for the caller.
 +template <typename B>
@@ -126,8 +132,11 @@ index 0000000..658eaa6
 +  if (result) {
 +    report.outcome = Outcome::kCreated;
 +  } else if (report.stale && backend.IsThreadType()) {
-+    report.running_thread = backend.ThreadRunning();
-+    if (!report.running_thread) {
++    result = backend.FindThread();
++    report.thread_found = result != nullptr;
++    if (result) {
++      report.outcome = Outcome::kThread;
++    } else {
 +      result = backend.CreateExitedThread();
 +      if (result) report.outcome = Outcome::kExitedThread;
 +    }
@@ -203,7 +212,7 @@ index 7bd027c..a8d246a 100644
  
  }  // namespace kernel
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xobject.cc b/.deps/xenia-canary/src/xenia/kernel/xobject.cc
-index e8b4307..649a0ce 100644
+index e8b4307..13e7768 100644
 --- a/.deps/xenia-canary/src/xenia/kernel/xobject.cc
 +++ b/.deps/xenia-canary/src/xenia/kernel/xobject.cc
 @@ -8,11 +8,13 @@
@@ -220,7 +229,7 @@ index e8b4307..649a0ce 100644
  #include "xenia/kernel/util/shim_utils.h"
  #include "xenia/kernel/xboxkrnl/xboxkrnl_private.h"
  #include "xenia/kernel/xenumerator.h"
-@@ -461,87 +463,131 @@ object_ref<XObject> XObject::GetNativeObject(KernelState* kernel_state,
+@@ -461,87 +463,147 @@ object_ref<XObject> XObject::GetNativeObject(KernelState* kernel_state,
      global_critical_region::mutex().lock();
    }
  
@@ -254,9 +263,6 @@ index e8b4307..649a0ce 100644
 -            "belongs to the object at {:08X}; not used",
 -            kernel_state->memory()->HostToGuestVirtual(native_ptr), handle,
 -            result->guest_object());
--      }
--      result->Release();
--      result = nullptr;
 +  const uint32_t guest_ptr =
 +      kernel_state->memory()->HostToGuestVirtual(native_ptr);
 +  const uint32_t guest_signal_state = header->signal_state;
@@ -273,19 +279,67 @@ index e8b4307..649a0ce 100644
 +    X_OBJECT_TYPES type;
 +    uint32_t stale_owner_ptr = 0;
 +    XObject::Type stale_owner_type = XObject::Type::Undefined;
++    bool found_thread_running = false;
 +
 +    bool Stamped() const {
 +      return header->wait_list.flink_ptr == kXObjSignature;
-     }
--    if (result) {
--      // The only place the guest hands us a raw dispatch header, so the only
--      // place a direct write to it can be picked up.
--      result->SyncFromGuest();
++    }
 +    uint32_t RecordedHandle() const { return header->wait_list.blink_ptr; }
 +    XObject* Lookup(uint32_t handle) {
 +      return kernel_state->object_table()
 +          ->LookupObject<XObject>(handle, true)
 +          .release();
++    }
++    bool BelongsToHeader(XObject* object) const {
++      return object->guest_object() == guest_ptr;
++    }
++    void NoteStaleOwner(XObject* object) {
++      stale_owner_ptr = object->guest_object();
++      stale_owner_type = object->type();
++    }
++    void Release(XObject* object) { object->Release(); }
++    void SyncFromGuest(XObject* object) { object->SyncFromGuest(); }
++    XObject* Create() {
++      // First use (or a stale header), create new; InitializeNative records the
++      // new object's handle in the header.
++      // https://www.nirsoft.net/kernel_struct/vista/KOBJECTS.html
++      switch (type) {
++        case X_OBJECT_TYPES::EventNotificationObject:
++        case X_OBJECT_TYPES::EventSynchronizationObject: {
++          auto ev = new XEvent(kernel_state);
++          ev->InitializeNative(native_ptr, header);
++          return ev;
++        }
++        case X_OBJECT_TYPES::MutantObject: {
++          auto mutant = new XMutant(kernel_state);
++          mutant->InitializeNative(native_ptr, header);
++          return mutant;
++        }
++        case X_OBJECT_TYPES::SemaphoreObject: {
++          auto sem = new XSemaphore(kernel_state);
++          auto success = sem->InitializeNative(native_ptr, header);
++          // Can't report failure to the guest at late initialization:
++          assert_true(success);
++          return sem;
++        }
++        default:
++          // ProcessObject, QueueObject, ThreadObject, Spare1Object, the
++          // timers, ApcObject, DpcObject, DeviceQueueObject, EventPairObject,
++          // InterruptObject, ProfileObject.
++          return nullptr;
+       }
+-      result->Release();
+-      result = nullptr;
+     }
+-    if (result) {
+-      // The only place the guest hands us a raw dispatch header, so the only
+-      // place a direct write to it can be picked up.
+-      result->SyncFromGuest();
++    bool IsThreadType() const { return type == X_OBJECT_TYPES::ThreadObject; }
++    XObject* FindThread() {
++      auto thread = kernel_state->GetThreadByGuestObject(guest_ptr);
++      if (thread) found_thread_running = thread->is_running();
++      return thread.release();
      }
 -  } else {
 -    // First use, create new.
@@ -324,47 +378,6 @@ index e8b4307..649a0ce 100644
 -      default:
 -        assert_always();
 -        result = nullptr;
-+    bool BelongsToHeader(XObject* object) const {
-+      return object->guest_object() == guest_ptr;
-+    }
-+    void NoteStaleOwner(XObject* object) {
-+      stale_owner_ptr = object->guest_object();
-+      stale_owner_type = object->type();
-+    }
-+    void Release(XObject* object) { object->Release(); }
-+    void SyncFromGuest(XObject* object) { object->SyncFromGuest(); }
-+    XObject* Create() {
-+      // First use (or a stale header), create new; InitializeNative records the
-+      // new object's handle in the header.
-+      // https://www.nirsoft.net/kernel_struct/vista/KOBJECTS.html
-+      switch (type) {
-+        case X_OBJECT_TYPES::EventNotificationObject:
-+        case X_OBJECT_TYPES::EventSynchronizationObject: {
-+          auto ev = new XEvent(kernel_state);
-+          ev->InitializeNative(native_ptr, header);
-+          return ev;
-+        }
-+        case X_OBJECT_TYPES::MutantObject: {
-+          auto mutant = new XMutant(kernel_state);
-+          mutant->InitializeNative(native_ptr, header);
-+          return mutant;
-+        }
-+        case X_OBJECT_TYPES::SemaphoreObject: {
-+          auto sem = new XSemaphore(kernel_state);
-+          auto success = sem->InitializeNative(native_ptr, header);
-+          // Can't report failure to the guest at late initialization:
-+          assert_true(success);
-+          return sem;
-+        }
-+        default:
-+          // ProcessObject, QueueObject, ThreadObject, Spare1Object, the
-+          // timers, ApcObject, DpcObject, DeviceQueueObject, EventPairObject,
-+          // InterruptObject, ProfileObject.
-+          return nullptr;
-+      }
-+    }
-+    bool IsThreadType() const { return type == X_OBJECT_TYPES::ThreadObject; }
-+    bool ThreadRunning() { return kernel_state->IsRunningThreadObject(guest_ptr); }
 +    XObject* CreateExitedThread() {
 +      auto ev = new XEvent(kernel_state);
 +      ev->InitializeNativeExitedThread(native_ptr);
@@ -374,7 +387,10 @@ index e8b4307..649a0ce 100644
      // FIXME: This assumes the object contains a dispatch header (some don't!)
 -    if (result) {
 -      StashHandle(header, result->handle());
-+    void Stamp(XObject* object) { StashHandle(header, object->handle()); }
++    void Stamp(XObject* object) {
++      // A thread whose handles were all closed has none to record.
++      if (!object->handles().empty()) StashHandle(header, object->handle());
++    }
 +    void NoteUnsupported(bool stale) {
 +      // Said once per type.
 +      static std::atomic<uint64_t> said_types{0};
@@ -412,12 +428,20 @@ index e8b4307..649a0ce 100644
 +          report.outcome == Outcome::kCreated
 +              ? fmt::format("re-created as a new object, handle {:08X}",
 +                            result->handle())
++          : report.outcome == Outcome::kThread
++              ? fmt::format("its thread object '{}' ({}), {}",
++                            static_cast<XThread*>(result)->thread_name(),
++                            kernel.found_thread_running ? "running"
++                                                        : "finished",
++                            result->handles().empty()
++                                ? std::string("no handle left")
++                                : fmt::format("handle {:08X}",
++                                              result->handle()))
 +          : report.outcome == Outcome::kExitedThread
-+              ? fmt::format("re-created as an exited-thread stand-in "
-+                            "(signalled event), handle {:08X}",
++              ? fmt::format("no thread object at that address: an "
++                            "exited-thread stand-in (signalled event), "
++                            "handle {:08X}",
 +                            result->handle())
-+          : report.running_thread
-+              ? std::string("not re-created: its thread is still running")
 +              : std::string("not re-created: unsupported type"));
      }
    }

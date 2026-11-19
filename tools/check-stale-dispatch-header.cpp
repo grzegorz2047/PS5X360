@@ -37,13 +37,14 @@ struct Object {
   uint32_t guest = 0;   // guest address of its dispatch header
   int references = 0;
   int syncs = 0;
+  bool finished = false;  // a thread that has returned
 };
 
 // The object table: handles to objects, a reference per handle plus the lookups'.
 struct Kernel {
   std::map<uint32_t, Object*> table;
   std::vector<std::unique_ptr<Object>> objects;
-  std::vector<uint32_t> running_threads;  // guest addresses of running threads' KTHREADs
+  std::vector<Object*> threads;  // thread objects alive (KernelState::threads_by_id_)
   uint32_t next_handle = 0xF8000100;
   int lookups = 0, releases = 0, unsupported = 0;
 
@@ -114,16 +115,21 @@ struct Backend {
     }
   }
   bool IsThreadType() const { return header.type == kThread; }
-  bool ThreadRunning() {
-    for (uint32_t running : kernel.running_threads)
-      if (running == guest) return true;
-    return false;
+  // KernelState::GetThreadByGuestObject: by the KTHREAD's address, retained.
+  Object* FindThread() {
+    for (Object* thread : kernel.threads) {
+      if (thread->guest != guest) continue;
+      ++thread->references;
+      return thread;
+    }
+    return nullptr;
   }
   Object* CreateExitedThread() {
     header.signal_state = 1;
     return Made(Object::kExitedThreadStandIn);
   }
   void Stamp(Object* object) {
+    if (!object->handle) return;  // a thread with no handle left
     header.flink = kSignature;
     header.blink = object->handle;
   }
@@ -169,7 +175,7 @@ void StaleObjectIsMadeAgain(uint8_t type, Object::Kind kind, const char* name) {
   Object* stale_owner = nullptr;
   Object* made = Get(kernel, setup.header, guest, first, &stale_owner);
   assert(first.stale && first.stale_handle == setup.old_handle);
-  assert(first.outcome == Outcome::kCreated && !first.running_thread);
+  assert(first.outcome == Outcome::kCreated && !first.thread_found);
   assert(made && made->kind == kind && made->guest == guest);
   assert(stale_owner == setup.other);
   // The other object is left as it was: the lookup's reference was given back, once.
@@ -195,6 +201,7 @@ void StaleObjectIsMadeAgain(uint8_t type, Object::Kind kind, const char* name) {
   std::printf("  stale %s header: re-created, re-stamped, second lookup the same object\n", name);
 }
 
+// No thread object has the KTHREAD's address any more: the thread exited and was freed.
 void ExitedThreadGetsStandIn() {
   Kernel kernel;
   const uint32_t guest = 0x30083010;
@@ -202,7 +209,7 @@ void ExitedThreadGetsStandIn() {
   setup.header.signal_state = 0;
   Report report;
   Object* made = Get(kernel, setup.header, guest, report);
-  assert(report.stale && !report.running_thread && report.outcome == Outcome::kExitedThread);
+  assert(report.stale && !report.thread_found && report.outcome == Outcome::kExitedThread);
   assert(made && made->kind == Object::kExitedThreadStandIn && made->guest == guest);
   assert(setup.header.signal_state == 1);  // a terminated thread is signalled
   assert(setup.header.blink == made->handle);
@@ -215,20 +222,87 @@ void ExitedThreadGetsStandIn() {
   std::printf("  stale header of an exited thread: signalled stand-in\n");
 }
 
-void RunningThreadIsLeftAlone() {
+// Battlefield 3: ClientLoad joins ServerLoad through ServerLoad's KTHREAD. The game closed the
+// handle it created ServerLoad with (F80001A4; the thread now has F80001A8), the table gave
+// F80001A4 to an event, and ServerLoad still runs. The wait must get ServerLoad itself.
+void RunningThreadWithReusedHandle() {
   Kernel kernel;
-  const uint32_t guest = 0x30083010;
-  StaleSetup setup = MakeStale(kernel, kThread, guest, Object::kThreadObject);
-  kernel.running_threads.push_back(guest);  // the thread runs; only its handle was lost
-  const Header before = setup.header;
+  const uint32_t kthread = 0x30083010;
+  Object* server_load = kernel.Add(Object::kThreadObject, kthread);
+  kernel.threads.push_back(server_load);
+  Header header;
+  header.type = kThread;
+  header.flink = kSignature;
+  header.blink = server_load->handle;  // F80001A4, recorded when the thread was made
+  const uint32_t first_handle = server_load->handle;
+  // A second handle to the thread, then the first one closed: the thread keeps the second.
+  kernel.table.erase(first_handle);
+  server_load->handle = 0xF80001A8;
+  kernel.table[server_load->handle] = server_load;
+  Object* event = kernel.AddWithHandle(Object::kEvent, 0x437F8D80, first_handle);
+  const int thread_references = server_load->references;
+
   Report report;
-  Object* made = Get(kernel, setup.header, guest, report);
-  assert(!made && report.stale && report.running_thread && report.outcome == Outcome::kNone);
-  assert(setup.header.flink == before.flink && setup.header.blink == before.blink);
-  assert(setup.header.signal_state == before.signal_state);
-  assert(kernel.lookups == 1 && kernel.releases == 1 && setup.other->references == 1);
-  assert(kernel.objects.size() == 2 && kernel.unsupported == 1);
-  std::printf("  stale header of a running thread: left alone\n");
+  Object* got = Get(kernel, header, kthread, report);
+  assert(report.stale && report.stale_handle == first_handle);
+  assert(report.outcome == Outcome::kThread && report.thread_found);
+  assert(got == server_load);                      // the thread itself, not a stand-in
+  assert(header.signal_state == 0);                // not signalled: the wait lasts
+  assert(header.blink == 0xF80001A8);              // re-stamped with the thread's own handle
+  assert(event->references == 1 && kernel.releases == 1);  // the event left as it was
+  assert(server_load->references == thread_references + 1);
+  assert(kernel.objects.size() == 2);              // nothing made
+  Put(kernel, got);
+
+  // The next wait finds the thread through its handle at once.
+  Report again;
+  assert(Get(kernel, header, kthread, again) == server_load && again.outcome == Outcome::kRecorded);
+  Put(kernel, server_load);
+  assert(server_load->references == thread_references && kernel.unsupported == 0);
+  std::printf("  running thread whose handle went to an event: the thread itself, re-stamped\n");
+}
+
+// The same with every handle of the thread closed: the thread is still found by its address,
+// and the header (with no handle to record) stays as it was.
+void ThreadWithNoHandleLeft() {
+  Kernel kernel;
+  const uint32_t kthread = 0x30084010;
+  Object* thread = kernel.Add(Object::kThreadObject, kthread);
+  kernel.threads.push_back(thread);
+  Header header;
+  header.type = kThread;
+  header.flink = kSignature;
+  header.blink = thread->handle;
+  const uint32_t old_handle = thread->handle;
+  kernel.table.erase(old_handle);
+  thread->handle = 0;
+  Object* other = kernel.AddWithHandle(Object::kOther, 0x43800000, old_handle);
+  for (int round = 0; round < 2; ++round) {
+    Report report;
+    Object* got = Get(kernel, header, kthread, report);
+    assert(got == thread && report.outcome == Outcome::kThread && report.stale);
+    assert(header.blink == old_handle);
+    Put(kernel, got);
+  }
+  assert(thread->references == 1 && other->references == 1 && kernel.releases == 2);
+  std::printf("  thread with no handle left: found by its address each time\n");
+}
+
+// A thread that has returned but whose object is still alive: the thread object, whose wait
+// completes because the thread has ended.
+void FinishedThreadObject() {
+  Kernel kernel;
+  const uint32_t kthread = 0x30085010;
+  StaleSetup setup = MakeStale(kernel, kThread, kthread, Object::kThreadObject);
+  Object* finished = kernel.Add(Object::kThreadObject, kthread);
+  finished->finished = true;
+  kernel.threads.push_back(finished);
+  Report report;
+  Object* got = Get(kernel, setup.header, kthread, report);
+  assert(got == finished && got->finished && report.outcome == Outcome::kThread);
+  Put(kernel, got);
+  assert(finished->references == 1 && setup.other->references == 1);
+  std::printf("  finished thread object still alive: the thread object\n");
 }
 
 void UnsupportedTypesGiveNull() {
@@ -304,7 +378,9 @@ int main() {
   StaleObjectIsMadeAgain(kMutant, Object::kMutantObject, "mutant");
   StaleObjectIsMadeAgain(kSemaphore, Object::kSemaphoreObject, "semaphore");
   ExitedThreadGetsStandIn();
-  RunningThreadIsLeftAlone();
+  RunningThreadWithReusedHandle();
+  ThreadWithNoHandleLeft();
+  FinishedThreadObject();
   UnsupportedTypesGiveNull();
   UnchangedPaths();
   std::puts("PASS: stale dispatch headers (fix 20)");
