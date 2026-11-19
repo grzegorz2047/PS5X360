@@ -1138,7 +1138,7 @@ index d5ce5b0..68d414e 100644
  }  // namespace xam
  }  // namespace kernel
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
-index bf19396..718b738 100644
+index bf19396..bafbd92 100644
 --- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
 +++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
 @@ -8,6 +8,8 @@
@@ -1240,7 +1240,7 @@ index bf19396..718b738 100644
  dword_result_t XamShowDeviceSelectorUI_entry(
      dword_t user_index, dword_t content_type, dword_t content_flags,
      qword_t total_requested, lpdword_t device_id_ptr,
-@@ -715,47 +786,117 @@ dword_result_t XamShowDeviceSelectorUI_entry(
+@@ -715,47 +786,116 @@ dword_result_t XamShowDeviceSelectorUI_entry(
          overlapped);
    }
  
@@ -1339,8 +1339,7 @@ index bf19396..718b738 100644
    std::string title = UiText("Where should the game save?");
    std::string desc = UiText("The game asks where to keep its saved data.");
 +  if (!notice.empty()) {
-+    desc += "
-+";
++    desc += "\n";
 +    desc += notice;
 +  }
  
