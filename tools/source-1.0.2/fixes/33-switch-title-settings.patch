@@ -1,0 +1,216 @@
+diff --git a/port/switch_title.hpp b/port/switch_title.hpp
+new file mode 100644
+index 0000000..b300a9e
+--- /dev/null
++++ b/port/switch_title.hpp
+@@ -0,0 +1,104 @@
++// SPDX-License-Identifier: MIT
++// Fix 33: a title switch keeps the game's own options.
++//
++// A game that starts another executable (a collection's menu: The Orange Box, State of Decay's
++// launcher) or goes back to the dashboard calls XamLoaderLaunchTitle; the core saves what to run
++// next in launch_data.bin (XamModule::SaveLoaderData: a uint16 length and the next game's host
++// path first) and the title restarts (XamModule::restart_hook). 1.0.2's next start read only
++// launch-once.txt for the game's id, so it started with the general options; the switch branch
++// then took the id with ReadXexTitleId, which is empty for an ISO or a package, and left out the
++// FSI and start-option restarts, so The Orange Box lost readback=2 and State of Decay zero_page=1.
++// Now the start reads the next game from launch_data.bin (without consuming it: the core does,
++// later) and uses its id as launch-once.txt's; a switched start may still restart into options
++// read only at start (FSI), once per title, with launch_data.bin written back byte for byte.
++#ifndef XBOX360PS5_SWITCH_TITLE_HPP_
++#define XBOX360PS5_SWITCH_TITLE_HPP_
++
++#include <algorithm>
++#include <cctype>
++#include <cstdint>
++#include <filesystem>
++#include <fstream>
++#include <iterator>
++#include <string>
++#include <system_error>
++
++namespace xbox360ps5::switch_title {
++
++// launch_data.bin as the core left it for this start.
++struct Pending {
++  std::string bytes;      // the whole file, to write back for a restart
++  std::string host_path;  // the next game's file (an .xex, an .iso or a package)
++};
++
++inline Pending ReadPending(const std::filesystem::path& file) {
++  Pending pending;
++  std::ifstream in(file, std::ios::binary);
++  if (!in) return pending;
++  pending.bytes.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
++  if (pending.bytes.size() < 2) return pending;
++  const auto* b = reinterpret_cast<const unsigned char*>(pending.bytes.data());
++  const size_t length = size_t(b[0]) | (size_t(b[1]) << 8);  // written little-endian by the core
++  if (length == 0 || pending.bytes.size() < 2 + length) return pending;
++  pending.host_path = pending.bytes.substr(2, length);
++  return pending;
++}
++
++// Writes launch_data.bin back as it was, so the restart is still the switch.
++inline bool RestorePending(const std::filesystem::path& file, const Pending& pending) {
++  if (pending.bytes.empty()) return false;
++  std::ofstream out(file, std::ios::binary | std::ios::trunc);
++  out.write(pending.bytes.data(), std::streamsize(pending.bytes.size()));
++  return bool(out);
++}
++
++enum class Kind { xex, iso, package };
++
++inline Kind KindOf(const std::filesystem::path& path) {
++  std::string extension = path.extension().string();
++  for (char& c : extension) c = char(std::tolower(static_cast<unsigned char>(c)));
++  if (extension == ".xex") return Kind::xex;
++  if (extension == ".iso") return Kind::iso;
++  return Kind::package;  // GOD and STFS packages have no extension of their own
++}
++
++// The game's title id by the reader its kind needs (as the dashboard's library list does).
++template <typename Xex, typename Iso, typename Package>
++std::string TitleIdOf(const std::filesystem::path& path, Xex&& xex, Iso&& iso, Package&& package) {
++  if (path.empty()) return {};
++  switch (KindOf(path)) {
++    case Kind::xex: return xex(path);
++    case Kind::iso: return iso(path);
++    default: return package(path);
++  }
++}
++
++// The title a switched start last restarted into its own options (read once, then removed).
++inline std::string TakeRestartGuard(const std::filesystem::path& file) {
++  std::string title;
++  {
++    std::ifstream in(file);
++    std::getline(in, title);
++  }
++  std::error_code error;
++  std::filesystem::remove(file, error);
++  return title;
++}
++
++inline bool SetRestartGuard(const std::filesystem::path& file, const std::string& title) {
++  std::ofstream out(file, std::ios::trunc);
++  out << title << "\n";
++  return bool(out);
++}
++
++// A start that differs from the game's options restarts into them: a start the user made
++// always (launch-once.txt), a switched one once per title (a title whose options still differ
++// after its restart does not loop) and never for a game whose id is unknown.
++inline bool MayRestart(bool switched, const std::string& guard, const std::string& title) {
++  if (!switched) return true;
++  return !title.empty() && guard != title;
++}
++
++}  // namespace xbox360ps5::switch_title
++
++#endif  // XBOX360PS5_SWITCH_TITLE_HPP_
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+index 3daaf57..f8ac231 100644
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -142,6 +142,7 @@ DECLARE_bool(upnp);
+ #include "xenia/kernel/XLiveAPI.h"
+ #include "xenia/kernel/util/curl_utils.h"
+ #include "guide_network.hpp"  // fix 22: the network mode from the guide
++#include "switch_title.hpp"  // fix 33: a title switch keeps the game's own options
+ #include <fcntl.h>
+ 
+ namespace {
+@@ -1514,6 +1515,18 @@ std::vector<DashboardGame> DashboardGames(const std::vector<std::filesystem::pat
+   }
+   return games;
+ }
++// Fix 33: a game file's title id by the reader its kind needs (an .xex, an .iso or a package),
++// as the library list finds it; 1.0.2 used ReadXexTitleId for every file, empty for the others.
++std::string GameTitleId(const std::filesystem::path& path) {
++  return xbox360ps5::switch_title::TitleIdOf(
++      path, [](const std::filesystem::path& p) { return xbox360ps5::ReadXexTitleId(p); },
++      [](const std::filesystem::path& p) { return xbox360ps5::ReadIsoTitleId(p); },
++      [](const std::filesystem::path& p) {
++        std::string id, name;
++        ReadPackageInfo(p, id, name);
++        return id;
++      });
++}
+ }  // namespace
+ int main(int argc, char** argv) {
+   config::config_folder = "/app0/assets";
+@@ -1578,6 +1591,19 @@ int main(int argc, char** argv) {
+     std::filesystem::remove(storage / "launch-once.txt", once_error);
+   }
+   std::string settings_title = once_title;
++  // Fix 33: a start a game asked for (a title switch: the core saved the next game in
++  // launch_data.bin, which it reads later) takes that game's options from the start, as
++  // launch-once.txt gives them; 1.0.2 started it with the general options. The file is only read
++  // here. switch-restart.txt names the title a switched start last restarted into its options.
++  const xbox360ps5::switch_title::Pending switch_pending = xbox360ps5::switch_title::ReadPending(
++      std::filesystem::path(std::string(xe::kernel::xam::kXamModuleLoaderDataFileName)));
++  const std::string switch_restarted =
++      xbox360ps5::switch_title::TakeRestartGuard(storage / "switch-restart.txt");
++  if (settings_title.empty() && !switch_pending.host_path.empty()) {
++    settings_title = GameTitleId(switch_pending.host_path);
++    Stage(("BOOT title switch to " + switch_pending.host_path + " (" +
++           (settings_title.empty() ? std::string("title id unknown") : settings_title) + ")").c_str());
++  }
+   xbox360ps5::GameOverrides overrides = xbox360ps5::LoadGameOverrides(settings_title);
+   // The options in force: the general ones with the running game's own over them.
+   xbox360ps5::Settings settings = xbox360ps5::ForGame(global, settings_title, overrides);
+@@ -2254,7 +2280,8 @@ int main(int argc, char** argv) {
+         }
+         xe::FlushLog();
+         std::string log_id = chosen.title_id;
+-        if (log_id.empty()) log_id = xbox360ps5::ReadXexTitleId(game);
++        // Fix 33: by the file's kind (an ISO or a package after a title switch had no id).
++        if (log_id.empty()) log_id = GameTitleId(game);
+         // This game's own options over the general ones.
+         settings_title = log_id;
+         // Candidate 21: the probes' lines for Battlefield 3 only (the JIT inserts them only into
+@@ -2266,20 +2293,40 @@ int main(int argc, char** argv) {
+         settings = xbox360ps5::ForGame(global, settings_title, overrides);
+         // Binary release patch group 13: the game's own "fsi" option (1, Standard: its preset,
+         // else the general choice; 0 and 2 force it).
++        // Fix 33: a switched start restarts into its game's options too, once per title, with
++        // the switch's launch_data.bin written back (1.0.2 never restarted one: the switch
++        // would have been lost). Its start options already are its own (see above).
++        const bool may_restart =
++            xbox360ps5::switch_title::MayRestart(switched, switch_restarted, settings_title);
++        const auto restart_into_game = [&] {
++          if (switched) {
++            xbox360ps5::switch_title::SetRestartGuard(storage / "switch-restart.txt", settings_title);
++            if (!xbox360ps5::switch_title::RestorePending(
++                    std::filesystem::path(std::string(xe::kernel::xam::kXamModuleLoaderDataFileName)),
++                    switch_pending))
++              XELOGW("Title switch: launch data not written back; the restart opens the launcher");
++          } else {
++            std::ofstream(storage / "launch-once.txt", std::ios::trunc) << game.string() << "\n" << settings_title << "\n";
++          }
++        };
++        if (switched) {
++          XELOGW("Title switch: {} uses the options of {}", game.string(),
++                 settings_title.empty() ? std::string("no identified title") : settings_title);
++        }
+         if (const bool fsi_wanted =
+                 settings.fsi == 1 ? xbox360ps5::FsiWantedFor(settings_title) : settings.fsi == 2;
+-            !switched && fsi_wanted != xbox360ps5::FsiInEffect()) {
++            may_restart && fsi_wanted != xbox360ps5::FsiInEffect()) {
+           XELOGW("Settings: {} uses {} render targets; restarting into it", chosen.name,
+                  fsi_wanted ? "accurate (FSI)" : "fast");
+           xbox360ps5::FsiForNextStart(fsi_wanted);
+-          std::ofstream(storage / "launch-once.txt", std::ios::trunc) << game.string() << "\n" << settings_title << "\n";
++          restart_into_game();
+           restart = true;
+           break;
+         }
+-        if (!switched && xbox360ps5::StartOptionsDiffer(settings, started)) {
++        if (may_restart && xbox360ps5::StartOptionsDiffer(settings, started)) {
+           // Some are only read as the emulator starts: start again, straight into this game.
+           XELOGW("Settings: {} has start options of its own; restarting into it", chosen.name);
+-          std::ofstream(storage / "launch-once.txt", std::ios::trunc) << game.string() << "\n" << settings_title << "\n";
++          restart_into_game();
+           restart = true;
+           break;
+         }

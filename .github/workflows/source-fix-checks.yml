@@ -26,6 +26,7 @@ on:
       - 'tools/check-fix26-tree.cpp'
       - 'tools/check-wait-wakeups.cpp'
       - 'tools/check-media-voice.cpp'
+      - 'tools/check-switch-title.cpp'
       - 'tools/check-assemble-skip.py'
       - 'tools/check-patch-syntax.py'
       - 'tools/check-bf3-preset.py'
