@@ -83,9 +83,10 @@ FakeMemory Hang(uint32_t flags, uint32_t finish_count, uint32_t label) {
 }
 
 void DecodesTheStuckRing() {
-  assert(ct::IsLabelTag(0x0000057A, 0x945C2298) && ct::IsLabelTag(0x0000057A, 0xC05C2298));
+  // The tag: 80000000 or C0000000 | object >> 2 (82FD6AE0 inserts object >> 2 into bits 2-31).
+  assert(ct::IsLabelTag(0x0000057A, 0x945C2298) && ct::IsLabelTag(0x0000057A, 0xD45C2298));
   assert(!ct::IsLabelTag(0x0000057B, 0x945C2298) && !ct::IsLabelTag(0x0000057A, 0x145C2298));
-  assert(ct::LabelObject(0x945C2298) == kObject && ct::LabelObject(0xC05C2298) == kObject);
+  assert(ct::LabelObject(0x945C2298) == kObject && ct::LabelObject(0xD45C2298) == kObject);
   // The label's views: A0000000/C0000000 as is, E0000000 0x1000 above (as the emitter at 82FD6B00).
   assert(ct::LabelPhysical(0xBF9BA0FC) == kAwaited && ct::LabelPhysical(0xDF9BA0FC) == kAwaited);
   assert(ct::LabelPhysical(0xFF9B90FC) == kAwaited);
