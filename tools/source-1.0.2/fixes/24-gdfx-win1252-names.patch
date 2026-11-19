@@ -1,0 +1,257 @@
+diff --git a/.deps/xenia-canary/src/xenia/base/string.cc b/.deps/xenia-canary/src/xenia/base/string.cc
+index dbd6b5f..876c64c 100644
+--- a/.deps/xenia-canary/src/xenia/base/string.cc
++++ b/.deps/xenia-canary/src/xenia/base/string.cc
+@@ -62,6 +62,77 @@ std::u16string to_utf16(const std::string_view source) {
+   return utfcpp::utf8to16(source);
+ }
+ 
++#if !XE_PLATFORM_WIN32
++namespace {
++// Xbox360PS5 (fix 24): Windows-1252 without the Windows API. 0x80-0x9F as below, 0xA0-0xFF
++// are U+00A0-U+00FF. The five bytes the code page leaves undefined (81, 8D, 8F, 90, 9D) are
++// the C1 controls of the same value, as MultiByteToWideChar(1252) gives them. Up to 1.0.2
++// these functions copied the bytes, so a disc name such as "caf\xE9" reached the UTF-8 path
++// code unconverted and utfcpp threw not_enough_room ("Not enough space"): Handball 16.
++constexpr char16_t kWin1252High[32] = {
++    0x20AC, 0x0081, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021,
++    0x02C6, 0x2030, 0x0160, 0x2039, 0x0152, 0x008D, 0x017D, 0x008F,
++    0x0090, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014,
++    0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, 0x009D, 0x017E, 0x0178};
++
++void AppendUtf8(std::string& out, uint32_t cp) {
++  if (cp < 0x80) {
++    out += char(cp);
++  } else if (cp < 0x800) {
++    out += char(0xC0 | (cp >> 6));
++    out += char(0x80 | (cp & 0x3F));
++  } else {
++    out += char(0xE0 | (cp >> 12));
++    out += char(0x80 | ((cp >> 6) & 0x3F));
++    out += char(0x80 | (cp & 0x3F));
++  }
++}
++
++// The next code point of `s` at `i` (advanced past it), or -1 for a byte that does not start
++// a complete, shortest-form UTF-8 sequence (then `i` moves one byte). Never throws.
++int32_t NextUtf8(const std::string_view s, size_t& i) {
++  const uint8_t lead = uint8_t(s[i]);
++  size_t length;
++  uint32_t cp;
++  if (lead < 0x80) {
++    ++i;
++    return lead;
++  } else if (lead >= 0xC2 && lead <= 0xDF) {
++    length = 2;
++    cp = lead & 0x1F;
++  } else if (lead >= 0xE0 && lead <= 0xEF) {
++    length = 3;
++    cp = lead & 0x0F;
++  } else if (lead >= 0xF0 && lead <= 0xF4) {
++    length = 4;
++    cp = lead & 0x07;
++  } else {
++    ++i;
++    return -1;
++  }
++  if (s.size() - i < length) {
++    ++i;
++    return -1;
++  }
++  for (size_t k = 1; k < length; ++k) {
++    const uint8_t trail = uint8_t(s[i + k]);
++    if ((trail & 0xC0) != 0x80) {
++      ++i;
++      return -1;
++    }
++    cp = (cp << 6) | (trail & 0x3F);
++  }
++  if ((length == 3 && (cp < 0x800 || (cp >= 0xD800 && cp <= 0xDFFF))) ||
++      (length == 4 && (cp < 0x10000 || cp > 0x10FFFF))) {
++    ++i;
++    return -1;
++  }
++  i += length;
++  return int32_t(cp);
++}
++}  // namespace
++#endif
++
+ std::string utf8_to_win1252(const std::string_view source) {
+ #if XE_PLATFORM_WIN32
+   std::string input_str(source);
+@@ -93,8 +164,25 @@ std::string utf8_to_win1252(const std::string_view source) {
+   std::string output_str(buf.begin(), buf.end());
+   return output_str;
+ #else
+-  // TODO: Use iconv on POSIX.
+-  std::string output_str(source);
++  // Xbox360PS5 (fix 24): what Windows-1252 cannot hold, and bytes that are not UTF-8, become
++  // '_' (WideCharToMultiByte's default character above).
++  std::string output_str;
++  output_str.reserve(source.size());
++  for (size_t i = 0; i < source.size();) {
++    const int32_t cp = NextUtf8(source, i);
++    if (cp >= 0 && (cp < 0x80 || (cp >= 0xA0 && cp <= 0xFF))) {
++      output_str += char(cp);
++      continue;
++    }
++    char byte = '_';
++    for (size_t k = 0; cp >= 0 && k < 32; ++k) {
++      if (kWin1252High[k] == uint32_t(cp)) {
++        byte = char(0x80 + k);
++        break;
++      }
++    }
++    output_str += byte;
++  }
+   return output_str;
+ #endif
+ }
+@@ -130,8 +218,15 @@ std::string win1252_to_utf8(const std::string_view source) {
+   std::string output_str(buf.begin(), buf.end());
+   return output_str;
+ #else
+-  // TODO: Use iconv on POSIX.
+-  std::string output_str(source);
++  // Xbox360PS5 (fix 24): always valid UTF-8, never empty for a non-empty name.
++  std::string output_str;
++  output_str.reserve(source.size() + source.size() / 2);
++  for (const char c : source) {
++    const uint8_t byte = uint8_t(c);
++    AppendUtf8(output_str, byte < 0x80    ? byte
++                           : byte < 0xA0 ? uint32_t(kWin1252High[byte - 0x80])
++                                         : byte);
++  }
+   return output_str;
+ #endif
+ }
+diff --git a/.deps/xenia-canary/src/xenia/kernel/util/shim_utils.h b/.deps/xenia-canary/src/xenia/kernel/util/shim_utils.h
+index de4b758..eb0420e 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/util/shim_utils.h
++++ b/.deps/xenia-canary/src/xenia/kernel/util/shim_utils.h
+@@ -17,6 +17,7 @@
+ #include "xenia/base/byte_order.h"
+ #include "xenia/base/logging.h"
+ #include "xenia/base/memory.h"
++#include "xenia/base/string.h"
+ #include "xenia/base/string_buffer.h"
+ #include "xenia/cpu/export_resolver.h"
+ #include "xenia/cpu/ppc/ppc_context.h"
+@@ -79,10 +80,13 @@ inline std::string_view TranslateAnsiString(const Memory* memory,
+       ansi_string->length);
+ }
+ 
++// Xbox360PS5 (fix 24): a guest path is Windows-1252, like the names on a disc, which the
++// devices convert to UTF-8 (win1252_to_utf8); converted the same way, a path with an accented
++// name finds its entry, and the UTF-8 path code never sees bytes that are not UTF-8.
+ inline std::string TranslateAnsiPath(const Memory* memory,
+                                      const X_ANSI_STRING* ansi_string) {
+   return string_util::trim(
+-      std::string(TranslateAnsiString(memory, ansi_string)));
++      xe::win1252_to_utf8(TranslateAnsiString(memory, ansi_string)));
+ }
+ 
+ inline std::string_view TranslateAnsiStringAddress(const Memory* memory,
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xfile.cc b/.deps/xenia-canary/src/xenia/kernel/xfile.cc
+index fe5f117..907abc4 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xfile.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xfile.cc
+@@ -11,6 +11,7 @@
+ #include "xenia/vfs/virtual_file_system.h"
+ 
+ #include "xenia/base/byte_stream.h"
++#include "xenia/base/string.h"
+ #include "xenia/kernel/kernel_state.h"
+ 
+ namespace xe {
+@@ -79,7 +80,9 @@ X_STATUS XFile::QueryDirectory(X_FILE_DIRECTORY_INFORMATION* out_info,
+   }
+ 
+   auto end = reinterpret_cast<uint8_t*>(out_info) + length;
+-  const auto& entry_name = entry->name();
++  // Xbox360PS5 (fix 24): entry names are UTF-8 (a disc's Windows-1252 names converted); the
++  // guest gets the Windows-1252 bytes of its disc back.
++  const std::string entry_name = xe::utf8_to_win1252(entry->name());
+   if (reinterpret_cast<uint8_t*>(&out_info->file_name[0]) + entry_name.size() >
+       end) {
+     assert_always("Buffer overflow?");
+diff --git a/.deps/xenia-canary/src/xenia/vfs/devices/disc_image_device.cc b/.deps/xenia-canary/src/xenia/vfs/devices/disc_image_device.cc
+index f0b9bce..e862a0d 100644
+--- a/.deps/xenia-canary/src/xenia/vfs/devices/disc_image_device.cc
++++ b/.deps/xenia-canary/src/xenia/vfs/devices/disc_image_device.cc
+@@ -9,10 +9,13 @@
+ 
+ #include "xenia/vfs/devices/disc_image_device.h"
+ 
++#include <exception>
++
+ #include "xenia/base/literals.h"
+ #include "xenia/base/filesystem.h"
+ #include "xenia/base/logging.h"
+ #include "xenia/base/math.h"
++#include "xenia/base/string.h"
+ #include "xenia/vfs/devices/disc_image_entry.h"
+ 
+ namespace xe {
+@@ -66,13 +69,28 @@ bool DiscImageDevice::Initialize() {
+     return false;
+   }
+ 
+-  result = ReadAllEntries(&state);
++  // Xbox360PS5 (fix 24): an exception while the entries are read (1.0.2: utfcpp's
++  // not_enough_room, "Not enough space", for a Windows-1252 name) fails the mount here, with
++  // the name it was reading, instead of ending the launch with only its message.
++  try {
++    result = ReadAllEntries(&state);
++  } catch (const std::exception& error) {
++    std::string bytes;
++    for (const char c : last_name_) {
++      bytes += fmt::format("{:02X}", uint8_t(c));
++    }
++    XELOGE(
++        "Disc mount: reading GDFX entries stopped after {} entries, at name {} [{}]: {}",
++        entry_count_, xe::win1252_to_utf8(last_name_), bytes, error.what());
++    return false;
++  }
+   if (result != Error::kSuccess) {
+     XELOGE("Failed to read all GDFX entries: {}", static_cast<int32_t>(result));
+     return false;
+   }
+ 
+-  XELOGI("Disc mount: directory ready for {}", host_path_);
++  XELOGI("Disc mount: directory ready for {} ({} entries, {} names from Windows-1252)",
++         host_path_, entry_count_, win1252_names_);
+   return true;
+ }
+ 
+@@ -179,6 +197,14 @@ bool DiscImageDevice::ReadEntry(ParseState* state, const uint8_t* buffer,
+ 
+   // Filename is stored as Windows-1252, convert it to UTF-8.
+   auto ansi_name = std::string(name_buffer, name_length);
++  last_name_ = ansi_name;
++  ++entry_count_;
++  for (const char c : ansi_name) {
++    if (uint8_t(c) >= 0x80) {
++      ++win1252_names_;
++      break;
++    }
++  }
+   auto name = xe::win1252_to_utf8(ansi_name);
+   // Fallback to normal name if for whatever reason conversion from 1252 code
+   // page failed.
+diff --git a/.deps/xenia-canary/src/xenia/vfs/devices/disc_image_device.h b/.deps/xenia-canary/src/xenia/vfs/devices/disc_image_device.h
+index ef83058..309c804 100644
+--- a/.deps/xenia-canary/src/xenia/vfs/devices/disc_image_device.h
++++ b/.deps/xenia-canary/src/xenia/vfs/devices/disc_image_device.h
+@@ -63,6 +63,10 @@ class DiscImageDevice : public Device {
+   std::filesystem::path host_path_;
+   std::unique_ptr<Entry> root_entry_;
+   std::unique_ptr<MappedMemory> mmap_;
++  // Xbox360PS5 (fix 24): counted while the entries are read, for the mount log.
++  size_t entry_count_ = 0;
++  size_t win1252_names_ = 0;
++  std::string last_name_;
+ 
+   typedef struct {
+     size_t size;         // Size (bytes) of total image.
