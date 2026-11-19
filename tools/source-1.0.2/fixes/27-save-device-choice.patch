@@ -1,5 +1,5 @@
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.cc b/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.cc
-index 2baadbe..aac6ced 100644
+index 2baadbe..294193e 100644
 --- a/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.cc
 +++ b/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.cc
 @@ -34,6 +34,8 @@ namespace xam {
@@ -212,7 +212,7 @@ index 2baadbe..aac6ced 100644
    if (ec) {
      XELOGW("{}: {} (:08X)", __func__, ec.message(), ec.value());
      return 0;
-@@ -770,6 +796,92 @@ uint64_t ContentManager::GetContentFreeSpace() const {
+@@ -770,6 +796,93 @@ uint64_t ContentManager::GetContentFreeSpace() const {
    return drive_stats.free;
  }
  
@@ -259,7 +259,8 @@ index 2baadbe..aac6ced 100644
 +               skip.mount, skip.detail);
 +      } else if (skip.why == storage::Skipped::Why::kError ||
 +                 skip.why == storage::Skipped::Why::kSameDisk ||
-+                 skip.why == storage::Skipped::Why::kSystem) {
++                 skip.why == storage::Skipped::Why::kSystem ||
++                 skip.why == storage::Skipped::Why::kSystemOnly) {
 +        XELOGW("Storage: {} is {}; not offered", skip.mount, skip.detail);
 +      } else {
 +        XELOGW("Storage: {} is mounted but not writable (tried {}); not "
@@ -399,10 +400,10 @@ index 448c273..f2f631c 100644
  }  // namespace xam
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/storage_devices.h b/.deps/xenia-canary/src/xenia/kernel/xam/storage_devices.h
 new file mode 100644
-index 0000000..2bc4229
+index 0000000..b2afa61
 --- /dev/null
 +++ b/.deps/xenia-canary/src/xenia/kernel/xam/storage_devices.h
-@@ -0,0 +1,785 @@
+@@ -0,0 +1,828 @@
 +/**
 + ******************************************************************************
 + * Xenia : Xbox 360 Emulator Research Project                                 *
@@ -552,11 +553,29 @@ index 0000000..2bc4229
 +    kSameFilesystem,
 +    kError,
 +    kSameDisk,
-+    kSystem
++    kSystem,
++    kSystemOnly
 +  } why = Why::kNotWritable;
 +  uint32_t same_as = 0;  // kSameFilesystem: the offered device it is
 +  std::string detail;    // for the log
 +};
++
++// The folders a console or a PC makes on any drive it sees. A USB mount whose
++// top holds nothing else (names starting with "." aside) and so no PS5X360,
++// homebrew or xbox360 folder is not offered: on the console of candidate 29
++// that was usb2, the second partition of the Ubuntu installer stick in usb1
++// (the sandbox gives every mount its own made-up st_dev, and /dev cannot be
++// read, so nothing else tells such a partition apart). Once anything else is
++// on it, a PS5X360 folder included, it is offered again.
++inline bool OnlySystemFolders(const std::vector<std::string>& names) {
++  bool any = false;
++  for (const auto& name : names) {
++    if (name.empty() || name[0] == '.') continue;
++    if (name != "System" && name != "System Volume Information") return false;
++    any = true;
++  }
++  return any;
++}
 +
 +// The disk a mount's source names: "/dev/da0s1", "/dev/da0p2" and "/dev/da0"
 +// are all on da0. Empty when the source is not a /dev/<letters><number> name.
@@ -587,6 +606,7 @@ index 0000000..2bc4229
 +//                                    (and is removed again)
 +//   FsInfo Info(const path&)
 +//   std::vector<std::string> ListDirectories(const path&)
++//   bool ListNames(const path&, std::vector<std::string>&)  every entry's name
 +//
 +// The internal folder always comes first. A slot counts only when its mount
 +// point is a mount point: the console keeps empty, read-only placeholders
@@ -689,6 +709,20 @@ index 0000000..2bc4229
 +                   ")"});
 +        }
 +        continue;
++      }
++      if (device.kind == Kind::kUsb) {
++        trace("contents? " + device.mount);
++        std::vector<std::string> names;
++        if (fs.ListNames(mount, names) && OnlySystemFolders(names)) {
++          if (skipped) {
++            skipped->push_back(
++                {device.mount, device.id, Skipped::Why::kSystemOnly, 0,
++                 "empty but for the PS5's System folder, without a PS5X360 "
++                 "folder (taken for another partition of a drive, as an "
++                 "installer stick's)"});
++          }
++          continue;
++        }
 +      }
 +      bool found = false;
 +      for (const char* base : kSaveBases) {  // a saves folder already there
@@ -1167,6 +1201,16 @@ index 0000000..2bc4229
 +  std::filesystem::path dev_folder_ = "/dev";
 +  bool dev_listed_ = false;
 +  std::vector<std::pair<uint64_t, std::string>> dev_names_;
++
++  bool ListNames(const std::filesystem::path& path,
++                 std::vector<std::string>& names) {
++    std::error_code error;
++    std::filesystem::directory_iterator entry(path, error), end;
++    for (; !error && entry != end; entry.increment(error)) {
++      names.push_back(entry->path().filename().string());
++    }
++    return !error;
++  }
 +
 +  std::vector<std::string> ListDirectories(const std::filesystem::path& path) {
 +    std::vector<std::string> names;

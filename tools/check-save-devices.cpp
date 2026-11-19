@@ -47,6 +47,8 @@ struct FakeFs {
   std::set<std::string> dirs;
   std::set<std::string> read_only;
   std::map<std::string, storage::FsInfo> info;
+  std::set<std::string> files;
+  std::set<std::string> unlistable;
   std::vector<std::string> probes;
 
   bool IsMountPoint(const stdfs::path& path) { return mounts.count(path.string()) != 0; }
@@ -68,6 +70,15 @@ struct FakeFs {
       if (stdfs::path(dir).parent_path() == path) names.push_back(stdfs::path(dir).filename().string());
     }
     return names;
+  }
+  bool ListNames(const stdfs::path& path, std::vector<std::string>& names) {
+    if (unlistable.count(path.string()) || !IsDirectory(path)) return false;
+    for (const auto* set : {&dirs, &files}) {
+      for (const auto& entry : *set) {
+        if (stdfs::path(entry).parent_path() == path) names.push_back(stdfs::path(entry).filename().string());
+      }
+    }
+    return true;
   }
   void AddDir(const std::string& path) {
     for (stdfs::path p = path; p.has_relative_path(); p = p.parent_path()) dirs.insert(p.string());
@@ -551,6 +562,85 @@ void CheckRemember() {
             "used without the window while there; missing: asked with the reason, replaced");
 }
 
+// usb2 of candidate 29: a USB mount whose top holds only the System folder the PS5 (or Windows)
+// makes, and no PS5X360 folder, is not offered; anything else on it, a PS5X360 folder included,
+// and it is offered. Its writability is not even probed.
+void CheckSystemOnly() {
+  assert(storage::OnlySystemFolders({"System"}));
+  assert(storage::OnlySystemFolders({"System Volume Information", ".Trashes", ".ps5x360-write-test"}));
+  assert(!storage::OnlySystemFolders({}) && !storage::OnlySystemFolders({".Spotlight-V100"}));
+  assert(!storage::OnlySystemFolders({"System", "PS5X360"}) && !storage::OnlySystemFolders({"System", "roms"}));
+  assert(!storage::OnlySystemFolders({"system"}));  // names as the PS5 writes them
+
+  FakeFs fs = Console();
+  fs.AddDir("/mnt/usb0/System");
+  fs.AddDir("/mnt/usb0/roms");
+  fs.AddDir("/mnt/usb1/System");
+  fs.AddDir("/mnt/usb1/CASPER");
+  fs.files.insert("/mnt/usb1/boot.catalog");
+  fs.AddDir("/mnt/usb2/System");  // the installer stick's second partition
+  std::vector<storage::Skipped> skipped;
+  std::vector<std::string> steps;
+  const auto devices = storage::Scan(fs, kInternal, "/mnt", &skipped,
+                                     [&steps](const std::string& step) { steps.push_back(step); });
+  assert((Ids(devices) == std::vector<uint32_t>{1, 4, 7, 8}));
+  assert(devices[2].number == 1 && devices[3].number == 2);  // USB 1 (usb0), USB 2 (usb1)
+  assert(skipped.size() == 1 && skipped[0].mount == "/mnt/usb2" && skipped[0].id == 9);
+  assert(skipped[0].why == Why::kSystemOnly);
+  assert(skipped[0].detail.find("System folder") != std::string::npos);
+  assert(std::find(steps.begin(), steps.end(), "contents? /mnt/usb2") != steps.end());
+  assert(std::find(fs.probes.begin(), fs.probes.end(), "/mnt/usb2") == fs.probes.end());  // never probed
+  // The Save drive setting naming it asks (not mounted as a drive).
+  assert(storage::CheckSaved(devices, skipped, 9, 0, "/mnt").state == storage::Saved::kNotMounted);
+
+  // Windows' name for it, and dot-entries beside it: the same.
+  FakeFs windows = Console();
+  windows.AddDir("/mnt/usb2/System Volume Information");
+  windows.files.insert("/mnt/usb2/.DS_Store");
+  assert(storage::Scan(windows, kInternal, "/mnt").size() == 4);
+  // A PS5X360 folder on it (saves made there before): offered, its saves folder used.
+  FakeFs used = Console();
+  used.AddDir("/mnt/usb2/System");
+  used.AddDir("/mnt/usb2/PS5X360/saves");
+  auto offered = storage::Scan(used, kInternal, "/mnt");
+  assert(offered.size() == 5 && offered[4].id == 9 && offered[4].root == "/mnt/usb2/PS5X360/saves");
+  // Anything else on it, a file too: offered.
+  FakeFs file = Console();
+  file.AddDir("/mnt/usb2/System");
+  file.files.insert("/mnt/usb2/notes.txt");
+  assert(storage::Scan(file, kInternal, "/mnt").size() == 5);
+  // Not for the extended storage, nor when the top cannot be listed, nor for an empty top.
+  FakeFs ext = Console();
+  ext.dirs.erase("/mnt/ext1/homebrew");
+  ext.dirs.erase("/mnt/ext1/user");
+  ext.dirs.erase("/mnt/ext1/xbox360");
+  ext.read_only.clear();
+  ext.AddDir("/mnt/ext1/System");
+  assert(storage::Scan(ext, kInternal, "/mnt")[1].id == 4);
+  FakeFs closed = Console();
+  closed.AddDir("/mnt/usb2/System");
+  closed.unlistable.insert("/mnt/usb2");
+  assert(storage::Scan(closed, kInternal, "/mnt").size() == 5);
+  FakeFs empty = Console();  // usb2's top holds nothing at all
+  assert(storage::Scan(empty, kInternal, "/mnt").size() == 5);
+
+  // The real filesystem's listing.
+  storage::PosixFs posix;
+  const stdfs::path base = stdfs::temp_directory_path() / "check-save-devices-system";
+  stdfs::remove_all(base);
+  stdfs::create_directories(base / "System");
+  std::vector<std::string> names;
+  assert(posix.ListNames(base, names) && storage::OnlySystemFolders(names));
+  std::ofstream(base / "game.iso") << "x";
+  names.clear();
+  assert(posix.ListNames(base, names) && !storage::OnlySystemFolders(names));
+  names.clear();
+  assert(!posix.ListNames(base / "missing", names) && names.empty());
+  stdfs::remove_all(base);
+  std::puts("ok system-only: a USB top with only the System folder and no PS5X360 folder is not "
+            "offered (logged); anything else, a PS5X360 folder included, and it is");
+}
+
 void CheckSettingValues() {
   assert(storage::kSaveDriveChoices == 14);
   assert(storage::SaveDriveDeviceId(0) == 0 && storage::SaveDriveDeviceId(1) == storage::kInternalDeviceId);
@@ -715,6 +805,7 @@ int main(int argc, char** argv) {
   CheckThrowing();
   CheckPartitions();
   CheckRemember();
+  CheckSystemOnly();
   CheckSettingValues();
   CheckSavedDrive();
   CheckTranslations();
