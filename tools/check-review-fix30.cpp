@@ -214,7 +214,7 @@ void CheckTree() {
   assert(exports.find("memexport_merge::RefreshRanges(*shared_memory_, ranges);") != std::string::npos);
   assert(exports.find("readback_slots::") == std::string::npos);
   assert(exports.find("readback_buffers_") == std::string::npos);
-  assert(exports.find("ReadbackBuffer") == std::string::npos);
+  assert(exports.find("ReadbackBuffer& ") == std::string::npos);  // the resolve map's entries
   assert(exports.find("RequestReadbackBuffer(") != std::string::npos);
   // The export ranges are requested without allow_unwatched (pinned, so fix 36 never filters them).
   const size_t request = exports.find("shared_memory_->RequestRange(memexport_range_base_bytes,");
