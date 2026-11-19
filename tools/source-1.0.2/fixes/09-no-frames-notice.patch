@@ -1,0 +1,17 @@
+diff --git a/include/xbox360ps5/frame_watch.hpp b/include/xbox360ps5/frame_watch.hpp
+index a20a833..42ea656 100644
+--- a/include/xbox360ps5/frame_watch.hpp
++++ b/include/xbox360ps5/frame_watch.hpp
+@@ -21,7 +21,11 @@ class FrameWatch {
+     if(stage_==1 && now-capture_started_>=3) {stage_=2;return finish_capture;}
+     return none;
+   }
+-  bool Notice(double now) const {return now-last_progress_>=45;}
++  // Binary release patch group 9: the "no new frames" banner after 2 s, not
++  // 45 s: on a first run the picture mostly stops while shaders compile, and
++  // the banner says so (its text gains "compiling shaders or loading" through
++  // the package's assets/lang files). Observe's diagnostics keep their times.
++  bool Notice(double now) const {return now-last_progress_>=2;}
+  private:
+   uint64_t frames_;
+   double last_progress_,capture_started_=0;
