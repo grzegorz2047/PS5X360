@@ -1,0 +1,145 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/gpu_flags.cc b/.deps/xenia-canary/src/xenia/gpu/gpu_flags.cc
+index 4907c29..93d038d 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/gpu_flags.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/gpu_flags.cc
+@@ -110,6 +110,15 @@ DEFINE_bool(
+     "artifacts while pipelines are being created. When disabled, pipelines are "
+     "created synchronously which causes stutter but no visual artifacts.",
+     "GPU");
++// Xbox360PS5 (binary release patch group 12): the launcher's third
++// async_shaders choice, "Ligado (experimental)".
++DEFINE_bool(
++    async_shader_invisible_stand_ins, false,
++    "With async_shader_compilation: stand-in pipelines with a colour output "
++    "write no colour, depth or stencil (objects whose shader is not ready yet "
++    "appear late instead of as black patches), and depth-tested draws with at "
++    "most 6 indices use the stand-in instead of waiting for their pipeline.",
++    "GPU");
+ 
+ DEFINE_bool(
+     force_depth_clamp, false,
+diff --git a/.deps/xenia-canary/src/xenia/gpu/gpu_flags.h b/.deps/xenia-canary/src/xenia/gpu/gpu_flags.h
+index 774273a..e27f872 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/gpu_flags.h
++++ b/.deps/xenia-canary/src/xenia/gpu/gpu_flags.h
+@@ -44,6 +44,7 @@ DECLARE_bool(disassemble_pm4);
+ DECLARE_bool(no_discard_stencil_in_transfer_pipelines);
+ 
+ DECLARE_bool(async_shader_compilation);
++DECLARE_bool(async_shader_invisible_stand_ins);
+ 
+ DECLARE_bool(gpu_3d_to_2d_texture);
+ 
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+index 4ee6ae7..ffd416c 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+@@ -2998,6 +2998,10 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+   // or render into a target at most 256 pixels wide (reflection cube faces,
+   // the HDR luminance chain). Colourless kill/alpha-test and occlusion draws
+   // gain nothing from waiting. A surface pitch of 0 has returned above.
++  // In the experimental async-shader mode (patch group 12) a draw with at most
++  // 6 indices waits only when its depth test is off (full-screen passes);
++  // depth-tested quads (billboards, decals) use the stand-in, which that mode
++  // makes invisible.
+   const auto selective_wait = [&]() {
+     if (!normalized_color_mask) {
+       return false;
+@@ -3007,7 +3011,9 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+             .color_destblend != xenos::BlendFactor::kZero) {
+       return false;
+     }
+-    if (regs.Get<reg::VGT_DRAW_INITIATOR>().num_indices <= 6) {
++    if (regs.Get<reg::VGT_DRAW_INITIATOR>().num_indices <= 6 &&
++        !(cvars::async_shader_invisible_stand_ins &&
++          normalized_depth_control.z_enable)) {
+       return true;
+     }
+     return regs.Get<reg::RB_SURFACE_INFO>().surface_pitch <= 256;
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_pipeline_cache.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_pipeline_cache.cc
+index a698ba8..de35501 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_pipeline_cache.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_pipeline_cache.cc
+@@ -856,12 +856,16 @@ bool VulkanPipelineCache::ConfigurePipeline(
+       // sit behind hundreds of others: Battlefield: Bad Company froze for 15 s
+       // and more on a first run. A pipeline that writes a visible colour target
+       // and has at most 6 indices or a render target at most 256 pixels wide
+-      // gets the highest priority.
++      // gets the highest priority. In the experimental async-shader mode
++      // (patch group 12) a pipeline with at most 6 indices only when its depth
++      // test is off, as the selective wait.
+       if (priority >= pipeline_util::kPriorityVisibleRT) {
+         const auto& regs = register_file_;
+         const uint32_t pitch = regs.Get<reg::RB_SURFACE_INFO>().surface_pitch;
+         if ((pitch >= 1 && pitch <= 256) ||
+-            regs.Get<reg::VGT_DRAW_INITIATOR>().num_indices <= 6) {
++            (regs.Get<reg::VGT_DRAW_INITIATOR>().num_indices <= 6 &&
++             !(cvars::async_shader_invisible_stand_ins &&
++               normalized_depth_control.z_enable))) {
+           priority = pipeline_util::kPriorityWaited;
+         }
+       }
+@@ -3330,6 +3334,31 @@ bool VulkanPipelineCache::EnsurePipelineCreated(
+       creation_arguments.pipeline->second.pipeline_layout->GetPipelineLayout();
+   pipeline_create_info.renderPass = creation_arguments.render_pass;
+   pipeline_create_info.subpass = 0;
++
++  // Binary release patch group 12: in the experimental async-shader mode a
++  // stand-in pipeline with a colour output is invisible: no colour writes, no
++  // depth writes, stencil operations KEEP. The depth and stencil tests stay, so
++  // occlusion query counts stay close to the visible stand-in's. A stand-in
++  // without colour output (depth prepass, shadow maps) keeps writing depth.
++  if (cvars::async_shader_invisible_stand_ins &&
++      fragment_shader_override != VK_NULL_HANDLE) {
++    VkColorComponentFlags color_writes = 0;
++    for (uint32_t i = 0; i < color_blend_state.attachmentCount; ++i) {
++      color_writes |= color_blend_attachments[i].colorWriteMask;
++    }
++    if (color_writes) {
++      for (uint32_t i = 0; i < color_blend_state.attachmentCount; ++i) {
++        color_blend_attachments[i].colorWriteMask = 0;
++      }
++      depth_stencil_state.depthWriteEnable = VK_FALSE;
++      for (VkStencilOpState* face :
++           {&depth_stencil_state.front, &depth_stencil_state.back}) {
++        face->failOp = VK_STENCIL_OP_KEEP;
++        face->passOp = VK_STENCIL_OP_KEEP;
++        face->depthFailOp = VK_STENCIL_OP_KEEP;
++      }
++    }
++  }
+   pipeline_create_info.basePipelineHandle = VK_NULL_HANDLE;
+   pipeline_create_info.basePipelineIndex = -1;
+ 
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+index 2664c7d..69f84ea 100644
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -50,6 +50,7 @@ DECLARE_string(readback_resolve);
+ DECLARE_string(render_target_path_vulkan);
+ DECLARE_bool(readback_memexport);
+ DECLARE_bool(async_shader_compilation);
++DECLARE_bool(async_shader_invisible_stand_ins);
+ DECLARE_bool(clear_memory_page_state);
+ DECLARE_bool(delay_via_maybeyield);
+ DECLARE_int32(license_mask);
+@@ -355,7 +356,10 @@ const std::vector<Option>& Options() {
+       {"memexport", &S::memexport, 1, W::live, 0, true, "Leitura de dados gerados no vídeo",
+        "Poucos jogos leem no processador dados que o vídeo grava. Deixa o jogo mais lento; ligue só se faltarem personagens ou partículas.", off_on},
+       {"async_shaders", &S::async_shaders, 1, W::live, 1, true, "Shaders em segundo plano",
+-       "Ligado: o jogo não trava enquanto um efeito novo é preparado, mas o efeito pode aparecer um instante depois. Desligado: espera cada efeito ficar pronto, com travadinhas na primeira vez.", off_on},
++       "Ligado: o jogo não trava enquanto um efeito novo é preparado, mas o efeito pode aparecer um instante depois. Desligado: espera cada efeito ficar pronto, com travadinhas na primeira vez.",
++       // Binary release patch group 12: a third choice, the experimental mode (the core's
++       // async_shader_invisible_stand_ins). Its help text is in the language files.
++       {"Desligado", "Ligado", "Ligado (experimental)"}},
+       {"clear_pages", &S::clear_pages, 1, W::live, 0, true, "Reler memória escrita pelo vídeo",
+        "Correção do Xenia para jogos da Team Ninja em que personagens somem. Mais lento; deixe desligado nos outros jogos.", off_on},
+       {"released_memory", &S::released_memory, 1, W::live, 0, true, "Desenhar com memória já liberada",
+@@ -556,6 +560,7 @@ void Settings::Apply() const {
+   if (cvars::readback_resolve != kReadback[readback % 3]) cvars::readback_resolve = kReadback[readback % 3];
+   cvars::readback_memexport = memexport != 0;
+   cvars::async_shader_compilation = async_shaders != 0;
++  cvars::async_shader_invisible_stand_ins = async_shaders == 2;
+   cvars::clear_memory_page_state = clear_pages != 0;
+   // The core falls back to host render targets by itself when the device lacks
+   // fragment shader interlock; the pipeline storage then keeps its .fbo name.
