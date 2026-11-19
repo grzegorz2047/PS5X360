@@ -33,7 +33,7 @@ Fixes made in source after the port (numbered from 20, not binary patch groups):
 
 | Patch | Fix |
 |---|---|
-| `20-stale-dispatch-header` | a guest dispatch header whose recorded handle now belongs to another object gets a new event, mutant or semaphore instead of none (Battlefield 3, 45410950, hung loading the campaign); `xobject.cc` `GetNativeObject` |
+| `20-stale-dispatch-header` | `xobject.cc` `GetNativeObject`: a guest dispatch header whose recorded handle now belongs to another object gets a new event, mutant or semaphore instead of none; a thread header whose thread is no longer running (an exited thread) gets an event signalled for good, so waits on it end at once; a running thread that lost its handle is left alone. Logs each stale header's types, signal state and outcome (16 lines), and each type it cannot create once (Battlefield 3, 45410950, hung loading the campaign) |
 
 To change one: assemble a tree, commit it in a scratch repository (the title and the core
 separately), edit, and regenerate the patch with `git diff` (for the core with
