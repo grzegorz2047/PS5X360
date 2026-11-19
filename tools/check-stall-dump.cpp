@@ -3,10 +3,12 @@
 // memory reading (port/stall_dump.hpp) with fake memory: the 64-byte code window around lr, the
 // stack's back chain with each frame's saved return address and first words, unreadable pages,
 // the ends of the address space, thread states, call targets, changes over time and the kernel
-// objects' wait and release history (xenia/kernel/object_history.h). Built against the assembled 1.0.2 tree.
+// objects' wait and release history (xenia/kernel/object_history.h), the pointers a watched
+// object holds, and the GPU command processor's writes and waits (xenia/gpu/cp_trace.h). Built against the assembled 1.0.2 tree.
 #undef NDEBUG
 #include "../port/stall_dump.hpp"  // the assembled tree's port/ (run from <tree>/tools)
 #include "xenia/kernel/object_history.h"
+#include "xenia/gpu/cp_trace.h"
 
 #include <cassert>
 #include <cstdint>
@@ -191,8 +193,74 @@ void ObjectHistory() {
   entries = full.Entries();
   assert(entries.size() == oh::Ring::kSize && full.total() == 40);
   assert(entries.front().arg == 40 - int32_t(oh::Ring::kSize) && entries.back().arg == 39);
-  assert(oh::Format({}, 0).empty() && std::string(oh::OpName(oh::Op::kMutantRelease)) == "mutant-release");
+  assert(oh::Format({}, 0).empty() && std::string(oh::OperationName(oh::Op::kMutantRelease)) == "mutant-release");
   std::printf("  object history: repeats folded, releases kept, ring of %zu, text\n", oh::Ring::kSize);
+}
+void PointersFollowed() {
+  FakeMemory memory;
+  // Battlefield 3's main thread: its stack object at 7018D5A0 (candidate_10).
+  const uint32_t words[8] = {0x40218A00, 3, 0x50B, 0, 0, 0xF0011096, 0, 0x4021C120};
+  for (uint32_t n = 0; n < 8; ++n) memory.Put(0x7018D5A0 + n * 4, words[n]);
+  auto pointers = sd::Pointers(memory, 0x7018D5A0, 8, 2);
+  // The device (40218A00) and the next heap pointer; not 0x50B, not the misaligned F0011096.
+  assert(pointers.size() == 2);
+  assert(pointers[0].index == 0 && pointers[0].value == 0x40218A00);
+  assert(pointers[1].index == 7 && pointers[1].value == 0x4021C120);
+  assert(sd::Pointers(memory, 0x7018D5A0, 8, 1).size() == 1);
+  // A stack pointer, one into the window itself and a misaligned one are not followed.
+  memory.Put(0x7018D5A4, 0x7018D600);
+  memory.Put(0x7018D5A8, 0x7018D5B0);
+  memory.Put(0x7018D5AC, 0x40000002);
+  pointers = sd::Pointers(memory, 0x7018D5A0, 8, 4);
+  assert(pointers.size() == 2 && pointers[1].value == 0x4021C120);
+  assert(sd::IsStack(0x7018D5A0) && !sd::IsStack(0x40218A00));
+  std::printf("  pointers followed: heap objects only (the device at 40218A00)\n");
+}
+
+void GpuTrace() {
+  namespace ct = xbox360ps5::cp_trace;
+  ct::Trace trace;
+  // A fence written by EVENT_WRITE_SHD with a rising value, and other writes around it.
+  for (uint32_t fence = 0x500; fence <= 0x50B; ++fence) {
+    trace.Record(1000 + fence, ct::Kind::kEventShd, 0x1FC4A010, fence);
+    trace.Record(1000 + fence, ct::Kind::kMemWrite, 0x00100000 + fence * 4, 7);
+  }
+  trace.Record(3000, ct::Kind::kScratch, 0x1FC4A100, 0x77);
+  assert(trace.Total(ct::Kind::kEventShd) == 12 && trace.Total(ct::Kind::kMemWrite) == 12);
+  assert(trace.Total(ct::Kind::kScratch) == 1 && trace.Total(ct::Kind::kCondWrite) == 0);
+  // The fence's address keeps one entry with its last value and count.
+  const auto fence = trace.TargetsWithValue(0x50B);
+  assert(fence.size() == 1 && fence[0].address == 0x1FC4A010 && fence[0].count == 12);
+  assert(fence[0].kind == ct::Kind::kEventShd && fence[0].first_ms == 1000 + 0x500);
+  assert(trace.TargetsWithValue(0x50F).empty());
+  // The last writes, oldest first, newest last.
+  const auto writes = trace.Writes();
+  assert(writes.size() == 25 && writes.back().kind == ct::Kind::kScratch && writes.back().value == 0x77);
+  // More addresses than kTargets: the one written longest ago gives way.
+  ct::Trace many;
+  for (uint32_t n = 0; n < ct::Trace::kTargets + 5; ++n) many.Record(n, ct::Kind::kMemWrite, 0x1000 + n * 4, n);
+  const auto targets = many.Targets();
+  assert(targets.size() == ct::Trace::kTargets);
+  for (const auto& target : targets) assert(target.address >= 0x1000 + 5 * 4);
+  assert(many.Writes().size() == ct::Trace::kTargets + 5);
+  // More writes than kWrites: the ring keeps the newest.
+  for (uint32_t n = 0; n < 100; ++n) many.Record(100 + n, ct::Kind::kScratch, 0x2000, n);
+  assert(many.Writes().size() == ct::Trace::kWrites && many.Writes().back().value == 99);
+  assert(many.Writes().front().value == 100 - ct::Trace::kWrites);
+  // A WAIT_REG_MEM that does not match: its state while it lasts, cleared when it ends.
+  trace.BeginWait(4000, true, 0x1FC4A020, 0x50F, 0xFFFFFFFF, 3);
+  trace.Poll(0x50B);
+  trace.Poll(0x50B);
+  auto wait = trace.Wait();
+  assert(wait.active && wait.memory && wait.address == 0x1FC4A020 && wait.ref == 0x50F);
+  assert(wait.polls == 2 && wait.value == 0x50B && wait.function == 3 && wait.since_ms == 4000);
+  assert(trace.Waits() == 1);
+  trace.EndWait();
+  assert(!trace.Wait().active);
+  trace.SetPointers(0x120, 0x120);
+  assert(trace.ReadPointer() == 0x120 && trace.WritePointer() == 0x120);
+  assert(std::string(ct::KindName(ct::Kind::kEventShd)) == "EVENT_WRITE_SHD");
+  std::printf("  gpu trace: fence address and value found, targets bounded, wait state, ring pointers\n");
 }
 }  // namespace
 
@@ -206,5 +274,7 @@ int main() {
   CallsDecoded();
   ChangesOverTime();
   ObjectHistory();
+  PointersFollowed();
+  GpuTrace();
   std::puts("PASS: STALL report guest memory (fix 24)");
 }

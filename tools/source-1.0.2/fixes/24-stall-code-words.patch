@@ -1,6 +1,306 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/command_processor.cc
+index d8c67c8..251f4a4 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/command_processor.cc
+@@ -384,6 +384,8 @@ void CommandProcessor::WorkerThreadMain() {
+     }
+ 
+     uint32_t write_ptr_index = write_ptr_index_.load();
++    // Xbox360PS5 (fix 24): the ring's read and write pointers for the STALL report.
++    xbox360ps5::cp_trace::Global().SetPointers(read_ptr_index_, write_ptr_index);
+     if (write_ptr_index == 0xBAADF00D || read_ptr_index_ == write_ptr_index) {
+       SCOPE_profile_cpu_i("gpu", "xe::gpu::CommandProcessor::Stall");
+       // We've run out of commands to execute.
+@@ -616,6 +618,8 @@ void CommandProcessor::HandleSpecialRegisterWrite(uint32_t index,
+       uint32_t scratch_addr = regs.values[XE_GPU_REG_SCRATCH_ADDR];
+       uint32_t mem_addr = scratch_addr + (scratch_reg * 4);
+       xe::store_and_swap<uint32_t>(memory_->TranslatePhysical(mem_addr), value);
++      xbox360ps5::cp_trace::Global().Record(xbox360ps5::cp_trace::NowMs(), xbox360ps5::cp_trace::Kind::kScratch, mem_addr,
++                           value);  // Xbox360PS5 (fix 24)
+     }
+   } else {
+     switch (index) {
+diff --git a/.deps/xenia-canary/src/xenia/gpu/command_processor.h b/.deps/xenia-canary/src/xenia/gpu/command_processor.h
+index 2d5825e..34deabb 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/command_processor.h
++++ b/.deps/xenia-canary/src/xenia/gpu/command_processor.h
+@@ -21,6 +21,7 @@
+ #include <vector>
+ 
+ #include "xenia/base/math.h"
++#include "xenia/gpu/cp_trace.h"  // Xbox360PS5 (fix 24)
+ #include "xenia/base/ring_buffer.h"
+ #include "xenia/gpu/register_file.h"
+ #include "xenia/gpu/trace_writer.h"
+diff --git a/.deps/xenia-canary/src/xenia/gpu/cp_trace.h b/.deps/xenia-canary/src/xenia/gpu/cp_trace.h
+new file mode 100644
+index 0000000..ffa843d
+--- /dev/null
++++ b/.deps/xenia-canary/src/xenia/gpu/cp_trace.h
+@@ -0,0 +1,173 @@
++// Xbox360PS5 (tools/source-1.0.2/fixes/24-stall-code-words.patch): what the GPU command
++// processor writes to guest memory (fences, events, scratch write-back) and what it waits for,
++// for the STALL report of a game whose CPU waits for a fence the GPU never writes (Battlefield
++// 3's main thread after the campaign has loaded). Header-only and free of Xenia headers, so the
++// host check tools/check-stall-dump.cpp drives it.
++#ifndef XENIA_GPU_CP_TRACE_H_
++#define XENIA_GPU_CP_TRACE_H_
++
++#include <array>
++#include <atomic>
++#include <chrono>
++#include <cstdint>
++#include <cstdio>
++#include <mutex>
++#include <string>
++#include <vector>
++
++namespace xbox360ps5 {
++namespace cp_trace {
++
++enum class Kind : uint8_t {
++  kMemWrite = 1,  // PM4 MEM_WRITE
++  kEventShd,      // PM4 EVENT_WRITE_SHD (value or counter)
++  kEventExt,      // PM4 EVENT_WRITE_EXT (screen extents)
++  kCondWrite,     // PM4 COND_WRITE to memory
++  kRegToMem,      // PM4 REG_TO_MEM
++  kScratch,       // SCRATCH_REGn write-back (SCRATCH_ADDR + 4n)
++  kCount,
++};
++inline const char* KindName(Kind kind) {
++  switch (kind) {
++    case Kind::kMemWrite: return "MEM_WRITE";
++    case Kind::kEventShd: return "EVENT_WRITE_SHD";
++    case Kind::kEventExt: return "EVENT_WRITE_EXT";
++    case Kind::kCondWrite: return "COND_WRITE";
++    case Kind::kRegToMem: return "REG_TO_MEM";
++    case Kind::kScratch: return "SCRATCH";
++    default: return "?";
++  }
++}
++
++inline uint32_t NowMs() {
++  static const auto start = std::chrono::steady_clock::now();
++  return uint32_t(std::chrono::duration_cast<std::chrono::milliseconds>(
++                      std::chrono::steady_clock::now() - start)
++                      .count());
++}
++
++struct Write {
++  uint32_t ms = 0, address = 0, value = 0;
++  Kind kind = Kind::kMemWrite;
++};
++
++// The latest value written at an address, how often and when (the fence a CPU polls shows as an
++// address written again and again with a rising value).
++struct Target {
++  uint32_t address = 0, value = 0, count = 0, first_ms = 0, last_ms = 0;
++  Kind kind = Kind::kMemWrite;
++};
++
++struct WaitState {
++  bool active = false;
++  bool memory = false;           // a memory address (else a register index)
++  uint32_t address = 0, ref = 0, mask = 0, function = 0;
++  uint32_t since_ms = 0, polls = 0, value = 0;
++};
++
++class Trace {
++ public:
++  static constexpr size_t kWrites = 64, kTargets = 32;
++
++  void Record(uint32_t now_ms, Kind kind, uint32_t address, uint32_t value) {
++    std::lock_guard<std::mutex> lock(mutex_);
++    ++totals_[size_t(kind)];
++    writes_[head_] = Write{now_ms, address, value, kind};
++    head_ = (head_ + 1) % kWrites;
++    if (count_ < kWrites) ++count_;
++    // The address's entry, else a free one, else the one written longest ago.
++    size_t slot = kTargets;
++    for (size_t n = 0; n < targets_used_; ++n)
++      if (targets_[n].address == address) slot = n;
++    if (slot == kTargets) {
++      if (targets_used_ < kTargets) {
++        slot = targets_used_++;
++      } else {
++        slot = 0;
++        for (size_t n = 1; n < kTargets; ++n)
++          if (targets_[n].last_ms < targets_[slot].last_ms) slot = n;
++      }
++      targets_[slot] = Target{address, value, 0, now_ms, now_ms, kind};
++    }
++    Target& target = targets_[slot];
++    target.value = value;
++    target.kind = kind;
++    target.last_ms = now_ms;
++    ++target.count;
++  }
++
++  void BeginWait(uint32_t now_ms, bool memory, uint32_t address, uint32_t ref, uint32_t mask,
++                 uint32_t function) {
++    std::lock_guard<std::mutex> lock(mutex_);
++    wait_ = WaitState{true, memory, address, ref, mask, function, now_ms, 0, 0};
++    ++waits_;
++  }
++  void Poll(uint32_t value) {
++    std::lock_guard<std::mutex> lock(mutex_);
++    ++wait_.polls;
++    wait_.value = value;
++  }
++  void EndWait() {
++    std::lock_guard<std::mutex> lock(mutex_);
++    wait_.active = false;
++  }
++  void SetPointers(uint32_t read, uint32_t write) {
++    read_.store(read, std::memory_order_relaxed);
++    write_.store(write, std::memory_order_relaxed);
++  }
++
++  std::vector<Write> Writes() const {  // oldest first
++    std::lock_guard<std::mutex> lock(mutex_);
++    std::vector<Write> out;
++    for (size_t n = 0; n < count_; ++n) out.push_back(writes_[(head_ + kWrites - count_ + n) % kWrites]);
++    return out;
++  }
++  std::vector<Target> Targets() const {
++    std::lock_guard<std::mutex> lock(mutex_);
++    return std::vector<Target>(targets_.begin(), targets_.begin() + targets_used_);
++  }
++  WaitState Wait() const {
++    std::lock_guard<std::mutex> lock(mutex_);
++    return wait_;
++  }
++  uint64_t Total(Kind kind) const {
++    std::lock_guard<std::mutex> lock(mutex_);
++    return totals_[size_t(kind)];
++  }
++  uint64_t Waits() const {
++    std::lock_guard<std::mutex> lock(mutex_);
++    return waits_;
++  }
++  uint32_t ReadPointer() const { return read_.load(std::memory_order_relaxed); }
++  uint32_t WritePointer() const { return write_.load(std::memory_order_relaxed); }
++
++  // The targets whose last value is `value` (the address a fence value came from).
++  std::vector<Target> TargetsWithValue(uint32_t value) const {
++    std::vector<Target> out;
++    for (const Target& target : Targets())
++      if (target.value == value) out.push_back(target);
++    return out;
++  }
++
++ private:
++  mutable std::mutex mutex_;
++  std::array<Write, kWrites> writes_{};
++  size_t head_ = 0, count_ = 0;
++  std::array<Target, kTargets> targets_{};
++  size_t targets_used_ = 0;
++  std::array<uint64_t, size_t(Kind::kCount)> totals_{};
++  WaitState wait_;
++  uint64_t waits_ = 0;
++  std::atomic<uint32_t> read_{0}, write_{0};
++};
++
++// The command processor's trace (one GPU per emulator).
++inline Trace& Global() {
++  static Trace trace;
++  return trace;
++}
++
++}  // namespace cp_trace
++}  // namespace xbox360ps5
++
++#endif  // XENIA_GPU_CP_TRACE_H_
+diff --git a/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h b/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h
+index 838428a..e11044b 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h
++++ b/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h
+@@ -738,6 +738,8 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_WAIT_REG_MEM(
+                 : register_file_->values[poll_reg_addr];
+ 
+   bool matched = false;
++  // Xbox360PS5 (fix 24): a wait that does not match at once, for the STALL report.
++  bool traced = false;
+ 
+   do {
+     uint32_t value = value_ref;
+@@ -755,6 +757,12 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_WAIT_REG_MEM(
+     matched = MatchValueAndRef(value & mask, ref, wait_info);
+ 
+     if (!matched) {
++      if (!traced) {
++        xbox360ps5::cp_trace::Global().BeginWait(xbox360ps5::cp_trace::NowMs(), is_memory, poll_reg_addr, ref,
++                                 mask, wait_info & 7);
++        traced = true;
++      }
++      xbox360ps5::cp_trace::Global().Poll(value);
+       // Wait.
+       if (wait >= 0x100) {
+         PrepareForWait();
+@@ -768,6 +776,7 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_WAIT_REG_MEM(
+ 
+         if (!worker_running_) {
+           // Short-circuited exit.
++          if (traced) xbox360ps5::cp_trace::Global().EndWait();
+           return false;
+         }
+       } else {
+@@ -775,6 +784,7 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_WAIT_REG_MEM(
+     }
+   } while (!matched);
+ 
++  if (traced) xbox360ps5::cp_trace::Global().EndWait();
+   return true;
+ }
+ XE_NOINLINE
+@@ -819,6 +829,8 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_REG_TO_MEM(
+ 
+   auto endianness = static_cast<xenos::Endian>(mem_addr & 0x3);
+   mem_addr &= ~0x3;
++  xbox360ps5::cp_trace::Global().Record(xbox360ps5::cp_trace::NowMs(), xbox360ps5::cp_trace::Kind::kRegToMem, mem_addr,
++                       reg_val);  // Xbox360PS5 (fix 24)
+   reg_val = GpuSwap(reg_val, endianness);
+   xe::store(memory_->TranslatePhysical(mem_addr), reg_val);
+   trace_writer_.WriteMemoryWrite(CpuToGpu(mem_addr), 4);
+@@ -834,6 +846,8 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_MEM_WRITE(
+ 
+     auto endianness = static_cast<xenos::Endian>(write_addr & 0x3);
+     auto addr = write_addr & ~0x3;
++    xbox360ps5::cp_trace::Global().Record(xbox360ps5::cp_trace::NowMs(), xbox360ps5::cp_trace::Kind::kMemWrite, addr,
++                         write_data);  // Xbox360PS5 (fix 24)
+     write_data = GpuSwap(write_data, endianness);
+     xe::store(memory_->TranslatePhysical(addr), write_data);
+     trace_writer_.WriteMemoryWrite(CpuToGpu(addr), 4);
+@@ -873,6 +887,8 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_COND_WRITE(
+       // Memory.
+       auto endianness = static_cast<xenos::Endian>(write_reg_addr & 0x3);
+       write_reg_addr &= ~0x3;
++      xbox360ps5::cp_trace::Global().Record(xbox360ps5::cp_trace::NowMs(), xbox360ps5::cp_trace::Kind::kCondWrite,
++                           write_reg_addr, write_data);  // Xbox360PS5 (fix 24)
+       write_data = GpuSwap(write_data, endianness);
+       xe::store(memory_->TranslatePhysical(write_reg_addr), write_data);
+       trace_writer_.WriteMemoryWrite(CpuToGpu(write_reg_addr), 4);
+@@ -922,6 +938,8 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_EVENT_WRITE_SHD(
+   }
+   auto endianness = static_cast<xenos::Endian>(address & 0x3);
+   address &= ~0x3;
++  xbox360ps5::cp_trace::Global().Record(xbox360ps5::cp_trace::NowMs(), xbox360ps5::cp_trace::Kind::kEventShd, address,
++                       data_value);  // Xbox360PS5 (fix 24)
+   data_value = GpuSwap(data_value, endianness);
+   uint8_t* write_destination = memory_->TranslatePhysical(address);
+   if (address > 0x1FFFFFFF) {
+@@ -950,6 +968,8 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_EVENT_WRITE_EXT(
+   COMMAND_PROCESSOR::WriteEventInitiator(initiator & 0x3F);
+   auto endianness = static_cast<xenos::Endian>(address & 0x3);
+   address &= ~0x3;
++  xbox360ps5::cp_trace::Global().Record(xbox360ps5::cp_trace::NowMs(), xbox360ps5::cp_trace::Kind::kEventExt, address,
++                       0);  // Xbox360PS5 (fix 24)
+ 
+   // Let us hope we can fake this.
+   // This callback tells the driver the xy coordinates affected by a previous
 diff --git a/.deps/xenia-canary/src/xenia/kernel/object_history.h b/.deps/xenia-canary/src/xenia/kernel/object_history.h
 new file mode 100644
-index 0000000..86e53a4
+index 0000000..d6101f3
 --- /dev/null
 +++ b/.deps/xenia-canary/src/xenia/kernel/object_history.h
 @@ -0,0 +1,127 @@
@@ -37,7 +337,7 @@ index 0000000..86e53a4
 +  kMutantRelease, // mutant release; result: status
 +};
 +
-+inline const char* OpName(Op op) {
++inline const char* OperationName(Op op) {
 +  switch (op) {
 +    case Op::kWait: return "wait";
 +    case Op::kWaitAny: return "wait-any";
@@ -116,7 +416,7 @@ index 0000000..86e53a4
 +    char item[160];
 +    const uint32_t ago = now_ms >= entry.last_ms ? now_ms - entry.last_ms : 0;
 +    std::snprintf(item, sizeof(item), " [-%ums %08X %s %d -> %08X x%u", ago, entry.thread,
-+                  OpName(entry.op), entry.arg, entry.result, entry.repeats);
++                  OperationName(entry.op), entry.arg, entry.result, entry.repeats);
 +    text += item;
 +    if (entry.repeats > 1) {
 +      std::snprintf(item, sizeof(item), " over %ums", entry.last_ms - entry.first_ms);
@@ -387,10 +687,10 @@ index 8b4b9b0..0e077d2 100644
    emulator()->processor()->OnThreadExit(thread_id_);
 diff --git a/port/stall_dump.hpp b/port/stall_dump.hpp
 new file mode 100644
-index 0000000..58bb84c
+index 0000000..89969e2
 --- /dev/null
 +++ b/port/stall_dump.hpp
-@@ -0,0 +1,145 @@
+@@ -0,0 +1,169 @@
 +// SPDX-License-Identifier: MIT
 +// Fix 24 of the source rebuild (tools/source-1.0.2/fixes/24-stall-code-words.patch): what the
 +// STALL report reads from a guest thread that spins outside any wait, as templates over a
@@ -476,6 +776,30 @@ index 0000000..58bb84c
 +  return true;
 +}
 +
++// A stack address (the guest threads' stacks are at 0x70000000).
++inline bool IsStack(uint32_t value) { return value >= 0x70000000 && value < 0x80000000; }
++
++// The words among `count` from `first` that point at other guest data (not a stack, not the
++// window itself), at most `limit`: what an object the thread spins on refers to (Battlefield
++// 3's main thread: its stack object's first word, 40218A00, is the one the GPU thread uses).
++struct Pointer {
++  uint32_t index = 0, value = 0;
++};
++template <typename Reader>
++std::vector<Pointer> Pointers(Reader& reader, uint32_t first, uint32_t count, size_t limit) {
++  std::vector<Pointer> pointers;
++  first &= ~3u;
++  for (uint32_t n = 0; n < count && pointers.size() < limit; ++n) {
++    const uint64_t at = uint64_t(first) + uint64_t(n) * 4;
++    if (at > 0xFFFFFFFCull || !reader.Readable(uint32_t(at))) continue;
++    const uint32_t value = reader.Word(uint32_t(at));
++    if (!LooksLikeData(value) || IsStack(value) || (value & 3)) continue;
++    if (value >= first && value < first + count * 4) continue;
++    pointers.push_back({n, value});
++  }
++  return pointers;
++}
++
 +// A register value that looks like a kernel object handle (0xF8000000 + 4n).
 +inline bool LooksLikeHandle(uint32_t value) {
 +  return value > 0xF8000000 && value < 0xF9000000 && (value & 3) == 0;
@@ -537,10 +861,10 @@ index 0000000..58bb84c
 +}  // namespace stall_dump
 +}  // namespace xbox360ps5
 diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
-index 5c3db7d..2f9b489 100644
+index 5c3db7d..99510b7 100644
 --- a/src/canary_game_main.cpp
 +++ b/src/canary_game_main.cpp
-@@ -76,6 +76,12 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
+@@ -76,6 +76,13 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
  #include "xenia/base/mutex.h"
  #include "xbox360ps5/thread_place.hpp"
  #include "xbox360ps5/frame_watch.hpp"
@@ -548,12 +872,13 @@ index 5c3db7d..2f9b489 100644
 +#include <map>
 +#include <set>
 +#include "xenia/kernel/object_history.h"
++#include "xenia/gpu/cp_trace.h"
 +#include "xenia/kernel/user_module.h"
 +#include "xenia/base/memory.h"
  #include "xbox360ps5/session_log.hpp"
  #include "xbox360ps5/crash_report.hpp"
  #include "xbox360ps5/ui_sounds.hpp"
-@@ -727,18 +733,162 @@ std::string CallersText(xe::Memory* memory, uint32_t stack) {
+@@ -727,18 +734,214 @@ std::string CallersText(xe::Memory* memory, uint32_t stack) {
    }
    return text.empty() ? " none read" : text;
  }
@@ -613,7 +938,9 @@ index 5c3db7d..2f9b489 100644
 +  const auto& thunks = ImportThunks(emulator);
 +  std::set<uint32_t> handles_seen;  // objects whose history is logged after the threads
 +  struct Watched {
-+    uint32_t thread, reg, address;
++    uint32_t thread;
++    std::string what;  // "r3", or "r3[0]" for what r3's object points at
++    uint32_t address, words;
 +    sd::ChangeLog log;
 +  };
 +  std::vector<Watched> watched;  // memory at r3 and r31 of threads in no wait, sampled below
@@ -673,7 +1000,11 @@ index 5c3db7d..2f9b489 100644
 +        const uint32_t value = uint32_t(context->r[n]);
 +        if (!sd::LooksLikeData(value)) continue;
 +        XELOGW("STALL thread {:08X} r{} {:08X}:{}", thread->handle(), n, value, sd::Words(reader, value, 8));
-+        if (n == 3 || n == 31) watched.push_back({thread->handle(), uint32_t(n), value, {}});
++        if (n != 3 && n != 31) continue;
++        watched.push_back({thread->handle(), fmt::format("r{}", n), value, 8, {}});
++        // What that object points at (64 bytes each, the first two pointers).
++        for (const auto& pointer : sd::Pointers(reader, value, 8, 2))
++          watched.push_back({thread->handle(), fmt::format("r{}[{}]", n, pointer.index), pointer.value, 16, {}});
 +      }
 +    }
 +  }
@@ -701,17 +1032,63 @@ index 5c3db7d..2f9b489 100644
 +  if (!watched.empty()) {
 +    for (int sample = 0; sample < 8; ++sample) {
 +      if (sample) std::this_thread::sleep_for(std::chrono::milliseconds(100));
-+      for (auto& watch : watched) watch.log.Add(uint32_t(sample * 100), sd::Words(reader, watch.address, 8));
++      for (auto& watch : watched)
++        watch.log.Add(uint32_t(sample * 100), sd::Words(reader, watch.address, watch.words));
 +    }
 +    for (const auto& watch : watched) {
 +      if (!watch.log.Changed()) {
-+        XELOGW("STALL thread {:08X} r{} {:08X} unchanged over {} ms", watch.thread, watch.reg, watch.address,
-+               watch.log.last_ms);
++        XELOGW("STALL thread {:08X} {} {:08X} unchanged over {} ms:{}", watch.thread, watch.what, watch.address,
++               watch.log.last_ms, watch.log.samples.front().text);
 +        continue;
 +      }
 +      for (const auto& sample : watch.log.samples)
-+        XELOGW("STALL thread {:08X} r{} {:08X} at +{} ms:{}", watch.thread, watch.reg, watch.address, sample.ms,
++        XELOGW("STALL thread {:08X} {} {:08X} at +{} ms:{}", watch.thread, watch.what, watch.address, sample.ms,
 +               sample.text);
++    }
++  }
++  // Fix 24: the GPU command processor: its ring, a wait it is in (WAIT_REG_MEM on a value the
++  // CPU should write would deadlock with a CPU waiting for the GPU's fence), and what it wrote to
++  // guest memory (fences, events, scratch write-back) with each address's last value.
++  {
++    namespace ct = xbox360ps5::cp_trace;
++    auto& trace = ct::Global();
++    const auto wait = trace.Wait();
++    XELOGW("STALL gpu ring read {:08X} write {:08X}{}; {} WAIT_REG_MEM waits; writes MEM_WRITE {} EVENT_WRITE_SHD {} "
++           "EVENT_WRITE_EXT {} COND_WRITE {} REG_TO_MEM {} SCRATCH {}",
++           trace.ReadPointer(), trace.WritePointer(),
++           trace.ReadPointer() == trace.WritePointer() ? " (empty)" : "", trace.Waits(),
++           trace.Total(ct::Kind::kMemWrite), trace.Total(ct::Kind::kEventShd), trace.Total(ct::Kind::kEventExt),
++           trace.Total(ct::Kind::kCondWrite), trace.Total(ct::Kind::kRegToMem), trace.Total(ct::Kind::kScratch));
++    static const char* const kFunctions[] = {"never", "<", "<=", "==", "!=", ">=", ">", "always"};
++    if (wait.active)
++      XELOGW("STALL gpu in WAIT_REG_MEM on {} {:08X}: (value & {:08X}) {} {:08X}, last value {:08X}, for {} ms, {} polls",
++             wait.memory ? "memory" : "register", wait.address, wait.mask, kFunctions[wait.function & 7], wait.ref,
++             wait.value, ct::NowMs() - wait.since_ms, wait.polls);
++    else
++      XELOGW("STALL gpu not in a WAIT_REG_MEM");
++    const uint32_t now_ms = ct::NowMs();
++    for (const auto& target : trace.Targets())
++      XELOGW("STALL gpu wrote {:08X} = {:08X} by {} ({} times, last -{} ms)", target.address, target.value,
++             ct::KindName(target.kind), target.count, now_ms - target.last_ms);
++    std::string recent;
++    for (const auto& write : trace.Writes())
++      recent += fmt::format(" [-{}ms {} {:08X}={:08X}]", now_ms - write.ms, ct::KindName(write.kind), write.address,
++                            write.value);
++    if (!recent.empty()) XELOGW("STALL gpu last writes:{}", recent);
++    // Where a value in the watched memory last came from (Battlefield 3's main thread: 0x50B).
++    std::set<uint32_t> matched;
++    for (const auto& watch : watched) {
++      for (uint32_t n = 0; n < watch.words; ++n) {
++        const uint32_t at = watch.address + n * 4;
++        if (!reader.Readable(at)) continue;
++        const uint32_t value = reader.Word(at);
++        // Counts and fence values, not addresses (a value matched once).
++        if (value < 0x100 || (sd::LooksLikeData(value) && value >= 0x10000000)) continue;
++        if (!matched.insert(value).second) continue;
++        for (const auto& target : trace.TargetsWithValue(value))
++          XELOGW("STALL gpu value {:08X} (at {:08X}, {} {}) was last written at {:08X} by {}", value, at,
++                 watch.what, watch.thread, target.address, ct::KindName(target.kind));
++      }
 +    }
    }
    xe::FlushLog();

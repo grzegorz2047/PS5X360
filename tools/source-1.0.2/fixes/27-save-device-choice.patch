@@ -1271,7 +1271,7 @@ index 066be50..b9ddb74 100644
    void ComputePackageLicenseMask();
  
 diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
-index 2f9b489..2575e51 100644
+index e49255c..543af5c 100644
 --- a/src/canary_game_main.cpp
 +++ b/src/canary_game_main.cpp
 @@ -32,6 +32,7 @@ extern std::filesystem::path config_folder;  // xenia/config.cc: LoadGameConfig
@@ -1282,22 +1282,21 @@ index 2f9b489..2575e51 100644
  }
  DECLARE_bool(storage_selection_dialog);
  // The core's system windows (where to save, who is playing) in the emulator's language.
-@@ -42,6 +43,14 @@ static const char* CoreUiText(const char* english) {
-     {"The game asks where to keep its saved data.", "O jogo quer saber onde guardar o progresso.",
-      "El juego pregunta dónde guardar el progreso."},
-     {"Hard drive", "Disco rígido", "Disco duro"},
-+    // Fix 27: where to save, with the drives plugged into the console.
-+    {"Console storage", "Armazenamento do console", "Almacenamiento de la consola"},
-+    {"Extended storage %s", "Armazenamento estendido %s", "Almacenamiento ampliado %s"},
-+    {"USB drive %s", "Unidade USB %s", "Unidad USB %s"},
-+    {"%s GB free", "%s GB livres", "%s GB libres"},
+@@ -42,6 +43,13 @@ static const char* CoreUiText(const char* english) {
+     {"Where should the game save?", "Where should the game save?"},
+     {"The game asks where to keep its saved data.", "The game asks where to keep its saved data."},
+     {"Hard drive", "Hard drive"},
++    // Fix 27: where to save, with the drives plugged into the console (extra.txt [added]).
++    {"Console storage", "Console storage"},
++    {"Extended storage %s", "Extended storage %s"},
++    {"USB drive %s", "USB drive %s"},
++    {"%s GB free", "%s GB free"},
 +    {"Each drive keeps its saves in its own PS5X360/saves folder.",
-+     "Cada unidade guarda os salvamentos na própria pasta PS5X360/saves.",
-+     "Cada unidad guarda las partidas en su propia carpeta PS5X360/saves."},
-     {"Cancel", "Cancelar", "Cancelar"},
-     {"Who is playing?", "Quem vai jogar?", "¿Quién va a jugar?"},
-     {"Choose the profile for this game.", "Escolha o perfil para este jogo.", "Elige el perfil para este juego."},
-@@ -1374,6 +1383,9 @@ int main(int argc, char** argv) {
++     "Each drive keeps its saves in its own PS5X360/saves folder."},
+     {"Cancel", "Cancel"},
+     {"Who is playing?", "Who is playing?"},
+     {"Choose the profile for this game.", "Choose the profile for this game."},
+@@ -1422,6 +1430,9 @@ int main(int argc, char** argv) {
    // and the system windows in the emulator's language.
    cvars::storage_selection_dialog = true;
    xe::kernel::xam::ui_text = &CoreUiText;

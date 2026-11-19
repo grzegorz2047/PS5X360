@@ -242,13 +242,13 @@ void RowTexts() {
   ns::Result result;
   result.asked = 2; result.now = 2;
   assert(ns::OutcomeOf(result) == ns::Outcome::kOnlineConnected);
-  assert(std::string(ns::OutcomeLabel(ns::OutcomeOf(result))) == "Online – conectado");
+  assert(std::string(ns::OutcomeLabel(ns::OutcomeOf(result))) == "Online – connected");  // English key (fix 25)
   result.now = 1;  // the server was not reached
-  assert(std::string(ns::OutcomeLabel(ns::OutcomeOf(result))) == "Online – servidor não alcançado");
+  assert(std::string(ns::OutcomeLabel(ns::OutcomeOf(result))) == "Online – server not reached");  // English key (fix 25)
   result.asked = 1;
   assert(std::string(ns::OutcomeLabel(ns::OutcomeOf(result))) == "System Link");
   result.asked = 0; result.now = 0;
-  assert(std::string(ns::OutcomeLabel(ns::OutcomeOf(result))) == "Desligada");
+  assert(std::string(ns::OutcomeLabel(ns::OutcomeOf(result))) == "Off||feminine");  // English key (fix 25): "Desligada" in pt-BR.txt
   std::printf("  row: connected, server not reached, System Link, off\n");
 }
 }  // namespace

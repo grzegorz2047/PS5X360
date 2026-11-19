@@ -4,6 +4,8 @@ name: Rebuild v1.0.2 from source drops (not for release)
 # (tools/source-1.0.2/assemble.py) and compiles them into eboot.bin with the same PS5
 # toolchain as build-ps5.yml. The result is a check artifact, not a release: some parts of
 # 1.0.2 are not in any drop (docs/SOURCE-1.0.2.md). Releases come from release-binary.yml.
+# The artifact carries src102-out/lang/*.txt, the English-keyed language files the rebuilt
+# eboot reads (fix 25): a test package replaces PPSA50011/assets/lang/*.txt with them.
 #
 # Caches: the built RADV driver and payload SDK (.deps/references/PS5_Vulkan/.deps/native),
 # keyed by the three pinned reference commits and the RADV build script, so Mesa and its
@@ -134,6 +136,14 @@ jobs:
           path: ~/.cache/ccache
           key: src102-ccache-${{ github.run_id }}
 
+      # Fix 25 keys the interface by English: this eboot needs these language files in
+      # PPSA50011/assets/lang/ in place of the official package's (keyed by Portuguese).
+      - name: Language files of the source build (English keys)
+        if: always()
+        run: |
+          mkdir -p build/src102-out/lang
+          cp tools/source-1.0.2/english/lang/*.txt build/src102-out/lang/
+
       - name: Upload eboot.bin and provenance (not for release)
         if: always()
         uses: actions/upload-artifact@v4
@@ -143,5 +153,6 @@ jobs:
           path: |
             build/src102-out/eboot.bin
             build/src102-out/eboot.elf
+            build/src102-out/lang/*.txt
             build/src102/SOURCES.json
             build/src102-build.log
