@@ -18,32 +18,43 @@ full path to a file.
 - A jailbroken PS5 with `elfldr` listening on port 9021.
 - [ShadowMountPlus](https://github.com/drakmor/ShadowMountPlus), which registers the new tiles.
 - PS5X360 installed as `PPSA50011` (this build or newer).
-- **Forwarder Manager** (`PPSA99930`): the
-  [darkxex fork](https://github.com/darkxex/ps5-forwarder-manager) lists PS5X360's games for
-  you. The [original](https://github.com/heydemoura/ps5-forwarder-manager) works too, but there
-  you pick the game file yourself.
+- **Forwarder Manager** (`PPSA99930`), release
+  [00.001.006](https://github.com/heydemoura/ps5-forwarder-manager/releases/tag/00.001.006) or newer:
+  asset `PPSA99930.zip` (SHA-256 `986eb9bce653f4cc30864d897b9da151030f41423ba7d9b870a97d8155c89a1d`).
+  Its PS5X360 target lists PS5X360's games (the darkxex fork's work, merged; the fork itself
+  publishes no release).
 
 ## Making a tile for one game
 
-1. Install Forwarder Manager: unzip `PPSA99930.zip` from its release page, copy the `PPSA99930`
-   folder to `/data/homebrew/` on the console (FTP is fine), let ShadowMountPlus register it.
+1. Install Forwarder Manager: unzip `PPSA99930.zip`, copy the `PPSA99930` folder to
+   `/data/homebrew/PPSA99930` on the console (FTP is fine), let ShadowMountPlus register it.
 2. Start **Forwarder Manager** from the home screen and create a new forwarder.
 3. **Target app**: `PS5X360` (`PPSA50011`).
-4. **Game**: pick it from the list (darkxex fork), or pick the file or folder with the file
-   browser. Any of these works:
+4. **Game**: pick it from the list (games in PS5X360's default folders: `/data/xbox360`, `xbox360`
+   on USB and extended storage, `assets/roms`), or pick the file or folder with the file browser
+   (a game in a folder added in PS5X360's own settings). Any of these works:
    - an `.iso` file;
    - an extracted game's folder or its `default.xex`;
    - an XBLA or Games on Demand title's folder (`Limbo`, the one with `584109D1/000D0000/...`
      inside), or the package file itself;
    - a multi-disc game's folder (`Mass Effect 2` with `Disc1`, `Disc2` inside): it starts at disc 1,
      as in the library.
-5. Optional: to go back to the PS5 home screen when you close the game, turn on
-   **exit after game**, or, where the manager has no such switch for PS5X360, add the launch
-   argument `--exit-after-game`.
-6. Give the tile a name and an icon (the manager can use the game's cover), save, and let
-   ShadowMountPlus register it.
+5. Give the tile a name and an icon (the manager can use the game's cover), generate it, and let
+   ShadowMountPlus register it. The tile passes the game's full path as its only argument.
+6. Optional, to go back to the PS5 home screen when you close the game: Forwarder Manager has no
+   switch for this on PS5X360 tiles, so add the argument by hand. Over FTP, open the tile's
+   `/data/homebrew/PPSA992xx/forwarder.json` (its folder is named after the tile's title ID) and
+   add `"--exit-after-game"` to `args`:
+
+   ```json
+   "args": ["/data/xbox360/Halo 3.iso", "--exit-after-game"]
+   ```
+
+   The file is read each time the tile is opened; nothing needs registering again. Saving the tile
+   again in Forwarder Manager may rewrite `args`; check the file afterwards.
 7. **Close PS5X360 before using a tile** if it is running. Arguments reach only a new PS5X360
-   process: if it is already open, the console just brings it to the front, in the library.
+   process: if it is already open, the console brings it to the front as it was (library or
+   running game) and the tile's game does not start.
 
 Opening the tile now shows PS5X360's start screen and then the game.
 
@@ -52,7 +63,7 @@ Opening the tile now shows PS5X360's start screen and then the game.
 | Argument | Meaning |
 | --- | --- |
 | `--rom <game>` or `--rom=<game>` | The game. A full path (`/mnt/usb0/xbox360/Halo 3.iso`), a path inside the library's game folders (Settings; by default `/app0/assets/roms`, `/data/xbox360` and `xbox360` on USB and extended storage), tried in their order (`Halo 3.iso`, `RPG/Fable 2`), or a **title ID** of a game the library lists (`4D5307E6`; with several copies, the most recently played). A folder stands for the game in it, as the library lists it. A relative path may not contain `..`. |
-| `<full path>` | A bare full path, without `--rom` (what the darkxex Forwarder Manager writes for PS5X360). Same meaning as `--rom`. |
+| `<full path>` | A bare full path, without `--rom` (what Forwarder Manager writes for PS5X360). Same meaning as `--rom`. |
 | `--exit-after-game` | *Close the game* in the guide closes PS5X360 too, so the console goes back to the home screen. Without it the library opens, as usual. |
 
 Other arguments are ignored. `--rom` wins over a bare path. Examples of `forwarder.json`
@@ -96,5 +107,5 @@ before the game starts and passes `Launcher::Entries()` to `forward::Pick`.
 Ported from upstream [BrinooTk/PS5X360#62](https://github.com/BrinooTk/PS5X360/pull/62)
 (MartinPham, "Adding ROM launch argument"). Differences: the game is resolved against the
 library's own scan (so ISOs and packages get their title ID and per-game options, multi-disc
-sets resolve, title IDs work); a bare path also counts as a forwarded game (the darkxex
-Forwarder Manager's format); and the start-option restart and the FSI restart both keep it.
+sets resolve, title IDs work); a bare path also counts as a forwarded game (Forwarder
+Manager's format); and the start-option restart and the FSI restart both keep it.
