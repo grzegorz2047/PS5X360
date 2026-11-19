@@ -14,6 +14,7 @@ cxx=${CXX_HOST:-clang++-18}
 python=${PYTHON_HOST:-python3}
 checks=(
   check-stale-dispatch-header.cpp  # fix 20
+  check-forward.cpp                # fix 21
   check-guide-network.cpp          # fix 22
   check-english-fallback.cpp       # fixes 23 and 25
   check-stall-dump.cpp             # fix 24

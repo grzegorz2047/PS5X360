@@ -12,6 +12,7 @@ on:
     paths:
       - 'tools/source-1.0.2/**'
       - 'tools/check-stale-dispatch-header.cpp'
+      - 'tools/check-forward.cpp'
       - 'tools/check-guide-network.cpp'
       - 'tools/check-english-fallback.cpp'
       - 'tools/check-stall-dump.cpp'
