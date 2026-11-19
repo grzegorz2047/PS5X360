@@ -5,7 +5,8 @@
 # with the host's clang++-18 and the same flags as tools/source-checks/run.py (Zen 2, the
 # tree's include/ and reconstructed/ and the core's include roots), then run with its arguments.
 # Then tools/check-assemble-skip.py (the switch that leaves fixes out) and tools/check-english-source.py
-# (fix 25, English keys) run with python3, and tools/check-gdfx-names.sh (fix 26: GDFX names and
+# (fix 25, English keys) and tools/check-kinect-fake-relay.py (fix 44's test payload, built with the
+# host's C compiler) run with python3, and tools/check-gdfx-names.sh (fix 26: GDFX names and
 # guest paths, linked with the tree's xenia/base and disc image device) with bash.
 set -euo pipefail
 repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
@@ -75,6 +76,13 @@ if "$python" -I "$repo/tools/check-english-source.py" --tree "$tree"; then
   echo "pass check-english-source.py"
 else
   echo "FAIL check-english-source.py"
+  status=1
+fi
+echo "=== check-kinect-fake-relay.py"
+if "$python" -I "$repo/tools/check-kinect-fake-relay.py"; then
+  echo "pass check-kinect-fake-relay.py"
+else
+  echo "FAIL check-kinect-fake-relay.py"
   status=1
 fi
 echo "=== check-gdfx-names.sh"

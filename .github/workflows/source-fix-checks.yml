@@ -29,6 +29,7 @@ on:
       - 'tools/check-bf3-preset.py'
       - 'tools/check-save-devices.cpp'
       - 'tools/check-kinect-usb.cpp'
+      - 'tools/check-kinect-fake-relay.py'
       - 'tools/check-english-source.py'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:

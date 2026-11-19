@@ -32,6 +32,7 @@
 #include <string_view>
 #include <sys/socket.h>
 #include <thread>
+#include <time.h>
 #include <type_traits>
 #include <unistd.h>
 #include <vector>
@@ -516,12 +517,22 @@ static void CheckRelay() {
       kinect_usb::BasicSensor<NoUsb> sensor;
       CHECK(silent.Accept(2000ms));
       CHECK(WaitFor([&] { return sensor.active(); }, 1000ms));
+      // Waiting on a silent relay sleeps in recv (1 s timeouts), it does not spin.
+      timespec cpu0{}, cpu1{};
+      clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &cpu0);
+      std::this_thread::sleep_for(1500ms);
+      clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &cpu1);
+      const double cpu = double(cpu1.tv_sec - cpu0.tv_sec) + double(cpu1.tv_nsec - cpu0.tv_nsec) / 1e9;
+      std::printf("  1.5 s on a silent relay used %.3f s of CPU\n", cpu);
+      CHECK(cpu < 0.3);
+      CHECK(sensor.active() && host_log::Count(RelayClosed(0)) == 2);
       stop = std::chrono::steady_clock::now();
     }
     const auto took = std::chrono::steady_clock::now() - stop;
     CHECK(took < 1500ms);
-    std::printf("  stop while connected took %lld ms\n",
-                (long long)std::chrono::duration_cast<std::chrono::milliseconds>(took).count());
+    CHECK(host_log::Count(RelayClosed(0)) == 3);
+    std::printf("  stop while connected took %lld us\n",
+                (long long)std::chrono::duration_cast<std::chrono::microseconds>(took).count());
   }
 }
 
