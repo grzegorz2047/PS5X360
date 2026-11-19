@@ -1,0 +1,209 @@
+diff --git a/port/guide_network.hpp b/port/guide_network.hpp
+new file mode 100644
+index 0000000..e6598da
+--- /dev/null
++++ b/port/guide_network.hpp
+@@ -0,0 +1,127 @@
++// SPDX-License-Identifier: MIT
++// Fix 22 of the source rebuild (tools/source-1.0.2/fixes): the network mode changed from the
++// guide while a game runs, so a game that asks for an Xbox Live sign-in (Black Ops III) can
++// be given one without starting the emulator again.
++//
++// The guide's "Rede" row cycles Offline, System Link, Online. A change runs on a thread of its
++// own (reaching the Xenia server can take up to 20 s):
++//   - Online: the server from network.conf (as ApplyNetworkConf at start), libcurl's set-up;
++//   - XLiveAPI::SelectNetworkMode, the netplay core's own live switch (the desktop build's
++//     network dialog): the server asked for this console's address, or the local network's
++//     heartbeat, and the Live connection and link-state notifications broadcast;
++//   - Online: each signed-in profile that is not Live-enabled converted as at sign-in
++//     (ProfileManager::ConvertToXboxLiveEnabledProfile signs it out and in again, with the
++//     sign-in notifications), and the first player registered on the server;
++//   - a sign-in change notification, so the game reads its players' sign-in state again (it
++//     follows network_mode: Live only in the Online mode);
++//   - network.conf's mode, so the home's Online channel and the next start agree.
++// UPnP stays as the emulator started (the router's ports are opened only at start).
++#pragma once
++#include <algorithm>
++#include <atomic>
++#include <chrono>
++#include <fstream>
++#include <mutex>
++#include <string>
++#include <thread>
++#include "third_party/libcurl/include/curl/curl.h"
++#include "xenia/base/cvar.h"
++#include "xenia/base/logging.h"
++#include "xenia/emulator.h"
++#include "xenia/kernel/XLiveAPI.h"
++#include "xenia/kernel/kernel_state.h"
++#include "xenia/kernel/xam/profile_manager.h"
++#include "xenia/kernel/xam/user_profile.h"
++#include "xenia/kernel/xam/xam_state.h"
++#include "xenia/xbox.h"
++
++DECLARE_int32(network_mode);
++DECLARE_string(api_address);
++
++namespace xbox360ps5 {
++// launcher.cpp: writes network.conf's mode as the home's Online channel does, and has that
++// channel read it again.
++bool LauncherSetNetworkMode(const std::string& mode);
++
++namespace guide_network {
++// The modes in the guide's order, as cvars::network_mode counts them.
++inline const char* const kModeNames[] = {"offline", "systemlink", "online"};
++inline const char* const kModeLabels[] = {"Desligada", "System Link", "Online"};  // Tr() keys.
++
++// The mode being switched to, or -1 when no switch is running.
++inline std::atomic<int>& Pending() {
++  static std::atomic<int> pending{-1};
++  return pending;
++}
++
++// What the guide shows: the mode in effect, or the one being switched to.
++inline int Shown() {
++  const int pending = Pending().load();
++  if (pending >= 0) return pending;
++  return std::clamp(int(cvars::network_mode), 0, 2);
++}
++
++// network.conf's server, as ApplyNetworkConf reads it (the public server when left out).
++inline std::string ConfiguredServer() {
++  std::string server;
++  std::ifstream conf("/data/homebrew/PPSA50011/network.conf");
++  for (std::string line; std::getline(conf, line);) {
++    while (!line.empty() && (line.back() == '\r' || line.back() == ' ')) line.pop_back();
++    if (line.rfind("server=", 0) == 0) server = line.substr(7);
++  }
++  return server.empty() ? "https://xenia-netplay-2a0298c0e3f4.herokuapp.com/" : server;
++}
++
++// Waits for a running switch (up to `limit`): the emulator it uses must outlive it.
++inline void WaitIdle(std::chrono::seconds limit) {
++  const auto until = std::chrono::steady_clock::now() + limit;
++  while (Pending().load() >= 0 && std::chrono::steady_clock::now() < until)
++    std::this_thread::sleep_for(std::chrono::milliseconds(20));
++}
++
++// Starts a switch to `mode` (0 offline, 1 System Link, 2 online). False while one is running.
++inline bool Switch(xe::Emulator* emulator, int mode, const std::string& title) {
++  int idle = -1;
++  if (mode < 0 || mode > 2 || !Pending().compare_exchange_strong(idle, mode)) return false;
++  const int from = std::clamp(int(cvars::network_mode), 0, 2);
++  std::thread([emulator, mode, from, title] {
++    auto* kernel = emulator->kernel_state();
++    auto* live = emulator->GetXboxLiveAPI();
++    if (mode == 2) {
++      cvars::api_address = ConfiguredServer();
++      // Reference-counted: only the first call does the set-up (done at start when online).
++      curl_global_init(CURL_GLOBAL_DEFAULT);
++    }
++    const bool selected = live->SelectNetworkMode(uint32_t(mode));
++    const int now = std::clamp(int(cvars::network_mode), 0, 2);
++    std::string profiles;
++    if (now == 2) {
++      auto* manager = kernel->xam_state()->profile_manager();
++      bool slot0_converted = false;
++      for (uint8_t slot = 0; slot < 4; ++slot) {
++        auto* profile = kernel->xam_state()->GetUserProfile(uint32_t(slot));
++        if (!profile || profile->IsLiveEnabled()) continue;
++        const uint64_t xuid = profile->xuid();
++        const std::string name = profile->name();
++        // Signs the profile out and in again (the profile object is replaced).
++        const bool converted = manager->ConvertToXboxLiveEnabledProfile(xuid);
++        slot0_converted = slot0_converted || slot == 0;
++        profiles += (profiles.empty() ? "" : ", ") + name + (converted ? " now uses Xbox Live" : " not converted");
++      }
++      // A converted profile registered itself as it signed in again.
++      if (!slot0_converted && live->IsConnectedToServer()) {
++        if (auto* first = kernel->xam_state()->GetUserProfile(uint32_t(0))) live->RegisterPlayer(first->xuid());
++      }
++    }
++    kernel->BroadcastNotification(xe::kXNotificationSystemSignInChanged,
++                                  uint32_t(kernel->xam_state()->profile_manager()->GetUsedUserSlots().to_ulong()));
++    const bool saved = LauncherSetNetworkMode(kModeNames[now]);
++    XELOGW("Network: switched to {} while running {} (asked for {}, was {}{}{}{}){}", kModeNames[now], title,
++           kModeNames[mode], kModeNames[from], selected ? "" : "; the Xenia server was not reached",
++           profiles.empty() ? "" : "; ", profiles, saved ? "" : "; network.conf not written");
++    Pending().store(-1);
++  }).detach();
++  return true;
++}
++}  // namespace guide_network
++}  // namespace xbox360ps5
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+index 975203f..cad0b6b 100644
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -137,6 +137,7 @@ DECLARE_bool(upnp);
+ #include "third_party/libcurl/include/curl/curl.h"
+ #include "xenia/kernel/XLiveAPI.h"
+ #include "xenia/kernel/util/curl_utils.h"
++#include "guide_network.hpp"  // fix 22: the network mode from the guide
+ #include <fcntl.h>
+ 
+ namespace {
+@@ -340,7 +341,7 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
+ // The emulator's guide over a running game, after the Xbox 360's: a light
+ // panel that unfolds from the middle of the screen, a page of actions and a page
+ // of settings. The loop that reads the pad drives it; the dialog only draws.
+-enum class GuideAction { resume, library, shelf, back_button, quit, category, option, measure, capture };
++enum class GuideAction { resume, library, shelf, back_button, quit, category, option, measure, capture, network };
+ struct GuideItem {
+   GuideAction action;
+   std::string label, value;
+@@ -381,6 +382,11 @@ std::vector<GuideItem> GuideItems(int page, const xbox360ps5::Settings& settings
+   };
+   std::vector<GuideItem> items;
+   if (category < 0) {
++    // Fix 22: the network mode, changed while the game runs (network.conf, as the home's Online
++    // channel); "..." while the change is under way.
++    namespace net = xbox360ps5::guide_network;
++    items.push_back({GuideAction::network, Tr("Rede"),
++                     std::string(Tr(net::kModeLabels[net::Shown()])) + (net::Pending().load() >= 0 ? " ..." : "")});
+     // The categories that have something to change while the game runs.
+     const int categories = int(sizeof(xbox360ps5::kOptionCategories) / sizeof(xbox360ps5::kOptionCategories[0]));
+     for (int c = 0; c < categories; ++c) {
+@@ -2301,6 +2307,15 @@ int main(int argc, char** argv) {
+                   changed = false;
+                   measure_at = std::chrono::steady_clock::now() + std::chrono::seconds(4);
+                   break;
++                case GuideAction::network: {
++                  // Fix 22: Offline, System Link, Online, switched on a thread of its own.
++                  namespace net = xbox360ps5::guide_network;
++                  changed = false;
++                  const int wanted = (net::Shown() + step + 3) % 3;
++                  if (net::Switch(&emulator, wanted, game_name))
++                    XELOGW("Guide: network set to {} at {:.1f} FPS", net::kModeNames[wanted], fps);
++                  break;
++                }
+               }
+               if (changed) {
+                 settings.Apply();
+@@ -2510,6 +2525,8 @@ int main(int argc, char** argv) {
+           XELOGW("Keyboard cancellation pending; restarting the native title");
+           restart = true;
+         }
++        // Fix 22: a network change from the guide uses the emulator; let it finish first.
++        xbox360ps5::guide_network::WaitIdle(std::chrono::seconds(25));
+         if (cvars::network_mode == 2) {
+           // As the desktop build does on exit: this console's sessions off the Xenia server
+           // (others would find a game that is gone) and the router's ports closed. At most
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+index 83c652d..7c50d67 100644
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -2025,6 +2025,13 @@ std::atomic<bool> shelf_focused{false};
+ // Whether the pad is on the shelf itself (no sheet or settings page open): the program that
+ // feeds the pad asks, for what only makes sense there (five games at a time, leaving).
+ bool LauncherShelfFocused() { return shelf_focused.load(); }
++// Fix 22: the guide over a running game changed the network mode. network.conf's mode as the
++// home's Online channel writes it, and that channel reads it again.
++bool LauncherSetNetworkMode(const std::string& mode) {
++  const bool saved = KinectSetNetMode(mode);
++  ++KinectNetRevisionRef();
++  return saved;
++}
+ // The program that runs a game says which one stays open behind the library (empty: none).
+ void LauncherSetRunningGame(const std::string& path, const std::string& name) {
+   g_running_path = path;
