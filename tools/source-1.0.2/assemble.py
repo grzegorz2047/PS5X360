@@ -403,16 +403,43 @@ def build_title(out, drops, report):
     (out / 'VERSION').write_text(version + '\n')
 
 
-def apply_fixes(out, report, with_core):
+def skip_names(arguments, environment):
+    """The fixes to leave out: --skip-fix arguments and PS5X360_SKIP_FIXES (comma-separated)."""
+    names = [name.strip() for name in (arguments or [])]
+    names += [name.strip() for name in (environment or '').split(',')]
+    return [name for name in names if name]
+
+
+def select_fixes(patches, skip):
+    """Splits the fixes into those applied and those left out. A skip name is a patch's file
+    name, its stem, or its number ("01", "08b"); one that names no patch, or more than one,
+    stops the assembly, so a typo cannot build something else than asked for."""
+    left_out = set()
+    for name in skip:
+        matches = [patch for patch in patches
+                   if name in (patch.name, patch.stem, patch.stem.split('-', 1)[0])]
+        if len(matches) != 1:
+            sys.exit(f'--skip-fix {name}: matches {len(matches)} fixes ({", ".join(p.name for p in matches)})')
+        left_out.add(matches[0])
+    return [p for p in patches if p not in left_out], [p for p in patches if p in left_out]
+
+
+def apply_fixes(out, report, with_core, skip=()):
     """The shipped release's binary patches, ported to source (fixes/README.md), in name order.
 
     Applied after everything else: each patch is a git diff against the assembled tree, core
     paths under .deps/xenia-canary/. git apply runs with the tree as a plain folder (the
-    ceiling stops it from finding this repository when --out is inside it)."""
+    ceiling stops it from finding this repository when --out is inside it). `skip` leaves fixes
+    out (a test build that tells whether one of them causes a problem); SOURCES.json lists them
+    under fixes_skipped."""
     env = dict(os.environ, GIT_CEILING_DIRECTORIES=str(out.parent))
     manifest = report['files']
     applied = []
-    for patch in sorted(FIXES.glob('*.patch')):
+    selected, left_out = select_fixes(sorted(FIXES.glob('*.patch')), skip)
+    for patch in left_out:
+        print('skipped', patch.name, flush=True)
+    report['fixes_skipped'] = [f'tools/source-1.0.2/fixes/{patch.name}' for patch in left_out]
+    for patch in selected:
         cmd = ['git', '-c', 'core.autocrlf=false', 'apply', '--whitespace=nowarn']
         if not with_core:
             cmd.append('--exclude=.deps/*')
@@ -458,6 +485,9 @@ def main():
     parser.add_argument('--out', type=Path, default=REPO / 'build/src102')
     parser.add_argument('--cache', type=Path, default=REPO / '.deps/src102-cache')
     parser.add_argument('--skip-core', action='store_true', help='title files only (no clone)')
+    parser.add_argument('--skip-fix', action='append', metavar='NAME',
+                        help='leave out a fix (file name, stem or number, e.g. 01); repeatable. '
+                             'PS5X360_SKIP_FIXES adds a comma-separated list')
     args = parser.parse_args()
     out, cache = args.out.resolve(), args.cache.resolve()
     for sub in ('include', 'platform', 'src', 'port', 'reconstructed', 'online', 'canary', 'licenses'):
@@ -471,7 +501,8 @@ def main():
         core = build_core(out, drops, report)
         build_online(out, core, cache, report)
     build_title(out, drops, report)
-    apply_fixes(out, report, with_core=not args.skip_core)
+    apply_fixes(out, report, with_core=not args.skip_core,
+                skip=skip_names(args.skip_fix, os.environ.get('PS5X360_SKIP_FIXES')))
     report['excluded'] = {'paths': list(EXCLUDED), 'files': len(EXCLUDED_SEEN)}
     (out / 'SOURCES.json').write_text(json.dumps(report, indent=1, sort_keys=True) + '\n')
     counts = {}
