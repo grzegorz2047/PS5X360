@@ -2,9 +2,11 @@
 // Fix 24 (tools/source-1.0.2/fixes/24-stall-code-words.patch): drives the STALL report's guest
 // memory reading (port/stall_dump.hpp) with fake memory: the 64-byte code window around lr, the
 // stack's back chain with each frame's saved return address and first words, unreadable pages,
-// and the ends of the address space. Built against the assembled 1.0.2 tree.
+// the ends of the address space, thread states, call targets, changes over time and the kernel
+// objects' wait and release history (xenia/kernel/object_history.h). Built against the assembled 1.0.2 tree.
 #undef NDEBUG
 #include "../port/stall_dump.hpp"  // the assembled tree's port/ (run from <tree>/tools)
+#include "xenia/kernel/object_history.h"
 
 #include <cassert>
 #include <cstdint>
@@ -113,10 +115,84 @@ void BackChainStops() {
 
 void DataPointers() {
   assert(!sd::LooksLikeData(3) && !sd::LooksLikeData(0x33));
-  assert(!sd::LooksLikeData(0x7062FCB0));  // a stack
+  assert(sd::LooksLikeData(0x7018D5A0));  // Battlefield 3's main thread spins on an object in its frame
   assert(sd::LooksLikeData(0x30083010) && sd::LooksLikeData(0x437F8D80) && sd::LooksLikeData(0x89014FA0));
-  assert(!sd::LooksLikeData(0xFFFFFFFF));
-  std::printf("  register values dumped: data addresses, not small numbers or stacks\n");
+  assert(!sd::LooksLikeData(0xF8000090) && !sd::LooksLikeData(0xFFFFFFFF));
+  assert(sd::LooksLikeHandle(0xF8000090) && sd::LooksLikeHandle(0xF80001A8));
+  assert(!sd::LooksLikeHandle(0xF8000000) && !sd::LooksLikeHandle(0xF8000091) && !sd::LooksLikeHandle(0x30083010));
+  assert(!sd::LooksLikeHandle(0xFFC49088));
+  std::printf("  register values: data addresses (stacks too) dumped, handles told apart\n");
+}
+void ThreadStates() {
+  using sd::ThreadState;
+  assert(sd::Classify(true, false, false) == ThreadState::kRunning);
+  // Battlefield 3's ClientLoad on candidate_9: exited (terminated, header signalled), object kept.
+  assert(sd::Classify(false, true, true) == ThreadState::kExited);
+  assert(sd::Classify(false, false, true) == ThreadState::kExited);  // terminated from outside
+  assert(sd::Classify(true, true, true) == ThreadState::kExited);    // between its exit and its end
+  assert(sd::Classify(false, false, false) == ThreadState::kNotStarted);
+  assert(std::string(sd::ThreadStateName(ThreadState::kExited)) == "exited (object still referenced)");
+  std::printf("  thread states: running, exited (object still referenced), not started\n");
+}
+
+void CallsDecoded() {
+  FakeMemory memory;
+  // JobManager1's poll wrapper (candidate_9): li r4,0 then bl to the import thunk 83ECE554.
+  memory.Put(0x838D16B4, 0x38800000);
+  memory.Put(0x838D16B8, 0x485FCE9D);
+  memory.Put(0x838D16BC, 0x2C030000);
+  // A bl backwards (offset -0x80); a plain b (no link) and a bla (absolute) are not calls here.
+  memory.Put(0x838D16C0, 0x4BFFFF81);
+  memory.Put(0x838D16C4, 0x48000010);
+  memory.Put(0x838D16C8, 0x48000013);
+  const auto calls = sd::Calls(memory, 0x838D16B4, 6);
+  assert(calls.size() == 2);
+  assert(calls[0].site == 0x838D16B8 && calls[0].target == 0x83ECE554);
+  assert(calls[1].site == 0x838D16C0 && calls[1].target == 0x838D1640);
+  assert(sd::Calls(memory, 0x838D2000, 4).empty());  // unreadable: nothing, no read
+  std::printf("  calls: bl targets decoded (838D16B8 -> 83ECE554), b/bla and unreadable skipped\n");
+}
+
+void ChangesOverTime() {
+  sd::ChangeLog steady;
+  for (uint32_t ms = 0; ms < 800; ms += 100) steady.Add(ms, " 00000001 00000000");
+  assert(!steady.Changed() && steady.samples.size() == 1 && steady.last_ms == 700);
+  sd::ChangeLog moving;
+  moving.Add(0, " 00000005");
+  moving.Add(100, " 00000005");
+  moving.Add(200, " 00000004");
+  moving.Add(300, " 00000004");
+  moving.Add(400, " 00000003");
+  assert(moving.Changed() && moving.samples.size() == 3);
+  assert(moving.samples[1].ms == 200 && moving.samples[2].text == " 00000003");
+  std::printf("  memory over time: only the changes kept\n");
+}
+
+void ObjectHistory() {
+  namespace oh = xbox360ps5::object_history;
+  oh::Ring ring;
+  // A JobManager polling with a zero timeout: one entry, counted.
+  for (uint32_t n = 0; n < 5000; ++n) ring.Record(1000 + n, 0xF800008C, oh::Op::kWait, 0, 0x102);
+  // The main thread releases twice; the poll then succeeds once.
+  ring.Record(7000, 0xF8000008, oh::Op::kRelease, 1, 0);
+  ring.Record(7001, 0xF8000008, oh::Op::kRelease, 1, 1);
+  ring.Record(7002, 0xF800008C, oh::Op::kWait, 0, 0);
+  auto entries = ring.Entries();
+  assert(ring.total() == 5003 && entries.size() == 4);
+  assert(entries[0].repeats == 5000 && entries[0].first_ms == 1000 && entries[0].last_ms == 5999);
+  assert(entries[1].op == oh::Op::kRelease && entries[1].result == 0 && entries[2].result == 1);
+  assert(entries[3].thread == 0xF800008C && entries[3].result == 0);
+  const std::string text = oh::Format(entries, 7002);
+  assert(text.find(" [-1003ms F800008C wait 0 -> 00000102 x5000 over 4999ms]") == 0);
+  assert(text.find(" [-2ms F8000008 release 1 -> 00000000 x1]") != std::string::npos);
+  // More than kSize different operations: the oldest drop out, newest last.
+  oh::Ring full;
+  for (uint32_t n = 0; n < 40; ++n) full.Record(n, 0xF8000008, oh::Op::kSet, int32_t(n), 0);
+  entries = full.Entries();
+  assert(entries.size() == oh::Ring::kSize && full.total() == 40);
+  assert(entries.front().arg == 40 - int32_t(oh::Ring::kSize) && entries.back().arg == 39);
+  assert(oh::Format({}, 0).empty() && std::string(oh::OpName(oh::Op::kMutantRelease)) == "mutant-release");
+  std::printf("  object history: repeats folded, releases kept, ring of %zu, text\n", oh::Ring::kSize);
 }
 }  // namespace
 
@@ -126,5 +202,9 @@ int main() {
   BackChain();
   BackChainStops();
   DataPointers();
+  ThreadStates();
+  CallsDecoded();
+  ChangesOverTime();
+  ObjectHistory();
   std::puts("PASS: STALL report guest memory (fix 24)");
 }
