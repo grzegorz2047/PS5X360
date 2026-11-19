@@ -23,6 +23,8 @@ import time
 from pathlib import Path
 
 CLANG = os.environ.get("CXX_HOST", "clang++-18")
+# The core is built for the PS5's Zen 2 (AVX2); its headers use those intrinsics.
+ARCH = "-march=znver2"
 # Checks that only talk to real systems; never run.
 NEVER = {
     "check-native-autolog-console.py": "reads the development PS5 over FTP",
@@ -48,10 +50,10 @@ def command_for(tree: Path, name: str, out: Path):
     if name.endswith(".sh"):
         return ["bash", path]
     exe = out / name[:-4]
-    includes = ["-Iinclude", "-Ireconstructed", "-I.deps/xenia-canary/src",
+    includes = ["-Iinclude", "-Ireconstructed", "-I.deps/xenia-canary/src", "-I.deps/xenia-canary",
                 "-I.deps/xenia-canary/third_party/fmt/include"]
     return ["bash", "-c",
-            f'{CLANG} -std=c++20 -O1 -g -pthread {" ".join(includes)} {path} -o "{exe}" && "{exe}"']
+            f'{CLANG} -std=c++20 -O1 -g -pthread {ARCH} {" ".join(includes)} {path} -o "{exe}" && "{exe}"']
 
 
 def memory_contract(tree: Path, out: Path):
@@ -64,7 +66,7 @@ def memory_contract(tree: Path, out: Path):
                 "-I.deps/xenia-canary/third_party/fmt/include", "-I.deps/xenia-canary/third_party/utfcpp/source",
                 "-I.deps/xenia-canary/third_party"]
     return ["bash", "-c",
-            f'{CLANG} -std=c++20 -O1 -g -pthread -DXE_PLATFORM_LINUX=1 -DFMT_HEADER_ONLY {" ".join(includes)} '
+            f'{CLANG} -std=c++20 -O1 -g -pthread {ARCH} -DXE_PLATFORM_LINUX=1 -DFMT_HEADER_ONLY {" ".join(includes)} '
             f'{" ".join(sources)} -o "{exe}" && "{exe}"']
 
 
@@ -103,6 +105,11 @@ def main():
     copy_missing(repo / "tools", tree / "tools")
     if not (tree / "src/memory_contract_test.cpp").exists():
         shutil.copy2(repo / "src/memory_contract_test.cpp", tree / "src/memory_contract_test.cpp")
+    # The 1.0.2 tree keeps Mbed TLS at mbedtls/; check-native-autolog.sh looks in .deps/autolog.
+    autolog_tls = tree / ".deps/autolog/mbedtls-3.6.7"
+    if (tree / "mbedtls").is_dir() and not autolog_tls.exists():
+        autolog_tls.parent.mkdir(parents=True, exist_ok=True)
+        autolog_tls.symlink_to(tree / "mbedtls", target_is_directory=True)
     out = tree / "build/source-checks"
     out.mkdir(parents=True, exist_ok=True)
 

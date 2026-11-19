@@ -52,6 +52,7 @@ jobs:
       - name: Host tools
         run: |
           clang++-18 --version | head -1
+          sudo apt-get install -y --no-install-recommends zbar-tools
           python -m pip install pyftpdlib
 
       - name: Run the checks
