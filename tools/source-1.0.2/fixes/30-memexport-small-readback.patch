@@ -414,7 +414,7 @@ index ffd416c..3a421e1 100644
              } else {
                XELOGE(
 diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
-index 2b7ee96..f171f9c 100644
+index 2b7ee96..0df0a50 100644
 --- a/src/canary_game_main.cpp
 +++ b/src/canary_game_main.cpp
 @@ -83,4 +83,5 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
@@ -423,10 +423,29 @@ index 2b7ee96..f171f9c 100644
 +#include "xenia/gpu/memexport_merge.h"  // fix 30: the export lines for Battlefield 3
  #include "xenia/kernel/user_module.h"
  #include "xenia/base/memory.h"
-@@ -2265,4 +2266,6 @@ int main(int argc, char** argv) {
+@@ -2264,5 +2265,10 @@ int main(int argc, char** argv) {
+         // Candidate 21: the probes' lines for Battlefield 3 only (the JIT inserts them only into
          // its code anyway; counts are kept either way).
-         xbox360ps5::entry_probe::Global().Enable(std::strtoul(log_id.c_str(), nullptr, 16) == 0x45410950ul);
+-        xbox360ps5::entry_probe::Global().Enable(std::strtoul(log_id.c_str(), nullptr, 16) == 0x45410950ul);
++        // Fix 30: only with detailed logs (they log about 2,500 lines in a level's first seconds).
++        const bool bf3_diagnostics =
++            std::strtoul(log_id.c_str(), nullptr, 16) == 0x45410950ul && cvars::log_level >= 3;
++        xbox360ps5::entry_probe::Global().Enable(bf3_diagnostics);
 +        // Fix 30, candidate 31: each dword Battlefield 3's job queue gets from a memory export.
-+        xbox360ps5::memexport_merge::DetailEnabled().store(std::strtoul(log_id.c_str(), nullptr, 16) == 0x45410950ul);
++        xbox360ps5::memexport_merge::DetailEnabled().store(bf3_diagnostics);
          overrides = xbox360ps5::LoadGameOverrides(settings_title);
          settings = xbox360ps5::ForGame(global, settings_title, overrides);
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+index 80e2147..f85d46b 100644
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -473,4 +473,9 @@ GameOverrides GamePreset(const std::string& title_id) {
+       // stopped. The core's own note on that mode names this title.
+       {"454108D4", {{"released_memory", 1}, {"readback", 2}, {"occlusion", 2}}},
++      // Battlefield 3: its renderer makes each render job runnable from the GPU,
++      // a vertex shader exporting into the job queue, so the game hangs once a
++      // level starts unless memory exports are read back (fix 30; research/bf3/
++      // ANALYSIS.md; menu and levels on the console with candidate 36).
++      {"45410950", {{"memexport", 1}}},
+   };
+   GameOverrides preset;
