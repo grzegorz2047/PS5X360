@@ -298,6 +298,32 @@ int main() {
   nested.children.push_back(deep);
   donnees.children.push_back(nested);
   root.children.push_back(donnees);
+  // Handball 16's own accented names (the ISO, read-only: 36 names under
+  // Media\Data\Commentary\Ger\PlayerNames and PlayerNames2, research/handball16/
+  // iso-accented-names.txt), in a tree of the same shape.
+  {
+    const char* const stems[] = {"D\xED" "az",      "Fern\xE1ndez", "Guti\xE9rrez", "Jim\xE9nez",
+                                 "Mart\xEDnez",     "Su\xE1rez",    "bli\xDF",      "l\xF3pez",
+                                 "mont\xE1vez",     "s\xE1nchez"};
+    const char* const ends[] = {"_energetic_begin.xma", "_energetic_end.xma",
+                                "_neutral_begin.xma", "_neutral_end.xma"};
+    Node names;
+    names.name = "PlayerNames";
+    names.directory = true;
+    for (const char* stem : stems) {
+      for (const char* end : ends) {
+        Node f;
+        f.name = std::string(stem) + end;
+        f.content = "xma " + f.name;
+        names.children.push_back(f);
+      }
+    }
+    Node ger{"Ger", true, {names}};
+    Node commentary{"Commentary", true, {ger}};
+    Node data{"Data", true, {commentary}};
+    Node media{"Media", true, {data}};
+    root.children.push_back(media);
+  }
   for (int d = 0; d < 30; ++d) {
     Node dir;
     dir.name = "data" + std::to_string(d);
@@ -396,6 +422,16 @@ int main() {
     CHECK(mixed != nullptr);
     // Case-insensitive lookup still works for ASCII.
     CHECK(device.ResolvePath("DATA0\\ASSET_1.PAK") != nullptr);
+    // Handball 16's names, as the game asks for them (cp1252 bytes through the file calls).
+    for (const char* raw : {"Media\\Data\\Commentary\\Ger\\PlayerNames\\l\xF3pez_energetic_begin.xma",
+                            "Media\\Data\\Commentary\\Ger\\PlayerNames\\bli\xDF_neutral_end.xma",
+                            "Media\\Data\\Commentary\\Ger\\PlayerNames\\Jim\xE9nez_neutral_begin.xma"}) {
+      const std::string path = xe::kernel::util::GuestAnsiPathToUtf8(raw);
+      CHECK(xe::kernel::util::IsValidGuestPath(path, false));
+      auto* found = device.ResolvePath(path);
+      CHECK(found != nullptr);
+      if (found) CHECK(xe::utf8_to_win1252(found->name()) == std::string(raw).substr(std::string(raw).rfind('\\') + 1));
+    }
   }
 
   // A damaged table (an entry pointing past the table) fails the mount without an exception.
