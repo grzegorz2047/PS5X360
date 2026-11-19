@@ -33,6 +33,7 @@ on:
       - 'tools/check-exact-unwatch.cpp'
       - 'tools/check-jit-backports.cpp'
       - 'tools/check-net-log-drain.cpp'
+      - 'tools/check-review-fix30.cpp'
       - 'tools/check-assemble-skip.py'
       - 'tools/check-patch-syntax.py'
       - 'tools/check-bf3-preset.py'

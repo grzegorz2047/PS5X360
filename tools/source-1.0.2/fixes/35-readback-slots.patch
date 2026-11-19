@@ -103,7 +103,7 @@ index 0000000..b4ac0ad
 +
 +#endif  // XENIA_GPU_VULKAN_READBACK_SLOTS_H_
 diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
-index de968fe..ff75be3 100644
+index 3a421e1..6a80785 100644
 --- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
 +++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
 @@ -1327,14 +1327,12 @@ void VulkanCommandProcessor::ShutdownContext() {
@@ -127,7 +127,7 @@ index de968fe..ff75be3 100644
    }
    readback_buffers_.clear();
  
-@@ -3854,7 +3852,15 @@ bool VulkanCommandProcessor::IssueCopy() {
+@@ -3922,7 +3920,15 @@ bool VulkanCommandProcessor::IssueCopy() {
      ReadbackBuffer& rb = readback_buffers_[resolve_key];
      rb.last_used_frame = frame_current_;
  
@@ -144,7 +144,7 @@ index de968fe..ff75be3 100644
      uint32_t size = AlignReadbackBufferSize(readback_length);
  
      // Allocate/resize write buffer if needed
-@@ -3946,13 +3952,20 @@ bool VulkanCommandProcessor::IssueCopy() {
+@@ -4014,13 +4020,20 @@ bool VulkanCommandProcessor::IssueCopy() {
             (uint32_t(1) << memory_type_index)) != 0;
      }
  
@@ -171,7 +171,7 @@ index de968fe..ff75be3 100644
  
      if (is_scaled) {
        // Scaled path: downscale on the GPU, then copy the 1x data to the
-@@ -5086,10 +5099,8 @@ bool VulkanCommandProcessor::BeginSubmission(bool is_guest_command) {
+@@ -5154,10 +5167,8 @@ bool VulkanCommandProcessor::BeginSubmission(bool is_guest_command) {
    if (is_opening_frame) {
      frame_open_ = true;
  
@@ -184,7 +184,7 @@ index de968fe..ff75be3 100644
  
      // Evict old readback buffers only when map gets too large to prevent
      // unbounded memory growth. Don't do this every frame as it's expensive.
-@@ -5103,20 +5114,22 @@ bool VulkanCommandProcessor::BeginSubmission(bool is_guest_command) {
+@@ -5171,20 +5182,22 @@ bool VulkanCommandProcessor::BeginSubmission(bool is_guest_command) {
             it != readback_buffers_.end();) {
          // Evict only when both producers have completed. Frame age alone is
          // not a lifetime guarantee when the GPU queue is behind.
@@ -219,7 +219,7 @@ index de968fe..ff75be3 100644
          } else {
            ++it;
 diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
-index 2d2cfc7..0626e75 100644
+index 3b55f80..27a8ff4 100644
 --- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
 +++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
 @@ -29,6 +29,7 @@
@@ -230,8 +230,8 @@ index 2d2cfc7..0626e75 100644
  #include "xenia/gpu/vulkan/vulkan_graphics_system.h"
  #include "xenia/gpu/vulkan/vulkan_pipeline_cache.h"
  #include "xenia/gpu/vulkan/vulkan_primitive_processor.h"
-@@ -885,14 +886,15 @@ class VulkanCommandProcessor final : public CommandProcessor {
-   std::vector<uint8_t> memexport_before_;
+@@ -882,14 +883,15 @@ class VulkanCommandProcessor final : public CommandProcessor {
+   std::vector<draw_util::MemExportRange> memexport_ranges_;
  
    // Per-resolve double-buffered readback for delayed sync
 +  // Xbox360PS5 (fix 35): up to readback_slots::kCount slots per key, chosen by the

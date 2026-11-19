@@ -174,7 +174,7 @@ index 0000000..ac4d952
 +
 +#endif  // XENIA_GPU_UNWATCHED_POLICY_H_
 diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
-index ff75be3..af3825a 100644
+index 6a80785..2e252f2 100644
 --- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
 +++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
 @@ -1678,6 +1678,8 @@ void VulkanCommandProcessor::IssueSwap(uint32_t frontbuffer_ptr,

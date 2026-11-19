@@ -44,6 +44,7 @@ checks=(
   check-exact-unwatch.cpp          # fix 37
   check-jit-backports.cpp          # fix 38
   check-net-log-drain.cpp          # fix 39
+  check-review-fix30.cpp           # fixes 35-37 with fix 30
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -57,7 +58,7 @@ declare -A arguments=(
 declare -A fix_of=(
   [check-media-voice.cpp]=32 [check-switch-title.cpp]=33 [check-pipeline-claim.cpp]=34
   [check-readback-slots.cpp]=35 [check-unwatched-policy.cpp]=36 [check-exact-unwatch.cpp]=37
-  [check-jit-backports.cpp]=38 [check-net-log-drain.cpp]=39
+  [check-jit-backports.cpp]=38 [check-net-log-drain.cpp]=39 [check-review-fix30.cpp]="35 36 37"
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
@@ -65,9 +66,13 @@ print(" ".join(os.path.basename(p).split("-", 1)[0] for p in report.get("fixes_s
 mkdir -p "$tree/tools" "$tree/build/fix-checks"
 status=0
 for name in "${checks[@]}"; do
-  if [[ -n "${fix_of[$name]:-}" && " $skipped_fixes " == *" ${fix_of[$name]} "* ]]; then
+  left_out=
+  for fix in ${fix_of[$name]:-}; do
+    if [[ " $skipped_fixes " == *" $fix "* ]]; then left_out=$fix; fi
+  done
+  if [[ -n $left_out ]]; then
     echo "=== $name"
-    echo "skip $name (fix ${fix_of[$name]} left out of this build)"
+    echo "skip $name (fix $left_out left out of this build)"
     continue
   fi
   cp "$repo/tools/$name" "$tree/tools/$name"

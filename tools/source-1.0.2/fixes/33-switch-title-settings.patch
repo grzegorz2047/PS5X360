@@ -109,10 +109,10 @@ index 0000000..b300a9e
 +
 +#endif  // XBOX360PS5_SWITCH_TITLE_HPP_
 diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
-index 3daaf57..f8ac231 100644
+index 8b0be38..156e147 100644
 --- a/src/canary_game_main.cpp
 +++ b/src/canary_game_main.cpp
-@@ -142,6 +142,7 @@ DECLARE_bool(upnp);
+@@ -175,6 +175,7 @@ DECLARE_bool(upnp);
  #include "xenia/kernel/XLiveAPI.h"
  #include "xenia/kernel/util/curl_utils.h"
  #include "guide_network.hpp"  // fix 22: the network mode from the guide
@@ -120,7 +120,7 @@ index 3daaf57..f8ac231 100644
  #include <fcntl.h>
  
  namespace {
-@@ -1514,6 +1515,18 @@ std::vector<DashboardGame> DashboardGames(const std::vector<std::filesystem::pat
+@@ -1547,6 +1548,18 @@ std::vector<DashboardGame> DashboardGames(const std::vector<std::filesystem::pat
    }
    return games;
  }
@@ -139,7 +139,7 @@ index 3daaf57..f8ac231 100644
  }  // namespace
  int main(int argc, char** argv) {
    config::config_folder = "/app0/assets";
-@@ -1578,6 +1591,19 @@ int main(int argc, char** argv) {
+@@ -1616,6 +1629,19 @@ int main(int argc, char** argv) {
      std::filesystem::remove(storage / "launch-once.txt", once_error);
    }
    std::string settings_title = once_title;
@@ -159,7 +159,7 @@ index 3daaf57..f8ac231 100644
    xbox360ps5::GameOverrides overrides = xbox360ps5::LoadGameOverrides(settings_title);
    // The options in force: the general ones with the running game's own over them.
    xbox360ps5::Settings settings = xbox360ps5::ForGame(global, settings_title, overrides);
-@@ -2254,7 +2280,8 @@ int main(int argc, char** argv) {
+@@ -2357,7 +2383,8 @@ int main(int argc, char** argv) {
          }
          xe::FlushLog();
          std::string log_id = chosen.title_id;
@@ -169,7 +169,7 @@ index 3daaf57..f8ac231 100644
          // This game's own options over the general ones.
          settings_title = log_id;
          // Candidate 21: the probes' lines for Battlefield 3 only (the JIT inserts them only into
-@@ -2266,20 +2293,40 @@ int main(int argc, char** argv) {
+@@ -2372,22 +2399,41 @@ int main(int argc, char** argv) {
          settings = xbox360ps5::ForGame(global, settings_title, overrides);
          // Binary release patch group 13: the game's own "fsi" option (1, Standard: its preset,
          // else the general choice; 0 and 2 force it).
@@ -186,7 +186,8 @@ index 3daaf57..f8ac231 100644
 +                    switch_pending))
 +              XELOGW("Title switch: launch data not written back; the restart opens the launcher");
 +          } else {
-+            std::ofstream(storage / "launch-once.txt", std::ios::trunc) << game.string() << "\n" << settings_title << "\n";
++            std::ofstream(storage / "launch-once.txt", std::ios::trunc)
++                << xbox360ps5::forward::OnceText(game.string(), settings_title, forwarded, exit_after_game);
 +          }
 +        };
 +        if (switched) {
@@ -200,7 +201,8 @@ index 3daaf57..f8ac231 100644
            XELOGW("Settings: {} uses {} render targets; restarting into it", chosen.name,
                   fsi_wanted ? "accurate (FSI)" : "fast");
            xbox360ps5::FsiForNextStart(fsi_wanted);
--          std::ofstream(storage / "launch-once.txt", std::ios::trunc) << game.string() << "\n" << settings_title << "\n";
+-          std::ofstream(storage / "launch-once.txt", std::ios::trunc)
+-              << xbox360ps5::forward::OnceText(game.string(), settings_title, forwarded, exit_after_game);
 +          restart_into_game();
            restart = true;
            break;
@@ -209,7 +211,8 @@ index 3daaf57..f8ac231 100644
 +        if (may_restart && xbox360ps5::StartOptionsDiffer(settings, started)) {
            // Some are only read as the emulator starts: start again, straight into this game.
            XELOGW("Settings: {} has start options of its own; restarting into it", chosen.name);
--          std::ofstream(storage / "launch-once.txt", std::ios::trunc) << game.string() << "\n" << settings_title << "\n";
+-          std::ofstream(storage / "launch-once.txt", std::ios::trunc)
+-              << xbox360ps5::forward::OnceText(game.string(), settings_title, forwarded, exit_after_game);
 +          restart_into_game();
            restart = true;
            break;
