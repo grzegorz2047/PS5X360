@@ -77,7 +77,8 @@ add_library(xbox360ps5-title-objects OBJECT
   "${ROOT}/port/xex_package_decoder.cpp"
   "${ROOT}/port/ps5_resolver.cpp"
   "${ROOT}/port/phone_camera_tls.cpp"
-  "${ROOT}/port/vendor/ps5_framegen.cpp")
+  "${ROOT}/port/vendor/ps5_framegen.cpp"
+  "${ROOT}/reconstructed/ps5x360_reconstructed.cpp")
 target_include_directories(xbox360ps5-title-objects PRIVATE
   "${ROOT}/port/shared" "${XENIA_CANARY}" "${XENIA_CANARY}/src" "${XENIA_CANARY}/src/xenia/vfs"
   "${XENIA_CANARY}/third_party" "${XENIA_CANARY}/third_party/fmt/include"
