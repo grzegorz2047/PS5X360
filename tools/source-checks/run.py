@@ -60,14 +60,14 @@ def memory_contract(tree: Path, out: Path):
     """src/memory_contract_test.cpp against the core's POSIX memory code."""
     core = ".deps/xenia-canary/src/xenia/base"
     exe = out / "memory_contract_test"
-    sources = ["src/memory_contract_test.cpp", f"{core}/memory_posix.cc", f"{core}/mapped_memory_posix.cc",
-               f"{core}/memory.cc", f"{core}/string.cc", f"{core}/utf8.cc"]
+    # The whole of xenia/base for Linux (logging, cvars and CPU features come with memory.cc).
+    base = (f"$(ls {core}/*.cc | grep -vE '_(win|android|mac|gnulinux_x11|test[a-z_]*)\\.cc$|/main_|/testing')")
     includes = ["-Iinclude", "-Ireconstructed", "-I.deps/xenia-canary/src", "-I.deps/xenia-canary",
                 "-I.deps/xenia-canary/third_party/fmt/include", "-I.deps/xenia-canary/third_party/utfcpp/source",
                 "-I.deps/xenia-canary/third_party"]
     return ["bash", "-c",
-            f'{CLANG} -std=c++20 -O1 -g -pthread {ARCH} -DXE_PLATFORM_LINUX=1 -DFMT_HEADER_ONLY {" ".join(includes)} '
-            f'{" ".join(sources)} -o "{exe}" && "{exe}"']
+            f'{CLANG} -std=c++20 -O1 -g -pthread {ARCH} -DFMT_HEADER_ONLY {" ".join(includes)} '
+            f'src/memory_contract_test.cpp {base} -ldl -o "{exe}" && "{exe}"']
 
 
 def run(cmd, cwd, timeout):
