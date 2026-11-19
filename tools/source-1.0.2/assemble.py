@@ -21,6 +21,7 @@ steps can build it:
   online/               net-libs/CMakeLists.txt of 1.0.0 with deps/ (wolfSSL, libcurl, miniupnp)
   mbedtls/              Mbed TLS 3.6.7
   SOURCES.json          where every file came from, and every core hunk's fate
+Then fixes/*.patch: the shipped release's binary patches as source changes (fixes/README.md).
 
 Downloaded material is data: nothing from it is executed by this script.
 """
@@ -173,6 +174,8 @@ NOTICES = [
     ('licenses/drop-0.5.9/LICENSE', f'{S59}/LICENSE'),
     ('licenses/framegen-COPYING', f'{V60}/0.5.9-framegen.4-local-SOURCE/COPYING'),
 ]
+# The release's binary patches ported to source, applied last (fixes/README.md).
+FIXES = HERE / 'fixes'
 # From this repository: build glue that is not in any drop (the author's build/ folders are not
 # published). Each is the repository's own file, used unchanged.
 FROM_REPO = ['platform/ps5/compat', 'tooling/native-game-symbols.map', 'tools/resolve-mesa-weaks.py',
@@ -313,6 +316,32 @@ def build_title(out, drops, report):
     (out / 'VERSION').write_text('1.0.2\n')
 
 
+def apply_fixes(out, report, with_core):
+    """The shipped release's binary patches, ported to source (fixes/README.md), in name order.
+
+    Applied after everything else: each patch is a git diff against the assembled tree, core
+    paths under .deps/xenia-canary/. git apply runs with the tree as a plain folder (the
+    ceiling stops it from finding this repository when --out is inside it)."""
+    env = dict(os.environ, GIT_CEILING_DIRECTORIES=str(out.parent))
+    manifest = report['files']
+    applied = []
+    for patch in sorted(FIXES.glob('*.patch')):
+        cmd = ['git', '-c', 'core.autocrlf=false', 'apply', '--whitespace=nowarn']
+        if not with_core:
+            cmd.append('--exclude=.deps/*')
+        print('+', ' '.join(cmd), patch.name, flush=True)
+        subprocess.run(cmd + [str(patch)], cwd=out, env=env, check=True)
+        files = sorted({line[6:].strip() for line in patch.read_text(encoding='utf-8').splitlines()
+                        if line.startswith('+++ b/')})
+        for rel in files:
+            if rel in manifest:
+                manifest[rel].setdefault('edits', []).append(f'tools/source-1.0.2/fixes/{patch.name}')
+                manifest[rel]['sha256'] = sha256(out / rel)
+        applied.append({'patch': f'tools/source-1.0.2/fixes/{patch.name}', 'sha256': sha256(patch),
+                        'files': [f for f in files if with_core or not f.startswith('.deps/')]})
+    report['fixes'] = applied
+
+
 def build_online(out, core, cache, report):
     # The layout 1.0.0's net-libs/CMakeLists.txt expects: ../deps/<lib> and ../tree.
     deps = out / 'online/deps'
@@ -355,6 +384,7 @@ def main():
         core = build_core(out, drops, report)
         build_online(out, core, cache, report)
     build_title(out, drops, report)
+    apply_fixes(out, report, with_core=not args.skip_core)
     report['excluded'] = {'paths': list(EXCLUDED), 'files': len(EXCLUDED_SEEN)}
     (out / 'SOURCES.json').write_text(json.dumps(report, indent=1, sort_keys=True) + '\n')
     counts = {}

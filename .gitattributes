@@ -5,3 +5,5 @@
 *.txt text eol=lf
 *.md text eol=lf
 CMakeLists.txt text eol=lf
+# Patches against the assembled 1.0.2 tree: some of its drop files have CRLF lines, kept byte for byte.
+tools/source-1.0.2/fixes/*.patch -text
