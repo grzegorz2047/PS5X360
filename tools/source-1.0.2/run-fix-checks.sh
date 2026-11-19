@@ -28,6 +28,7 @@ checks=(
   check-save-devices.cpp           # fix 27
   check-home-hints.cpp             # fix 40 (reconstructed files)
   check-cover-fallback.cpp         # fix 41
+  check-network-self-test.cpp      # fix 42
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
