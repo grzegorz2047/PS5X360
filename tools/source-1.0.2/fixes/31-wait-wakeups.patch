@@ -575,7 +575,7 @@ index 0000000..05e72a4
 +
 +#endif  // XENIA_BASE_POSIX_CONDITIONS_H_
 diff --git a/.deps/xenia-canary/src/xenia/base/threading_posix.cc b/.deps/xenia-canary/src/xenia/base/threading_posix.cc
-index bb07c33..ba2877e 100644
+index bb07c33..6d582a2 100644
 --- a/.deps/xenia-canary/src/xenia/base/threading_posix.cc
 +++ b/.deps/xenia-canary/src/xenia/base/threading_posix.cc
 @@ -13,6 +13,7 @@
@@ -594,7 +594,7 @@ index bb07c33..ba2877e 100644
      was_deferred_ =
          sigismember(&previous,
                      GetSystemSignal(SignalType::kThreadSuspend)) == 1;
-@@ -288,394 +290,8 @@ bool SetTlsValue(TlsHandle handle, uintptr_t value) {
+@@ -288,394 +290,13 @@ bool SetTlsValue(TlsHandle handle, uintptr_t value) {
    return pthread_setspecific(handle, reinterpret_cast<void*>(value)) == 0;
  }
  
@@ -986,12 +986,17 @@ index bb07c33..ba2877e 100644
 -  uint32_t count_;
 -  std::thread::id owner_;
 -};
-+// Xbox360PS5 (fix 31): PosixConditionBase, Event, Semaphore and Mutant.
++// Xbox360PS5 (fix 31): PosixConditionBase, Event, Semaphore and Mutant, which
++// use the SuspensionDeferred above.
++}  // namespace threading
++}  // namespace xe
 +#include "xenia/base/posix_conditions.h"
++namespace xe {
++namespace threading {
  
  template <>
  class PosixCondition<Timer> final : public PosixConditionBase {
-@@ -690,7 +306,8 @@ class PosixCondition<Timer> final : public PosixConditionBase {
+@@ -690,7 +311,8 @@ class PosixCondition<Timer> final : public PosixConditionBase {
      std::lock_guard lock(mutex_);
      signal_ = true;
      cond_.notify_all();
@@ -1001,7 +1006,7 @@ index bb07c33..ba2877e 100644
      return true;
    }
  
-@@ -1151,7 +768,8 @@ class PosixCondition<Thread> final : public PosixConditionBase {
+@@ -1151,7 +773,8 @@ class PosixCondition<Thread> final : public PosixConditionBase {
        exit_code_ = exit_code;
        signaled_ = true;
        cond_.notify_all();
@@ -1011,7 +1016,7 @@ index bb07c33..ba2877e 100644
      }
      if (is_current_thread) {
        // Xbox360PS5: cleanup may destroy this object. No member access after it.
-@@ -1596,7 +1214,8 @@ void* PosixCondition<Thread>::ThreadStartRoutine(void* parameter) {
+@@ -1596,7 +1219,8 @@ void* PosixCondition<Thread>::ThreadStartRoutine(void* parameter) {
      thread->handle_.exit_code_ = 0;
      thread->handle_.signaled_ = true;
      thread->handle_.cond_.notify_all();

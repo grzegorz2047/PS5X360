@@ -46,6 +46,13 @@ xe::threading::SuspensionDeferred::SuspensionDeferred() {
   xe::wait_stats::Add(xe::wait_stats::kSuspendMask);
 }
 
+// assert_true's failure path in debug builds (xenia/base/assert.h).
+void xe::AssertFailed(const char* expression, const char* file, int line) {
+  std::printf("FAIL: assertion %s at %s:%d\n", expression, file, line);
+  std::fflush(stdout);
+  std::abort();
+}
+
 #if defined(__has_feature)
 #if __has_feature(thread_sanitizer) || __has_feature(address_sanitizer)
 #define CHECK_SANITIZED 1
