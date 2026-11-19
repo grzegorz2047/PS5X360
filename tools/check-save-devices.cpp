@@ -26,6 +26,7 @@
 #include <map>
 #include <set>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -400,6 +401,81 @@ void CheckPosix() {
   std::puts("ok posix: mount points by device, Info's st_dev and space, probe removed, read-only refused");
 }
 
+// The real filesystem under odd mount points: a missing one, one the process may not read, an
+// empty one, a file, a dangling symlink and a symlink loop. Nothing throws, nothing is offered,
+// nothing is written, and each step is traced before it is taken.
+void CheckPosixOddMounts() {
+  storage::PosixFs fs;
+  const stdfs::path base = stdfs::temp_directory_path() / "check-save-devices-odd";
+  stdfs::remove_all(base);
+  stdfs::create_directories(base / "internal");
+  stdfs::create_directories(base / "mnt" / "usb1");
+  stdfs::create_directories(base / "mnt" / "usb2");                  // empty
+  std::ofstream(base / "mnt" / "usb3") << "not a folder";           // a file
+  stdfs::create_symlink(base / "nowhere", base / "mnt" / "usb4");   // dangling
+  stdfs::create_symlink(base / "mnt" / "usb5", base / "mnt" / "usb5");  // a loop
+  ::chmod((base / "mnt" / "usb1").c_str(), 0);                      // unreadable
+  for (const char* name : {"usb0", "usb1", "usb2", "usb3", "usb4", "usb5"}) {
+    const auto mount = base / "mnt" / name;
+    assert(!fs.IsMountPoint(mount));
+    const auto info = fs.Info(mount);  // never throws
+    if (!std::strcmp(name, "usb0") || !std::strcmp(name, "usb4") || !std::strcmp(name, "usb5")) {
+      assert(!info.ok);
+    }
+    fs.ListDirectories(mount);
+    fs.IsDirectory(mount);
+  }
+  std::vector<std::string> steps;
+  std::vector<storage::Skipped> skipped;
+  const auto devices = storage::Scan(fs, base / "internal", base / "mnt", &skipped,
+                                     [&steps](const std::string& step) { steps.push_back(step); });
+  assert((Ids(devices) == std::vector<uint32_t>{1}) && skipped.empty());
+  assert(steps.size() == 1 + storage::kSlotCount);  // the internal folder, then each slot
+  assert(steps[0] == "info " + (base / "internal").string());
+  assert(steps[1] == "mount point? " + (base / "mnt" / "ext0").string());
+  assert(steps[6] == "mount point? " + (base / "mnt" / "usb1").string());
+  ::chmod((base / "mnt" / "usb1").c_str(), 0755);
+  assert(stdfs::is_empty(base / "mnt" / "usb1") && stdfs::is_empty(base / "mnt" / "usb2"));
+  stdfs::remove_all(base);
+  std::puts("ok odd mounts: missing, unreadable, empty, file, dangling and looping symlinks are not "
+            "drives; no throw, no write; each step traced first");
+}
+
+// A filesystem whose answers throw: the slot is left out, the rest is scanned.
+struct ThrowingFs : FakeFs {
+  std::string throw_at;
+  storage::FsInfo Info(const stdfs::path& path) {
+    if (path.string() == throw_at) throw std::runtime_error("statvfs blew up");
+    return FakeFs::Info(path);
+  }
+};
+
+void CheckThrowing() {
+  ThrowingFs fs;
+  static_cast<FakeFs&>(fs) = Console();
+  fs.throw_at = "/mnt/usb1";
+  std::vector<storage::Skipped> skipped;
+  std::vector<std::string> steps;
+  const auto devices = storage::Scan(fs, kInternal, "/mnt", &skipped,
+                                     [&steps](const std::string& step) { steps.push_back(step); });
+  assert((Ids(devices) == std::vector<uint32_t>{1, 4, 7, 9}));
+  assert(skipped.size() == 1 && skipped[0].mount == "/mnt/usb1" && skipped[0].id == 8);
+  assert(skipped[0].why == Why::kError);
+  // The last step before the throw names it.
+  const auto at = std::find(steps.begin(), steps.end(), "info /mnt/usb1");
+  assert(at != steps.end() && *(at + 1) == "mount point? /mnt/usb2");
+  // The internal folder's answer throwing: it is still offered, its space unknown.
+  ThrowingFs inner;
+  static_cast<FakeFs&>(inner) = Console();
+  inner.throw_at = kInternal;
+  const auto still = storage::Scan(inner, kInternal, "/mnt");
+  assert(still[0].id == 1 && still[0].root == kInternal && !still[0].space_known);
+  // CheckSaved: a drive left out by an error is "not mounted" for the setting.
+  const auto saved = storage::CheckSaved(devices, skipped, 8, 0, "/mnt");
+  assert(saved.state == storage::Saved::kNotMounted && saved.mount == "/mnt/usb1");
+  std::puts("ok errors: a step that throws leaves its slot out (logged), the scan goes on");
+}
+
 void CheckSettingValues() {
   assert(storage::kSaveDriveChoices == 14);
   assert(storage::SaveDriveDeviceId(0) == 0 && storage::SaveDriveDeviceId(1) == storage::kInternalDeviceId);
@@ -554,6 +630,8 @@ int main(int argc, char** argv) {
   CheckPrompt();
   CheckLabels();
   CheckPosix();
+  CheckPosixOddMounts();
+  CheckThrowing();
   CheckSettingValues();
   CheckSavedDrive();
   CheckTranslations();

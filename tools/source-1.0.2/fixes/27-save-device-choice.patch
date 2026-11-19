@@ -1,5 +1,5 @@
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.cc b/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.cc
-index 2baadbe..a6bf29e 100644
+index 2baadbe..ba0d66f 100644
 --- a/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.cc
 +++ b/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.cc
 @@ -34,6 +34,8 @@ namespace xam {
@@ -212,18 +212,39 @@ index 2baadbe..a6bf29e 100644
    if (ec) {
      XELOGW("{}: {} (:08X)", __func__, ec.message(), ec.value());
      return 0;
-@@ -770,6 +796,67 @@ uint64_t ContentManager::GetContentFreeSpace() const {
+@@ -770,6 +796,90 @@ uint64_t ContentManager::GetContentFreeSpace() const {
    return drive_stats.free;
  }
  
 +void ContentManager::ScanStorageDevicesLocked() const {
 +  std::vector<storage::Skipped> skipped;
 +  storage::PosixFs fs;
-+  auto devices = storage::Scan(
-+      fs, root_path_,
-+      external_storage_root ? std::filesystem::path(external_storage_root)
-+                            : std::filesystem::path(),
-+      &skipped);
++  // The first scan of a session logs each step before taking it, flushed, so
++  // that a scan the process does not survive names its last step.
++  const bool trace = !storage_scanned_;
++  if (trace) {
++    XELOGW("Storage: looking for drives under {}",
++           external_storage_root ? external_storage_root : "(none)");
++    FlushLog();
++  }
++  std::vector<storage::Device> devices;
++  try {
++    devices = storage::Scan(
++        fs, root_path_,
++        external_storage_root ? std::filesystem::path(external_storage_root)
++                              : std::filesystem::path(),
++        &skipped, [trace](const std::string& step) {
++          if (!trace) return;
++          XELOGW("Storage: scan: {}", step);
++          FlushLog();
++        });
++  } catch (...) {
++    XELOGE("Storage: the drive scan failed; only the internal folder is offered");
++    skipped.clear();
++    storage::Device internal;
++    internal.root = root_path_;
++    devices = {internal};
++  }
 +  bool changed =
 +      !storage_scanned_ || devices.size() != storage_devices_.size();
 +  for (size_t i = 0; !changed && i < devices.size(); ++i) {
@@ -236,6 +257,8 @@ index 2baadbe..a6bf29e 100644
 +      if (skip.why == storage::Skipped::Why::kSameFilesystem) {
 +        XELOGW("Storage: {} is the same filesystem as {}; offered once",
 +               skip.mount, skip.detail);
++      } else if (skip.why == storage::Skipped::Why::kError) {
++        XELOGW("Storage: {}: {}; not offered", skip.mount, skip.detail);
 +      } else {
 +        XELOGW("Storage: {} is mounted but not writable (tried {}); not "
 +               "offered",
@@ -374,10 +397,10 @@ index 448c273..f2f631c 100644
  }  // namespace xam
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/storage_devices.h b/.deps/xenia-canary/src/xenia/kernel/xam/storage_devices.h
 new file mode 100644
-index 0000000..8a589e7
+index 0000000..0d8b1c4
 --- /dev/null
 +++ b/.deps/xenia-canary/src/xenia/kernel/xam/storage_devices.h
-@@ -0,0 +1,666 @@
+@@ -0,0 +1,680 @@
 +/**
 + ******************************************************************************
 + * Xenia : Xbox 360 Emulator Research Project                                 *
@@ -406,13 +429,8 @@ index 0000000..8a589e7
 +
 +#include <fcntl.h>
 +#include <sys/stat.h>
-+#include <unistd.h>
-+#if defined(__FreeBSD__)
-+#include <sys/param.h>
-+#include <sys/mount.h>  // statfs: the PS5's own figures and the mount's source
-+#else
 +#include <sys/statvfs.h>
-+#endif
++#include <unistd.h>
 +
 +#include <cinttypes>
 +#include <cstdint>
@@ -495,8 +513,8 @@ index 0000000..8a589e7
 +}
 +
 +// What the filesystem says about a path's filesystem. dev: the stat st_dev
-+// of the path itself; fsid, source ("/dev/da0s1"), type ("exfatfs") and the
-+// sizes: statfs where the system has it (the PS5), else what is known.
++// of the path itself; fsid, source ("/dev/da0s1") and type ("exfatfs") when
++// known (PosixFs leaves them empty: see Info), and the sizes.
 +struct FsInfo {
 +  bool ok = false;
 +  uint64_t dev = 0;
@@ -525,7 +543,8 @@ index 0000000..8a589e7
 +struct Skipped {
 +  std::string mount;
 +  uint32_t id = 0;
-+  enum class Why { kNotWritable, kSameFilesystem } why = Why::kNotWritable;
++  enum class Why { kNotWritable, kSameFilesystem, kError } why =
++      Why::kNotWritable;
 +  uint32_t same_as = 0;  // kSameFilesystem: the offered device it is
 +  std::string detail;    // for the log
 +};
@@ -576,24 +595,42 @@ index 0000000..8a589e7
 +//
 +// USB drives are numbered 1, 2.. in slot order; mounts whose sources name the
 +// same disk (partitions of one drive) share its number.
-+template <class Fs>
++//
++// trace(text) is called before each step that touches the filesystem, so a
++// log written as it goes shows the last one if the process dies there
++// (candidate 24 died inside the scan without a word). A step that throws
++// leaves that slot out (Skipped::Why::kError) instead of the whole scan.
++struct NoTrace {
++  void operator()(const std::string&) const {}
++};
++
++template <class Fs, class Trace = NoTrace>
 +std::vector<Device> Scan(Fs& fs, const std::filesystem::path& internal_root,
 +                         const std::filesystem::path& mount_root,
-+                         std::vector<Skipped>* skipped = nullptr) {
++                         std::vector<Skipped>* skipped = nullptr,
++                         Trace trace = Trace()) {
 +  std::vector<Device> devices;
 +  Device internal;
 +  internal.root = internal_root;
-+  internal.fs = fs.Info(internal_root);
++  trace("info " + internal_root.string());
++  try {
++    internal.fs = fs.Info(internal_root);
++  } catch (...) {
++    internal.fs = FsInfo{};
++  }
 +  devices.push_back(internal);
 +  if (!mount_root.empty()) {
 +    for (const auto& slot : kSlots) {
 +      const auto mount = mount_root / slot.mount;
++      try {
++      trace("mount point? " + mount.string());
 +      if (!fs.IsMountPoint(mount)) continue;
 +      Device device;
 +      device.id = slot.device_id;
 +      device.kind = slot.kind;
 +      device.mount = mount.string();
 +      device.name = slot.mount;
++      trace("info " + device.mount);
 +      device.fs = fs.Info(mount);
 +      const Device* same = nullptr;
 +      for (const auto& offered : devices) {
@@ -614,6 +651,7 @@ index 0000000..8a589e7
 +      bool found = false;
 +      for (const char* base : kSaveBases) {  // a saves folder already there
 +        const auto root = SaveRoot(mount, base);
++        trace("saves folder? " + root.string());
 +        if (fs.IsDirectory(root) && fs.ProbeWritable(root)) {
 +          device.root = root;
 +          found = true;
@@ -624,6 +662,7 @@ index 0000000..8a589e7
 +      for (const char* base : kSaveBases) {  // else the first writable base
 +        if (found) break;
 +        const auto folder = *base ? mount / base : mount;
++        trace("writable? " + folder.string());
 +        if (*base && !fs.IsDirectory(folder)) continue;
 +        tried += (tried.empty() ? "" : ", ") + folder.string();
 +        if (fs.ProbeWritable(folder)) {
@@ -639,6 +678,13 @@ index 0000000..8a589e7
 +        continue;
 +      }
 +      devices.push_back(device);
++      } catch (...) {
++        if (skipped) {
++          skipped->push_back({mount.string(), slot.device_id,
++                              Skipped::Why::kError, 0,
++                              "an error while scanning it"});
++        }
++      }
 +    }
 +  }
 +  // Free space, unless the figures are the sandbox's.
@@ -1000,28 +1046,19 @@ index 0000000..8a589e7
 +    if (::stat(path.c_str(), &self) != 0) return info;
 +    info.ok = true;
 +    info.dev = static_cast<uint64_t>(self.st_dev);
-+#if defined(__FreeBSD__)
-+    struct statfs fs {};
-+    if (::statfs(path.c_str(), &fs) == 0) {
-+      char fsid[32];
-+      std::snprintf(fsid, sizeof(fsid), "%08x:%08x",
-+                    static_cast<unsigned>(fs.f_fsid.val[0]),
-+                    static_cast<unsigned>(fs.f_fsid.val[1]));
-+      info.fsid = fsid;
-+      info.source = fs.f_mntfromname;
-+      info.type = fs.f_fstypename;
-+      info.space_ok = true;
-+      info.capacity = static_cast<uint64_t>(fs.f_blocks) * fs.f_bsize;
-+      info.free = static_cast<uint64_t>(fs.f_bavail) * fs.f_bsize;
-+    }
-+#else
++    // libc's statvfs (what std::filesystem::space uses), never the statfs
++    // system call: candidate 24 called statfs (FreeBSD syscall 396) on the
++    // console and the emulator died at the first scan with no crash report,
++    // as a process does on SIGSYS, FreeBSD's answer to a system call the
++    // sandbox does not have. Inside the sandbox statvfs answers 16 GiB free
++    // of 64 GiB for every path; Scan does not believe figures two
++    // filesystems share.
 +    struct statvfs fs {};
-+    if (::statvfs(path.c_str(), &fs) == 0) {
++    if (::statvfs(path.c_str(), &fs) == 0 && fs.f_frsize) {
 +      info.space_ok = true;
 +      info.capacity = static_cast<uint64_t>(fs.f_blocks) * fs.f_frsize;
 +      info.free = static_cast<uint64_t>(fs.f_bavail) * fs.f_frsize;
 +    }
-+#endif
 +    return info;
 +  }
 +  std::vector<std::string> ListDirectories(const std::filesystem::path& path) {
