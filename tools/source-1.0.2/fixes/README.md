@@ -29,6 +29,12 @@ for byte (`.gitattributes`: `-text`).
 | `12-async-shaders-experimental` | 12: third `async_shaders` choice, invisible stand-ins |
 | `13-per-game-fsi` | 13: per-game `fsi` option |
 
+Fixes made in source after the port (numbered from 20, not binary patch groups):
+
+| Patch | Fix |
+|---|---|
+| `20-stale-dispatch-header` | a guest dispatch header whose recorded handle now belongs to another object gets a new event, mutant or semaphore instead of none (Battlefield 3, 45410950, hung loading the campaign); `xobject.cc` `GetNativeObject` |
+
 To change one: assemble a tree, commit it in a scratch repository (the title and the core
 separately), edit, and regenerate the patch with `git diff` (for the core with
 `--src-prefix=a/.deps/xenia-canary/ --dst-prefix=b/.deps/xenia-canary/`). A later patch may

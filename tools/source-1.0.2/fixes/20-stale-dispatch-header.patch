@@ -1,0 +1,56 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xobject.cc b/.deps/xenia-canary/src/xenia/kernel/xobject.cc
+index e8b4307..95174e9 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xobject.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xobject.cc
+@@ -470,7 +470,8 @@ object_ref<XObject> XObject::GetNativeObject(KernelState* kernel_state,
+     type = header->type;
+   }
+ 
+-  if (header->wait_list.flink_ptr == kXObjSignature) {
++  bool create = header->wait_list.flink_ptr != kXObjSignature;
++  if (!create) {
+     // Already initialized.
+     // TODO: assert if the type of the object != as_type
+     uint32_t handle = header->wait_list.blink_ptr;
+@@ -480,28 +481,36 @@ object_ref<XObject> XObject::GetNativeObject(KernelState* kernel_state,
+     // Xbox360PS5: the handle recorded in the header can be one the table has
+     // since given to another object (the object this header named was
+     // released, the header was not reset). Kernel calls on this object then
+-    // acted on that other one: a reference given back here released it. Such
+-    // a header answers as one whose object is gone.
++    // acted on that other one: a reference given back here released it. The
++    // other object is left alone, and the header gets a new object as on its
++    // first use below (fix 20): answering "no object" made the game's event or
++    // semaphore disappear, and Battlefield 3 (45410950) waited forever on it
++    // while loading the campaign (its ClientLoad thread and five JobManager
++    // threads spinning at 0 frames a second).
+     if (result && result->guest_object() !=
+                       kernel_state->memory()->HostToGuestVirtual(native_ptr)) {
+       static std::atomic<uint32_t> said{0};
+       if (said.fetch_add(1) < 16) {
+         XELOGW(
+             "Kernel object {:08X}: the handle {:08X} recorded in it now "
+-            "belongs to the object at {:08X}; not used",
++            "belongs to the object at {:08X}; re-created as a new object",
+             kernel_state->memory()->HostToGuestVirtual(native_ptr), handle,
+             result->guest_object());
+       }
++      // Gives back the reference LookupObject took, once.
+       result->Release();
+       result = nullptr;
++      create = true;
+     }
+     if (result) {
+       // The only place the guest hands us a raw dispatch header, so the only
+       // place a direct write to it can be picked up.
+       result->SyncFromGuest();
+     }
+-  } else {
+-    // First use, create new.
++  }
++  if (create) {
++    // First use (or a stale header, above), create new. InitializeNative
++    // records the new object's handle in the header.
+     // https://www.nirsoft.net/kernel_struct/vista/KOBJECTS.html
+     switch (type) {
+       case X_OBJECT_TYPES::EventNotificationObject:
