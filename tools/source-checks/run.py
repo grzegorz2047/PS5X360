@@ -61,7 +61,7 @@ def memory_contract(tree: Path, out: Path):
     core = ".deps/xenia-canary/src/xenia/base"
     exe = out / "memory_contract_test"
     # The whole of xenia/base for Linux (logging, cvars and CPU features come with memory.cc).
-    base = (f"$(ls {core}/*.cc | grep -vE '_(win|android|mac|arm64|gnulinux_x11|test[a-z_]*)\\.cc$|/main_|/testing')")
+    base = (f"$(ls {core}/*.cc | grep -vE '_(win|android|mac|arm64|gnulinux_x11|test[a-z_]*)\\.cc$|/main_|/testing' | xargs grep -L -e stbi_ -e GetConsoleAppEntryInfo)")
     includes = ["-Iinclude", "-Ireconstructed", "-I.deps/xenia-canary/src", "-I.deps/xenia-canary",
                 "-I.deps/xenia-canary/third_party/fmt/include", "-I.deps/xenia-canary/third_party/utfcpp/source",
                 "-I.deps/xenia-canary/third_party"]
