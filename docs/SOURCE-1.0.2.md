@@ -147,7 +147,10 @@ which `assemble.py` applies last. The intent is ported, not the machine code: wh
 patch had to borrow room (repurposed strings, an unused settings field, a diagnostic counter),
 the source does it properly. [Run 44507690116](https://github.com/grzegorz2047/PS5X360/actions/runs/44507690116)
 applied all 14 patches and built `eboot.bin` (37,570,981 bytes, SHA-256 `ff26258c…`; `eboot.elf`
-`5bd5b0e8…`); **not yet tested on a console**.
+`5bd5b0e8…`). With the dark theme merged in,
+[run 44511435853](https://github.com/grzegorz2047/PS5X360/actions/runs/44511435853) applied them
+after its edits: `eboot.bin` 37,577,765 bytes, SHA-256 `e15468f2…` (`eboot.elf` `e22e1cfb…`).
+**Not yet tested on a console.**
 
 | Group | What | Status | Differences from the binary patch |
 |---|---|---|---|
