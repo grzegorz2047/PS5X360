@@ -40,6 +40,7 @@ checks=(
   check-switch-title.cpp           # fix 33
   check-pipeline-claim.cpp         # fix 34
   check-readback-slots.cpp         # fix 35
+  check-unwatched-policy.cpp       # fix 36
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"

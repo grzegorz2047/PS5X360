@@ -1,0 +1,188 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/shared_memory.cc b/.deps/xenia-canary/src/xenia/gpu/shared_memory.cc
+index dda1180..6ee4c21 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/shared_memory.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/shared_memory.cc
+@@ -8,6 +8,7 @@
+  */
+ 
+ #include "xenia/gpu/shared_memory.h"
++#include "xenia/gpu/unwatched_policy.h"
+ #if XE_PLATFORM_PS5
+ #include "xbox360ps5/gpu_diagnostics.hpp"
+ #endif
+@@ -146,6 +147,7 @@ bool SharedMemory::InitializeCommon() {
+ #if XE_PLATFORM_PS5
+   unit_heat_.assign(kBufferSize >> page_size_log2_, 0);
+   unit_hash_.assign(kBufferSize >> page_size_log2_, 0);
++  unit_changed_frame_.assign(kBufferSize >> page_size_log2_, 0);
+   unwatched_bits_.assign(num_system_page_flags_, 0);
+   unwatched_seen_bits_.assign(num_system_page_flags_, 0);
+   pinned_bits_.assign(num_system_page_flags_, 0);
+@@ -313,6 +315,7 @@ unsigned int SharedMemory::FilterUnwatched(
+     return count;
+   }
+   unwatched_filtered_.clear();
++  unwatched_rewatch_.clear();
+   const size_t unit_bytes = size_t(1) << page_size_log2_;
+   for (unsigned int i = 0; i < count; ++i) {
+     uint32_t run_start = UINT32_MAX;
+@@ -322,7 +325,18 @@ unsigned int SharedMemory::FilterUnwatched(
+       if (UnitBit(unwatched_bits_, unit)) {
+         const uint64_t hash = XXH3_64bits(
+             memory().TranslatePhysical(unit << page_size_log2_), unit_bytes);
+-        if (UnitBit(unwatched_seen_bits_, unit) && unit_hash_[unit] == hash) {
++        // Fix 36: unchanged at every request for kFramesUnchangedToWatch frames:
++        // watched again from this upload on (MakeRangeValid protects it before
++        // the copy), instead of being hashed at every request until it cools.
++        const unwatched_policy::Decision decision = unwatched_policy::OnRequest(
++            UnitBit(unwatched_seen_bits_, unit), unit_hash_[unit], hash,
++            unit_changed_frame_[unit], unwatched_frame_);
++        if (decision.watch_again) {
++          ClearUnitBit(unwatched_bits_, unit);
++          ClearUnitBit(unwatched_seen_bits_, unit);
++          unwatched_rewatch_.push_back(unit);
++          ++unwatched_rewatched_;
++        } else if (!decision.upload) {
+           upload = false;
+           ++unwatched_skips_;
+         } else {
+@@ -346,6 +360,13 @@ unsigned int SharedMemory::FilterUnwatched(
+       unwatched_filtered_.emplace_back(run_start, end - run_start);
+     }
+   }
++  if (!unwatched_rewatch_.empty()) {
++    // Watched again: they start cold, as a unit never left unwatched.
++    auto global_lock = global_critical_region_.Acquire();
++    for (const uint32_t unit : unwatched_rewatch_) {
++      unit_heat_[unit] = 0;
++    }
++  }
+   uploads = unwatched_filtered_.data();
+   return static_cast<unsigned int>(unwatched_filtered_.size());
+ }
+@@ -803,13 +824,14 @@ void SharedMemory::ReportRequestCacheStats() {
+   for (const uint64_t word : unwatched_bits_) {
+     unwatched_units += xe::bit_count(word);
+   }
+-  XELOGW("Performance unwatched: {} units left unwatched ({}); {} unchanged at a request, {} uploaded; {} units heated, {} cooled",
++  XELOGW("Performance unwatched: {} units left unwatched ({}); {} unchanged at a request, {} uploaded; {} units heated, {} cooled, {} watched again unchanged",
+          unwatched_units, UnwatchedPagesEnabled() ? "on" : "off",
+          unwatched_skips_, unwatched_uploads_,
+          unwatched_heated_.exchange(0, std::memory_order_relaxed),
+-         unwatched_cooled_.exchange(0, std::memory_order_relaxed));
++         unwatched_cooled_.exchange(0, std::memory_order_relaxed),
++         unwatched_rewatched_);
+   upload_bytes_ = upload_chunks_ = lock_free_hits_ = 0;
+-  unwatched_skips_ = unwatched_uploads_ = 0;
++  unwatched_skips_ = unwatched_uploads_ = unwatched_rewatched_ = 0;
+   AgeUnwatchedPages();
+   {
+     auto global_lock = global_critical_region_.Acquire();
+diff --git a/.deps/xenia-canary/src/xenia/gpu/shared_memory.h b/.deps/xenia-canary/src/xenia/gpu/shared_memory.h
+index 10377b2..e8c405b 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/shared_memory.h
++++ b/.deps/xenia-canary/src/xenia/gpu/shared_memory.h
+@@ -88,6 +88,11 @@ class SharedMemory {
+                     bool allow_unwatched = false);
+ #if XE_PLATFORM_PS5
+   void ReportRequestCacheStats();
++#if XE_PLATFORM_PS5
++  // Fix 36: the guest frame, for unwatched units unchanged over frames (GPU
++  // command thread, at each swap).
++  void SetUnwatchedFrame(uint64_t frame) { unwatched_frame_ = uint32_t(frame); }
++#endif
+   // GPU-thread counters only; no clocks, atomics or log writes per upload.
+   void RecordUploadBytes(uint64_t bytes) {
+     upload_bytes_ += bytes;
+@@ -256,6 +261,12 @@ class SharedMemory {
+   std::vector<uint64_t> unwatched_seen_bits_;  // unit_hash_ is of the GPU copy.
+   std::vector<uint64_t> pinned_bits_;    // Something depends on its watch.
+   std::vector<uint64_t> unit_hash_;
++  // Fix 36 (unwatched_policy.h): the frame of each unit's last upload while
++  // unwatched, the units the last filter watched again; GPU thread only.
++  std::vector<uint32_t> unit_changed_frame_;
++  std::vector<uint32_t> unwatched_rewatch_;
++  uint32_t unwatched_frame_ = 0;
++  uint64_t unwatched_rewatched_ = 0;
+   std::vector<std::pair<uint32_t, uint32_t>> unwatched_filtered_;
+   bool request_allows_unwatched_ = false;  // GPU thread: the request served.
+   uint64_t unwatched_skips_ = 0, unwatched_uploads_ = 0;
+diff --git a/.deps/xenia-canary/src/xenia/gpu/unwatched_policy.h b/.deps/xenia-canary/src/xenia/gpu/unwatched_policy.h
+new file mode 100644
+index 0000000..ac4d952
+--- /dev/null
++++ b/.deps/xenia-canary/src/xenia/gpu/unwatched_policy.h
+@@ -0,0 +1,60 @@
++/**
++ ******************************************************************************
++ * Xbox360PS5: fix 36, unwatched units that stop changing are watched again.  *
++ ******************************************************************************
++ * An "unwatched" 4 KiB unit (shared_memory.cc, the dynamic_buffers option) is
++ * one the guest kept writing while it was protected: it is no longer protected,
++ * and every request a draw makes for it hashes the guest's bytes (XXH3 of the
++ * whole unit) to see whether it must be uploaded again. 1.0.2 kept a unit
++ * unwatched until its fault heat cooled down, about 600 frames, however rarely
++ * it changed: a vertex buffer the game wrote three times while loading and never
++ * again was hashed at every draw that used it for ten seconds, on the GPU
++ * command thread.
++ *
++ * Now a unit whose bytes were unchanged at every request for
++ * kFramesUnchangedToWatch frames is watched again: uploaded once more
++ * (MakeRangeValid protects it before the copy, so a write in between is not
++ * lost), then valid and protected like any other until the game writes to it
++ * again. Frames, not requests: a ring buffer refilled every frame and read by
++ * many draws is unchanged at most of its requests, and watching it again would
++ * cost a write fault (~40 us with two protection changes) where a hash of 4 KiB
++ * costs well under a microsecond; it stays unwatched and hashed as before.
++ ******************************************************************************
++ */
++
++#ifndef XENIA_GPU_UNWATCHED_POLICY_H_
++#define XENIA_GPU_UNWATCHED_POLICY_H_
++
++#include <cstdint>
++
++namespace xe {
++namespace gpu {
++namespace unwatched_policy {
++
++constexpr uint32_t kFramesUnchangedToWatch = 30;
++
++struct Decision {
++  bool upload;       // copy the guest's bytes to the GPU now
++  bool watch_again;  // stop leaving the unit unwatched (it is uploaded too)
++};
++
++// An unwatched unit at a request in guest frame `frame`: `seen` says
++// `last_hash` is the hash of what the GPU copy holds; `changed_frame` is the
++// frame of its last upload (set here when it uploads).
++inline Decision OnRequest(bool seen, uint64_t last_hash, uint64_t hash,
++                          uint32_t& changed_frame, uint32_t frame) {
++  if (seen && last_hash == hash) {
++    if (uint32_t(frame - changed_frame) >= kFramesUnchangedToWatch) {
++      return {true, true};
++    }
++    return {false, false};
++  }
++  changed_frame = frame;
++  return {true, false};
++}
++
++}  // namespace unwatched_policy
++}  // namespace gpu
++}  // namespace xe
++
++#endif  // XENIA_GPU_UNWATCHED_POLICY_H_
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+index ff75be3..af3825a 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+@@ -1678,6 +1678,8 @@ void VulkanCommandProcessor::IssueSwap(uint32_t frontbuffer_ptr,
+ #if XE_PLATFORM_PS5
+   if (xbox360ps5::gpu_diag::enabled.load(std::memory_order_relaxed) &&
+       frame_current_ && (frame_current_ % 120) == 0) shared_memory_->ReportRequestCacheStats();
++  // Fix 36: the frame, for unwatched units unchanged over frames.
++  shared_memory_->SetUnwatchedFrame(frame_current_);
+ #endif
+   if (!BeginSubmission(true)) {
+     return;

@@ -29,6 +29,7 @@ on:
       - 'tools/check-switch-title.cpp'
       - 'tools/check-pipeline-claim.cpp'
       - 'tools/check-readback-slots.cpp'
+      - 'tools/check-unwatched-policy.cpp'
       - 'tools/check-assemble-skip.py'
       - 'tools/check-patch-syntax.py'
       - 'tools/check-bf3-preset.py'
