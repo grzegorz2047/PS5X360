@@ -42,6 +42,7 @@ checks=(
   check-readback-slots.cpp         # fix 35
   check-unwatched-policy.cpp       # fix 36
   check-exact-unwatch.cpp          # fix 37
+  check-jit-backports.cpp          # fix 38
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"

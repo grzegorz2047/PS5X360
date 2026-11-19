@@ -31,6 +31,7 @@ on:
       - 'tools/check-readback-slots.cpp'
       - 'tools/check-unwatched-policy.cpp'
       - 'tools/check-exact-unwatch.cpp'
+      - 'tools/check-jit-backports.cpp'
       - 'tools/check-assemble-skip.py'
       - 'tools/check-patch-syntax.py'
       - 'tools/check-bf3-preset.py'
