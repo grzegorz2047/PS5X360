@@ -1,0 +1,45 @@
+# Test fixture of tools/check-game-info.cpp (fix 43): the header and 4 of the 6,508 sections of
+# assets/gameinfo.txt in the official PS5X360 v1.0.2 package (PPSA50011.zip, SHA-256
+# 230359c2638f99add3972147e1690e62d8984a37c00181501680bdda7c1096c8; the file 3,759,451 bytes,
+# SHA-256 6f5c8c7553b57e7eb9bc1bb0288657fde3b65b8914ec1a05087ec5cc52970985), byte for byte, in the file's order.
+# Only what the check needs is copied: the archive's text belongs to its owners (below).
+# PS5X360 game information, made by tools/build_gameinfo.py.
+# Metadata: the x360db archive (github.com/xenia-manager/x360db), recreated Xbox Marketplace data;
+# all content remains the property of its respective owners, provided for identification only.
+# States: Xenia Canary's compatibility tracker, through Xenia Manager's database.
+
+[00000000]
+title=Unknown Game
+genre=Unknown
+developer=Unknown Developer
+publisher=Unknown Publisher
+released=2005-12-05
+rating=0.00
+compat=Unknown
+compat_issue=780
+
+[303407D4]
+title=BRINK
+genre=Shooter
+developer=SPLASH DAMAGE
+publisher=Bethesda Softworks
+released=2009-12-18
+about=Brink is an immersive first-person shooter that blends single-player, co-op, and multiplayer gameplay into one seamless experience, allowing you to develop your character whether playing alone, with your friends, or against others online. You decide the combat role you want to assume in the world of Brink as you fight to save yourself and mankind’s last refuge. Brink offers a compelling mix of dynamic battlefields, extensive customization options, and an innovative control system that will keep you coming back for more.
+
+[435607D7]
+title=Pinball Hall of Fame
+genre=Other, Strategy & Simulation
+developer=FarSight Studios
+publisher=Crave
+rating=4.75
+compat=Gameplay
+compat_issue=912
+about=Welcome to Pinball Hall of Fame!
+
+[58550281]
+title=Reef Rave
+genre=Other
+developer=North Squard
+publisher=North Squard
+rating=2.50
+about=This game was classified by the community with the following category scores - Violence=0/3, Sex=0/3, Mature Content=0/3. See the Rave.
