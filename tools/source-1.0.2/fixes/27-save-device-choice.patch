@@ -1,5 +1,5 @@
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.cc b/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.cc
-index 2baadbe..ba0d66f 100644
+index 2baadbe..aac6ced 100644
 --- a/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.cc
 +++ b/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.cc
 @@ -34,6 +34,8 @@ namespace xam {
@@ -212,7 +212,7 @@ index 2baadbe..ba0d66f 100644
    if (ec) {
      XELOGW("{}: {} (:08X)", __func__, ec.message(), ec.value());
      return 0;
-@@ -770,6 +796,90 @@ uint64_t ContentManager::GetContentFreeSpace() const {
+@@ -770,6 +796,92 @@ uint64_t ContentManager::GetContentFreeSpace() const {
    return drive_stats.free;
  }
  
@@ -257,8 +257,10 @@ index 2baadbe..ba0d66f 100644
 +      if (skip.why == storage::Skipped::Why::kSameFilesystem) {
 +        XELOGW("Storage: {} is the same filesystem as {}; offered once",
 +               skip.mount, skip.detail);
-+      } else if (skip.why == storage::Skipped::Why::kError) {
-+        XELOGW("Storage: {}: {}; not offered", skip.mount, skip.detail);
++      } else if (skip.why == storage::Skipped::Why::kError ||
++                 skip.why == storage::Skipped::Why::kSameDisk ||
++                 skip.why == storage::Skipped::Why::kSystem) {
++        XELOGW("Storage: {} is {}; not offered", skip.mount, skip.detail);
 +      } else {
 +        XELOGW("Storage: {} is mounted but not writable (tried {}); not "
 +               "offered",
@@ -397,10 +399,10 @@ index 448c273..f2f631c 100644
  }  // namespace xam
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/storage_devices.h b/.deps/xenia-canary/src/xenia/kernel/xam/storage_devices.h
 new file mode 100644
-index 0000000..0d8b1c4
+index 0000000..2bc4229
 --- /dev/null
 +++ b/.deps/xenia-canary/src/xenia/kernel/xam/storage_devices.h
-@@ -0,0 +1,680 @@
+@@ -0,0 +1,785 @@
 +/**
 + ******************************************************************************
 + * Xenia : Xbox 360 Emulator Research Project                                 *
@@ -439,6 +441,7 @@ index 0000000..0d8b1c4
 +#include <string>
 +#include <string_view>
 +#include <system_error>
++#include <utility>
 +#include <vector>
 +
 +namespace xe {
@@ -513,8 +516,9 @@ index 0000000..0d8b1c4
 +}
 +
 +// What the filesystem says about a path's filesystem. dev: the stat st_dev
-+// of the path itself; fsid, source ("/dev/da0s1") and type ("exfatfs") when
-+// known (PosixFs leaves them empty: see Info), and the sizes.
++// of the path itself; fsid (statvfs's), source ("/dev/da0s1": the /dev entry
++// whose device number is dev, see PosixFs::Info) and type when known, and the
++// sizes.
 +struct FsInfo {
 +  bool ok = false;
 +  uint64_t dev = 0;
@@ -543,8 +547,13 @@ index 0000000..0d8b1c4
 +struct Skipped {
 +  std::string mount;
 +  uint32_t id = 0;
-+  enum class Why { kNotWritable, kSameFilesystem, kError } why =
-+      Why::kNotWritable;
++  enum class Why {
++    kNotWritable,
++    kSameFilesystem,
++    kError,
++    kSameDisk,
++    kSystem
++  } why = Why::kNotWritable;
 +  uint32_t same_as = 0;  // kSameFilesystem: the offered device it is
 +  std::string detail;    // for the log
 +};
@@ -648,6 +657,39 @@ index 0000000..0d8b1c4
 +        }
 +        continue;
 +      }
++      // Another partition of a drive already offered (one USB stick seen as
++      // usb1 and usb2): offered once, as the user sees one drive. A memory
++      // disk is the system's, not a drive.
++      const std::string disk = DiskOf(device.fs.source);
++      if (disk.substr(0, 2) == "md") {
++        if (skipped) {
++          skipped->push_back({device.mount, device.id, Skipped::Why::kSystem,
++                              0, "a memory disk (" + device.fs.source + ")"});
++        }
++        continue;
++      }
++      const Device* sibling = nullptr;
++      for (const auto& offered : devices) {
++        // Drives only: never the internal folder's disk (the console's own
++        // SSD may give it a name ext1's shares).
++        if (offered.kind != Kind::kInternal && !disk.empty() &&
++            DiskOf(offered.fs.source) == disk) {
++          sibling = &offered;
++          break;
++        }
++      }
++      if (sibling) {
++        if (skipped) {
++          skipped->push_back(
++              {device.mount, device.id, Skipped::Why::kSameDisk, sibling->id,
++               device.fs.source + ", a partition of the drive of " +
++                   sibling->fs.source + " (" +
++                   (sibling->mount.empty() ? sibling->root.string()
++                                           : sibling->mount) +
++                   ")"});
++        }
++        continue;
++      }
 +      bool found = false;
 +      for (const char* base : kSaveBases) {  // a saves folder already there
 +        const auto root = SaveRoot(mount, base);
@@ -682,7 +724,7 @@ index 0000000..0d8b1c4
 +        if (skipped) {
 +          skipped->push_back({mount.string(), slot.device_id,
 +                              Skipped::Why::kError, 0,
-+                              "an error while scanning it"});
++                              "unreadable (an error while scanning it)"});
 +        }
 +      }
 +    }
@@ -900,6 +942,35 @@ index 0000000..0d8b1c4
 +  return 0;
 +}
 +
++// The setting's choice for a device ID (-1 for none: the disc, 0, unknown).
++inline int SaveDriveChoiceFor(uint32_t device_id) {
++  if (device_id == kInternalDeviceId) return 1;
++  for (size_t i = 0; i < kSlotCount; ++i) {
++    if (kSlots[i].device_id == device_id) return 2 + static_cast<int>(i);
++  }
++  return -1;
++}
++
++// A drive chosen in the window for a game: whether the game keeps it as its
++// own Save drive value, so that later questions of that game (in this run and
++// the next ones) are answered without the window while the drive is there.
++//   own      the game's own value, -1 when it has none (it follows the
++//            general one; "General" in the game's settings)
++//   general  the general value
++// Returns the game's new own value, or -1 to leave it as it is:
++//   - an own "Ask every time" is the user's: kept, the window comes each time;
++//   - an own drive (the window came because it is missing, read-only or full):
++//     replaced by the drive chosen now;
++//   - no own value, general "Ask every time": the drive chosen is kept;
++//   - no own value, general a drive (missing now): left following the
++//     general one, which is used again once it is back.
++inline int RememberChoice(int own, int general, uint32_t chosen_device) {
++  const int choice = SaveDriveChoiceFor(chosen_device);
++  if (choice < 0 || own == 0) return -1;
++  if (own > 0) return own == choice ? -1 : choice;
++  return general == 0 ? choice : -1;
++}
++
 +// What the save drive setting gives when a game asks where to save.
 +//   kAsk         no saved drive (or an ID of no device): the window, as before
 +//   kUse         the saved drive is mounted, writable and has the room the
@@ -999,9 +1070,14 @@ index 0000000..0d8b1c4
 +  for (const auto& device : devices) {
 +    if (!text.empty()) text += ", ";
 +    text += std::to_string(device.id) + " " + device.root.string();
-+    if (!device.fs.source.empty() || !device.fs.type.empty()) {
-+      text += " [" + device.fs.source + " " + device.fs.type + "]";
-+    }
++    char dev[40];
++    std::snprintf(dev, sizeof(dev), "dev %llx",
++                  static_cast<unsigned long long>(device.fs.dev));
++    text += std::string(" [") + dev;
++    if (!device.fs.fsid.empty()) text += " fsid " + device.fs.fsid;
++    if (!device.fs.source.empty()) text += " " + device.fs.source;
++    if (!device.fs.type.empty()) text += " " + device.fs.type;
++    text += "]";
 +    if (device.space_known) {
 +      text += " (" + Gigabytes(device.free) + " GB free)";
 +    } else if (device.fs.space_ok) {
@@ -1058,9 +1134,40 @@ index 0000000..0d8b1c4
 +      info.space_ok = true;
 +      info.capacity = static_cast<uint64_t>(fs.f_blocks) * fs.f_frsize;
 +      info.free = static_cast<uint64_t>(fs.f_bavail) * fs.f_frsize;
++      char fsid[24];
++      std::snprintf(fsid, sizeof(fsid), "%llx",
++                    static_cast<unsigned long long>(fs.f_fsid));
++      info.fsid = fsid;
 +    }
++    // The device behind the filesystem: the /dev entry whose device number
++    // is the filesystem's st_dev (stat and a directory listing only, no
++    // statfs). Empty when /dev cannot be read or nothing matches.
++    info.source = DeviceName(info.dev);
 +    return info;
 +  }
++  std::string DeviceName(uint64_t dev) {
++    if (!dev_listed_) {
++      dev_listed_ = true;
++      std::error_code error;
++      for (std::filesystem::directory_iterator entry(dev_folder_, error), end;
++           !error && entry != end; entry.increment(error)) {
++        struct stat node {};
++        const auto path = entry->path();
++        if (::stat(path.c_str(), &node) != 0) continue;
++        if (!S_ISCHR(node.st_mode) && !S_ISBLK(node.st_mode)) continue;
++        dev_names_.push_back({static_cast<uint64_t>(node.st_rdev),
++                              path.string()});
++      }
++    }
++    for (const auto& [number, name] : dev_names_) {
++      if (number == dev) return name;
++    }
++    return std::string();
++  }
++  std::filesystem::path dev_folder_ = "/dev";
++  bool dev_listed_ = false;
++  std::vector<std::pair<uint64_t, std::string>> dev_names_;
++
 +  std::vector<std::string> ListDirectories(const std::filesystem::path& path) {
 +    std::vector<std::string> names;
 +    std::error_code error;
@@ -1376,7 +1483,7 @@ index d5ce5b0..68d414e 100644
  }  // namespace xam
  }  // namespace kernel
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
-index bf19396..23c8eeb 100644
+index bf19396..a7d6fff 100644
 --- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
 +++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
 @@ -8,6 +8,8 @@
@@ -1410,7 +1517,18 @@ index bf19396..23c8eeb 100644
  DECLARE_int32(license_mask);
  
  DECLARE_int32(network_mode);
-@@ -684,6 +694,67 @@ dword_result_t XamShowKeyboardUI_entry(
+@@ -63,6 +73,10 @@ namespace xe {
+ namespace kernel {
+ namespace xam {
+ const char* (*ui_text)(const char* english) = nullptr;
++// Xbox360PS5 (fix 27): told of each drive the user picks in the "where to
++// save" window (not of answers from the settings), so the title can keep it
++// as the game's own Save drive (storage::RememberChoice).
++void (*save_drive_chosen)(uint32_t title_id, uint32_t device_id) = nullptr;
+ 
+ // TODO(gibbed): This is all one giant WIP that seems to work better than the
+ // previous immediate synchronous completion of dialogs.
+@@ -684,6 +698,67 @@ dword_result_t XamShowKeyboardUI_entry(
  }
  DECLARE_XAM_EXPORT1(XamShowKeyboardUI, kUI, kImplemented);
  
@@ -1478,7 +1596,7 @@ index bf19396..23c8eeb 100644
  dword_result_t XamShowDeviceSelectorUI_entry(
      dword_t user_index, dword_t content_type, dword_t content_flags,
      qword_t total_requested, lpdword_t device_id_ptr,
-@@ -715,47 +786,116 @@ dword_result_t XamShowDeviceSelectorUI_entry(
+@@ -715,47 +790,119 @@ dword_result_t XamShowDeviceSelectorUI_entry(
          overlapped);
    }
  
@@ -1545,8 +1663,8 @@ index bf19396..23c8eeb 100644
 -                user = uint32_t(user_index)](MessageBoxDialog* dialog) -> X_RESULT {
 -    uint32_t button = dialog->chosen_button();
 -    if (button >= devices.size()) {
-+  auto choose = [device_id_ptr, offered, user = uint32_t(user_index)](
-+                    uint32_t button) -> X_RESULT {
++  auto choose = [device_id_ptr, offered, title_id,
++                 user = uint32_t(user_index)](uint32_t button) -> X_RESULT {
 +    if (button >= offered.size()) {
        XELOGW("Storage: the game asked where to save (user {}); cancelled",
               user);
@@ -1563,6 +1681,9 @@ index bf19396..23c8eeb 100644
 +    XELOGW("Storage: the game asked where to save (user {}); {} chosen ({})",
 +           user, device_info ? to_utf8(device_info->name) : std::string("?"),
 +           drive.root.string());
++    if (save_drive_chosen) {
++      save_drive_chosen(title_id, drive.id);
++    }
      return X_ERROR_SUCCESS;
    };
  
@@ -1666,18 +1787,36 @@ index 572a353..5a47bad 100644
    static const char* FilterName(int filter);
    void Load();
 diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
-index e49255c..f365e87 100644
+index e49255c..72e8ec3 100644
 --- a/src/canary_game_main.cpp
 +++ b/src/canary_game_main.cpp
-@@ -32,6 +32,7 @@ extern std::filesystem::path config_folder;  // xenia/config.cc: LoadGameConfig
+@@ -32,6 +32,25 @@ extern std::filesystem::path config_folder;  // xenia/config.cc: LoadGameConfig
  }
  namespace xe::kernel::xam {
  extern const char* (*ui_text)(const char* english);  // xam_ui.cc: the system windows' text
 +extern const char* external_storage_root;  // content_manager.cc: drives to save on (fix 27)
++extern void (*save_drive_chosen)(uint32_t title_id, uint32_t device_id);  // xam_ui.cc (fix 27)
++}
++#include <cctype>
++#include <mutex>
++#include <vector>
++#include "xenia/kernel/xam/storage_devices.h"
++// Fix 27: the drives the user picked in the "where to save" window (title ID, device ID). The
++// game loop takes them (apply_web) and keeps each as the game's own Save drive when
++// storage::RememberChoice says so, so the game is not asked again while the drive is there.
++static std::mutex save_drive_choices_lock;
++static std::vector<std::pair<uint32_t, uint32_t>> save_drive_choices;
++static void SaveDriveChosen(uint32_t title_id, uint32_t device_id) {
++  std::lock_guard<std::mutex> guard(save_drive_choices_lock);
++  save_drive_choices.push_back({title_id, device_id});
++}
++static std::vector<std::pair<uint32_t, uint32_t>> TakeSaveDriveChoices() {
++  std::lock_guard<std::mutex> guard(save_drive_choices_lock);
++  return std::move(save_drive_choices);
  }
  DECLARE_bool(storage_selection_dialog);
  // The core's system windows (where to save, who is playing) in the emulator's language.
-@@ -42,6 +43,19 @@ static const char* CoreUiText(const char* english) {
+@@ -42,6 +61,19 @@ static const char* CoreUiText(const char* english) {
      {"Where should the game save?", "Where should the game save?"},
      {"The game asks where to keep its saved data.", "The game asks where to keep its saved data."},
      {"Hard drive", "Hard drive"},
@@ -1697,16 +1836,51 @@ index e49255c..f365e87 100644
      {"Cancel", "Cancel"},
      {"Who is playing?", "Who is playing?"},
      {"Choose the profile for this game.", "Choose the profile for this game."},
-@@ -1422,6 +1436,9 @@ int main(int argc, char** argv) {
+@@ -1422,6 +1454,10 @@ int main(int argc, char** argv) {
    // and the system windows in the emulator's language.
    cvars::storage_selection_dialog = true;
    xe::kernel::xam::ui_text = &CoreUiText;
 +  // Fix 27: each writable drive mounted under /mnt (ext0.., usb0..) is offered too,
 +  // its saves in <drive>/PS5X360/saves.
 +  xe::kernel::xam::external_storage_root = "/mnt";
++  xe::kernel::xam::save_drive_chosen = &SaveDriveChosen;
    const std::filesystem::path storage = "/download0/xbox360ps5";
    std::error_code error;
    std::filesystem::create_directories(storage, error);
+@@ -1831,7 +1867,32 @@ int main(int argc, char** argv) {
+         xbox360ps5::PublishWebState(WebState(global, launcher.Games(), running_id, running_name));
+       };
+       const auto apply_web = [&](bool in_game) {
+-        const auto changes = xbox360ps5::TakeWebChanges();
++        auto changes = xbox360ps5::TakeWebChanges();
++        // Fix 27: a drive picked in the "where to save" window becomes the game's own Save
++        // drive (its settings sheet shows it; "General" there forgets it).
++        for (const auto& [title_id, device_id] : TakeSaveDriveChoices()) {
++          char hex[9];
++          std::snprintf(hex, sizeof(hex), "%08X", title_id);
++          std::string scope = hex;
++          bool running = false;
++          if (in_game && scope.size() == settings_title.size()) {
++            running = std::equal(scope.begin(), scope.end(), settings_title.begin(),
++                                 [](char a, char b) { return std::toupper(a) == std::toupper(b); });
++          }
++          if (running) scope = settings_title;
++          const auto own_values = running ? overrides : xbox360ps5::LoadGameOverrides(scope);
++          const auto found = own_values.find("save_drive");
++          const int own = found == own_values.end() ? -1 : found->second;
++          const int value = xe::kernel::xam::storage::RememberChoice(own, global.save_drive, device_id);
++          if (value < 0) {
++            XELOGW("Storage: drive {} picked for {} is not remembered (its Save drive {}, general {})",
++                   device_id, scope, own, global.save_drive);
++            continue;
++          }
++          XELOGW("Storage: {} keeps drive {} as its own Save drive (choice {}); not asked again while it is there",
++                 scope, device_id, value);
++          changes.push_back({scope, "save_drive", value});
++        }
+         if (changes.empty()) return false;
+         for (const auto& change : changes) {
+           const xbox360ps5::Option* option = nullptr;
 diff --git a/src/launcher.cpp b/src/launcher.cpp
 index 5da890b..6ebb6fd 100644
 --- a/src/launcher.cpp

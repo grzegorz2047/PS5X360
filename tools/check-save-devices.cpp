@@ -91,7 +91,7 @@ FakeFs Console() {
   }
   fs.Mount("/mnt/usb0", 201, "/dev/da0s1", 2000000000000ull, 500000000000ull);
   fs.Mount("/mnt/usb1", 202, "/dev/da1s1", 256000000000ull, 120000000000ull);
-  fs.Mount("/mnt/usb2", 203, "/dev/da1s2", 32000000000ull, 31000000000ull);  // da1's 2nd partition
+  fs.Mount("/mnt/usb2", 203, "/dev/da2s1", 32000000000ull, 31000000000ull);
   fs.Mount("/mnt/ext1", 301, "/dev/nvme0", 1000000000000ull, 400000000000ull);
   fs.info["/mnt/ext1"].type = "ufs";
   // ext1: the system's top; its homebrew folder root's (drwxr-xr-x); xbox360 open to all.
@@ -177,8 +177,8 @@ void CheckScan() {
   assert(devices[1].mount == "/mnt/ext1" && devices[1].root == "/mnt/ext1/xbox360/PS5X360/saves");
   assert(devices[2].root == "/mnt/usb0/PS5X360/saves" && devices[2].free == 500000000000ull);
   assert(devices[2].space_known && devices[2].capacity == 2000000000000ull);
-  // USB numbers by disk: usb0 is da0, usb1 and usb2 are partitions of da1.
-  assert(devices[2].number == 1 && devices[3].number == 2 && devices[4].number == 2);
+  // USB numbers in slot order (one disk each).
+  assert(devices[2].number == 1 && devices[3].number == 2 && devices[4].number == 3);
   assert(skipped.empty());
   // Probes: ext1's top, homebrew, xbox360; each USB drive's top. Never a placeholder or a
   // folder the drive does not have.
@@ -216,10 +216,9 @@ void CheckScan() {
   assert(skipped[0].same_as == 1 && skipped[0].detail == kInternal);
   assert(skipped[1].mount == "/mnt/usb3" && skipped[1].id == 10 && skipped[1].same_as == 7);
   assert(skipped[1].detail == "/mnt/usb0");
-  // Different st_dev but the same statfs source and fsid: still two (statfs is not trusted for
-  // identity; the sandbox could give every path the same answer).
+  // The same statvfs fsid but different st_dev: still two (the sandbox's statvfs answers alike).
   FakeFs echo = Console();
-  echo.info["/mnt/usb2"].source = "/dev/da1s1";
+  echo.info["/mnt/usb1"].fsid = echo.info["/mnt/usb2"].fsid = "1234";
   assert(storage::Scan(echo, kInternal, "/mnt").size() == 5);
 
   // Mounted but not writable anywhere: skipped with the folders tried.
@@ -241,7 +240,7 @@ void CheckScan() {
   FakeFs changed = Console();
   changed.mounts.erase("/mnt/usb0");
   const auto third = storage::Scan(changed, kInternal, "/mnt");
-  assert((Ids(third) == std::vector<uint32_t>{1, 4, 8, 9}) && third[2].number == 1 && third[3].number == 1);
+  assert((Ids(third) == std::vector<uint32_t>{1, 4, 8, 9}) && third[2].number == 1 && third[3].number == 2);
 
   // No mount root: the internal folder only, as before; no probe anywhere.
   FakeFs plain = Console();
@@ -277,13 +276,7 @@ void CheckSpace() {
   const auto real = storage::Scan(*new FakeFs(Console()), kInternal, "/mnt");
   for (const auto& device : real) assert(device.space_known);
   assert(real[1].free == 400000000000ull && real[4].free == 31000000000ull);
-  // Sources all alike: USB drives numbered one by one.
-  FakeFs alike = Console();
-  for (auto& [path, info] : alike.info) info.source = "/dev/lvd0";
-  const auto numbered = storage::Scan(alike, kInternal, "/mnt");
-  assert(numbered[2].number == 1 && numbered[3].number == 2 && numbered[4].number == 3);
-  std::puts("ok space: the sandbox's shared figures not believed, real ones per drive; partitions "
-            "share a USB number only when sources differ");
+  std::puts("ok space: the sandbox's shared figures not believed, real ones per drive");
 }
 
 void CheckFolders() {
@@ -348,7 +341,7 @@ void CheckLabels() {
               "M.2 SSD / extended storage (ext1)" + dash + "400 GB free"));
   assert(Same(storage::Label(devices[2], true, English), "USB 1 (usb0)" + dash + "500 GB free"));
   assert(Same(storage::Label(devices[3], true, English), "USB 2 (usb1)" + dash + "120 GB free"));
-  assert(Same(storage::Label(devices[4], true, English), "USB 2 (usb2)" + dash + "31.0 GB free"));
+  assert(Same(storage::Label(devices[4], true, English), "USB 3 (usb2)" + dash + "31.0 GB free"));
   assert(Same(storage::Label(devices[2], false, English), "USB 1 (usb0)"));
   assert(Same(storage::Label(devices[1], true, Portuguese),
               "SSD M.2 / armazenamento estendido (ext1)" + dash + "400 GB livres"));
@@ -460,7 +453,7 @@ void CheckThrowing() {
                                      [&steps](const std::string& step) { steps.push_back(step); });
   assert((Ids(devices) == std::vector<uint32_t>{1, 4, 7, 9}));
   assert(skipped.size() == 1 && skipped[0].mount == "/mnt/usb1" && skipped[0].id == 8);
-  assert(skipped[0].why == Why::kError);
+  assert(skipped[0].why == Why::kError && skipped[0].detail == "unreadable (an error while scanning it)");
   // The last step before the throw names it.
   const auto at = std::find(steps.begin(), steps.end(), "info /mnt/usb1");
   assert(at != steps.end() && *(at + 1) == "mount point? /mnt/usb2");
@@ -474,6 +467,88 @@ void CheckThrowing() {
   const auto saved = storage::CheckSaved(devices, skipped, 8, 0, "/mnt");
   assert(saved.state == storage::Saved::kNotMounted && saved.mount == "/mnt/usb1");
   std::puts("ok errors: a step that throws leaves its slot out (logged), the scan goes on");
+}
+
+// usb2 of candidate 27: a second partition of a drive already offered (one stick, two mounts) is
+// offered once; a memory disk is the system's; without a known source nothing is merged.
+void CheckPartitions() {
+  FakeFs fs = Console();
+  fs.info["/mnt/usb2"].source = "/dev/da1s2";  // da1, as usb1's /dev/da1s1
+  std::vector<storage::Skipped> skipped;
+  auto devices = storage::Scan(fs, kInternal, "/mnt", &skipped);
+  assert((Ids(devices) == std::vector<uint32_t>{1, 4, 7, 8}));
+  assert(skipped.size() == 1 && skipped[0].mount == "/mnt/usb2" && skipped[0].id == 9);
+  assert(skipped[0].why == Why::kSameDisk && skipped[0].same_as == 8);
+  assert(Same(skipped[0].detail, "/dev/da1s2, a partition of the drive of /dev/da1s1 (/mnt/usb1)"));
+  // A Save drive setting naming it: not usable, asked with the not-mounted notice.
+  assert(storage::CheckSaved(devices, skipped, 9, 0, "/mnt").state == storage::Saved::kNotMounted);
+  // "p" partitions too, and the whole disk next to a partition.
+  FakeFs gpt = Console();
+  gpt.info["/mnt/usb1"].source = "/dev/da1p1";
+  gpt.info["/mnt/usb2"].source = "/dev/da1";
+  assert(storage::Scan(gpt, kInternal, "/mnt").size() == 4);
+  // A memory disk.
+  FakeFs md = Console();
+  md.info["/mnt/usb2"].source = "/dev/md5";
+  skipped.clear();
+  devices = storage::Scan(md, kInternal, "/mnt", &skipped);
+  assert(skipped.size() == 1 && skipped[0].why == Why::kSystem && skipped[0].detail == "a memory disk (/dev/md5)");
+  // The internal folder's disk is never a reason: ext1 named like the console's SSD stays.
+  FakeFs ssd = Console();
+  ssd.info[kInternal].source = "/dev/nvme0p1";
+  ssd.info["/mnt/ext1"].source = "/dev/nvme0p2";
+  assert(storage::Scan(ssd, kInternal, "/mnt").size() == 5);
+  // No source known (no /dev in the sandbox): each mount with its own st_dev stays.
+  FakeFs unknown = Console();
+  for (auto& [path, info] : unknown.info) info.source.clear();
+  assert(storage::Scan(unknown, kInternal, "/mnt").size() == 5);
+  // The log line carries what told them apart.
+  const auto text = storage::Describe(storage::Scan(*new FakeFs(Console()), kInternal, "/mnt"));
+  assert(text.find("9 /mnt/usb2/PS5X360/saves [dev cb /dev/da2s1 exfatfs]") != std::string::npos);
+  std::puts("ok partitions: a second partition of an offered drive and a memory disk are not "
+            "offered (logged why); the internal disk and unknown sources never merge drives");
+}
+
+// The per-game memory: a drive picked in the window becomes the game's own Save drive.
+void CheckRemember() {
+  for (int choice = 1; choice < storage::kSaveDriveChoices; ++choice) {
+    assert(storage::SaveDriveChoiceFor(storage::SaveDriveDeviceId(choice)) == choice);
+  }
+  for (uint32_t id : {0u, 2u, 15u, 99u}) assert(storage::SaveDriveChoiceFor(id) == -1);
+  assert(storage::RememberChoice(-1, 0, 4) == 3);   // no own value, general ask: remembered (ext1)
+  assert(storage::RememberChoice(-1, 6, 4) == -1);  // general usb0 (gone now): keeps following it
+  assert(storage::RememberChoice(0, 0, 4) == -1);   // the game's own "Ask every time": kept
+  assert(storage::RememberChoice(6, 0, 4) == 3);    // its own drive was missing: replaced
+  assert(storage::RememberChoice(3, 0, 4) == -1);   // already that drive
+  assert(storage::RememberChoice(-1, 0, 2) == -1);  // not a drive the setting can name
+  assert(storage::RememberChoice(-1, 0, 1) == 1);   // the internal storage too
+
+  // Fable (4D530A87) on the console of candidate 27: asked, ext1 picked, then never asked again
+  // while ext1 is there; ext1 gone: asked with the reason, the new pick replaces it.
+  FakeFs fs = Console();
+  std::vector<storage::Skipped> skipped;
+  const auto devices = storage::Scan(fs, kInternal, "/mnt", &skipped);
+  int own = -1;
+  const int general = 0;
+  auto saved = storage::CheckSaved(devices, skipped,
+                                   own < 0 ? storage::SaveDriveDeviceId(general) : storage::SaveDriveDeviceId(own),
+                                   122880, "/mnt");
+  assert(saved.state == storage::Saved::kAsk);  // first question: the window
+  own = storage::RememberChoice(own, general, 4);
+  assert(own == 3);
+  saved = storage::CheckSaved(devices, skipped, storage::SaveDriveDeviceId(own), 122880, "/mnt");
+  assert(saved.state == storage::Saved::kUse && devices[saved.index].id == 4);  // later: no window
+  FakeFs gone = Console();
+  gone.mounts.erase("/mnt/ext1");
+  std::vector<storage::Skipped> gone_skipped;
+  const auto without = storage::Scan(gone, kInternal, "/mnt", &gone_skipped);
+  saved = storage::CheckSaved(without, gone_skipped, storage::SaveDriveDeviceId(own), 122880, "/mnt");
+  assert(saved.state == storage::Saved::kNotMounted);
+  assert(Same(storage::Notice(saved, English), "The saved drive (/mnt/ext1) is not mounted; choose another."));
+  own = storage::RememberChoice(own, general, 7);  // usb0 picked instead
+  assert(own == 6 && storage::SaveDriveDeviceId(own) == 7);
+  std::puts("ok remember: a pick is kept per game unless the game asks every time on purpose; "
+            "used without the window while there; missing: asked with the reason, replaced");
 }
 
 void CheckSettingValues() {
@@ -588,7 +663,13 @@ void CheckTranslations() {
     }
   }
   assert(source.find("xe::kernel::xam::external_storage_root = \"/mnt\";") != std::string::npos);
-  std::puts("ok translations: every text of the window is in CoreUiText; drives under /mnt");
+  // The per-game memory's wiring: the hook, and the game loop keeping the pick.
+  assert(source.find("xe::kernel::xam::save_drive_chosen = &SaveDriveChosen;") != std::string::npos);
+  assert(source.find("xe::kernel::xam::storage::RememberChoice(own, global.save_drive, device_id)") !=
+         std::string::npos);
+  assert(source.find("changes.push_back({scope, \"save_drive\", value});") != std::string::npos);
+  std::puts("ok translations: every text of the window is in CoreUiText; drives under /mnt; picks "
+            "kept per game");
 }
 
 void CheckLanguageFiles(const char* folder) {
@@ -632,6 +713,8 @@ int main(int argc, char** argv) {
   CheckPosix();
   CheckPosixOddMounts();
   CheckThrowing();
+  CheckPartitions();
+  CheckRemember();
   CheckSettingValues();
   CheckSavedDrive();
   CheckTranslations();
