@@ -1,0 +1,255 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/readback_slots.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/readback_slots.h
+new file mode 100644
+index 0000000..b4ac0ad
+--- /dev/null
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/readback_slots.h
+@@ -0,0 +1,98 @@
++/**
++ ******************************************************************************
++ * Xbox360PS5: fix 35, resolve readback slots chosen by submission.           *
++ ******************************************************************************
++ * The fast and automatic resolve readbacks copy a resolve into a host buffer of
++ * its key (address and length) and give the guest the copy an earlier resolve of
++ * that key made. 1.0.2 had two buffers per key, flipped once per frame for every
++ * key, and read from the one it was not writing: a key resolved every other frame
++ * (luminance, HDR adaptation) found the same buffer to write each time and the
++ * other one never written, so the guest never got its picture (dark or white
++ * frames, brightness jumps); and when the GPU ran behind, the other buffer was
++ * always still in flight, which the automatic copy never waits for.
++ *
++ * Now each key has up to kCount slots, each stamped with the submission of its
++ * last copy. The newest one that can be read (completed, holding at least this
++ * length) is kept for the guest. A copy goes to a slot older than that one (its
++ * copy superseded), else to an unused slot, else to the oldest. So a key keeps
++ * two buffers while the GPU keeps up and up to four while it runs two frames
++ * behind, and a copy still in flight is not overwritten while an older one can
++ * take the new copy. The guest gets the newest copy other than the one just
++ * made: completed for the automatic copy, which never waits; the fast mode waits
++ * for it if needed, as before.
++ ******************************************************************************
++ */
++
++#ifndef XENIA_GPU_VULKAN_READBACK_SLOTS_H_
++#define XENIA_GPU_VULKAN_READBACK_SLOTS_H_
++
++#include <cstdint>
++
++namespace xe {
++namespace gpu {
++namespace vulkan {
++namespace readback_slots {
++
++constexpr uint32_t kCount = 4;
++
++// The newest slot other than `exclude` holding a copy of at least `length`
++// bytes (submission 0: never written), completed by `completed` if
++// `completed_only`. -1 if none.
++inline int ChooseRead(const uint64_t* submissions, const uint32_t* valid_sizes,
++                      uint32_t count, int exclude, uint32_t length,
++                      uint64_t completed, bool completed_only) {
++  int best = -1;
++  for (uint32_t i = 0; i < count; ++i) {
++    if (int(i) == exclude || !submissions[i] || valid_sizes[i] < length ||
++        (completed_only && submissions[i] > completed)) {
++      continue;
++    }
++    if (best < 0 || submissions[i] > submissions[best]) {
++      best = int(i);
++    }
++  }
++  return best;
++}
++
++// The slot this copy goes to, never the newest readable one (kept for the
++// guest): one whose copy that one superseded, else an unused one, else the
++// oldest (the lowest submission in each case).
++inline uint32_t ChooseWrite(const uint64_t* submissions,
++                            const uint32_t* valid_sizes, uint32_t count,
++                            uint32_t length, uint64_t completed) {
++  const int keep = ChooseRead(submissions, valid_sizes, count, -1, length,
++                              completed, true);
++  int superseded = -1, unused = -1, oldest = -1;
++  for (uint32_t i = 0; i < count; ++i) {
++    if (int(i) == keep) {
++      continue;
++    }
++    if (!submissions[i]) {
++      if (unused < 0) {
++        unused = int(i);
++      }
++      continue;
++    }
++    if (keep >= 0 && submissions[i] < submissions[keep] &&
++        (superseded < 0 || submissions[i] < submissions[superseded])) {
++      superseded = int(i);
++    }
++    if (oldest < 0 || submissions[i] < submissions[oldest]) {
++      oldest = int(i);
++    }
++  }
++  if (superseded >= 0) {
++    return uint32_t(superseded);
++  }
++  if (unused >= 0) {
++    return uint32_t(unused);
++  }
++  return oldest < 0 ? 0 : uint32_t(oldest);
++}
++
++}  // namespace readback_slots
++}  // namespace vulkan
++}  // namespace gpu
++}  // namespace xe
++
++#endif  // XENIA_GPU_VULKAN_READBACK_SLOTS_H_
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+index de968fe..ff75be3 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+@@ -1327,14 +1327,12 @@ void VulkanCommandProcessor::ShutdownContext() {
+ 
+   // Clean up all readback buffers.
+   for (auto& pair : readback_buffers_) {
+-    ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyBuffer, device,
+-                                           pair.second.buffers[0]);
+-    ui::vulkan::util::DestroyAndNullHandle(dfn.vkFreeMemory, device,
+-                                           pair.second.memories[0]);
+-    ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyBuffer, device,
+-                                           pair.second.buffers[1]);
+-    ui::vulkan::util::DestroyAndNullHandle(dfn.vkFreeMemory, device,
+-                                           pair.second.memories[1]);
++    for (uint32_t slot = 0; slot < readback_slots::kCount; ++slot) {
++      ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyBuffer, device,
++                                             pair.second.buffers[slot]);
++      ui::vulkan::util::DestroyAndNullHandle(dfn.vkFreeMemory, device,
++                                             pair.second.memories[slot]);
++    }
+   }
+   readback_buffers_.clear();
+ 
+@@ -3854,7 +3852,15 @@ bool VulkanCommandProcessor::IssueCopy() {
+     ReadbackBuffer& rb = readback_buffers_[resolve_key];
+     rb.last_used_frame = frame_current_;
+ 
+-    uint32_t write_index = rb.current_index;
++    // Xbox360PS5 (fix 35): an unused or the oldest slot, never the newest one
++    // the guest can be given (readback_slots.h); 1.0.2 flipped two slots once
++    // per frame, so a key resolved every other frame never had one to read.
++    const uint64_t readback_completed =
++        auto_readback ? completion_timeline_.UpdateAndGetCompletedSubmission()
++                      : GetCompletedSubmission();
++    uint32_t write_index = readback_slots::ChooseWrite(
++        rb.submissions, rb.valid_sizes, readback_slots::kCount,
++        readback_length, readback_completed);
+     uint32_t size = AlignReadbackBufferSize(readback_length);
+ 
+     // Allocate/resize write buffer if needed
+@@ -3946,13 +3952,20 @@ bool VulkanCommandProcessor::IssueCopy() {
+            (uint32_t(1) << memory_type_index)) != 0;
+     }
+ 
+-    uint32_t read_index = readback_mode == ReadbackResolveMode::kFast
+-                              ? 1 - write_index
+-                              : write_index;
++    // Fix 35: the newest earlier copy of this key; for the automatic copy,
++    // which never waits, the newest completed one.
++    const int newest_copy =
++        readback_mode == ReadbackResolveMode::kFast
++            ? readback_slots::ChooseRead(rb.submissions, rb.valid_sizes,
++                                         readback_slots::kCount,
++                                         int(write_index), readback_length,
++                                         readback_completed, auto_readback)
++            : -1;
++    uint32_t read_index =
++        newest_copy >= 0 ? uint32_t(newest_copy) : write_index;
+     bool read_cache_miss = readback_mode == ReadbackResolveMode::kFast &&
+-                           (rb.buffers[read_index] == VK_NULL_HANDLE ||
+-                            !rb.submissions[read_index] ||
+-                            readback_length > rb.valid_sizes[read_index]);
++                           (newest_copy < 0 ||
++                            rb.buffers[read_index] == VK_NULL_HANDLE);
+ 
+     if (is_scaled) {
+       // Scaled path: downscale on the GPU, then copy the 1x data to the
+@@ -5086,10 +5099,8 @@ bool VulkanCommandProcessor::BeginSubmission(bool is_guest_command) {
+   if (is_opening_frame) {
+     frame_open_ = true;
+ 
+-    // Swap all readback buffers for delayed sync (one frame behind)
+-    for (auto& pair : readback_buffers_) {
+-      pair.second.current_index = 1 - pair.second.current_index;
+-    }
++    // Xbox360PS5 (fix 35): readback slots are chosen by submission at each
++    // resolve (readback_slots.h); 1.0.2 flipped them here once per frame.
+ 
+     // Evict old readback buffers only when map gets too large to prevent
+     // unbounded memory growth. Don't do this every frame as it's expensive.
+@@ -5103,20 +5114,22 @@ bool VulkanCommandProcessor::BeginSubmission(bool is_guest_command) {
+            it != readback_buffers_.end();) {
+         // Evict only when both producers have completed. Frame age alone is
+         // not a lifetime guarantee when the GPU queue is behind.
++        bool slots_completed = true;
++        for (uint32_t slot = 0; slot < readback_slots::kCount; ++slot) {
++          slots_completed &=
++              it->second.submissions[slot] <= GetCompletedSubmission();
++        }
+         if (frame_current_ > kReadbackBufferEvictionAgeFrames &&
+             it->second.last_used_frame <
+                 frame_current_ - kReadbackBufferEvictionAgeFrames &&
+-            it->second.submissions[0] <= GetCompletedSubmission() &&
+-            it->second.submissions[1] <= GetCompletedSubmission()) {
+-          // Release both buffers and memories
+-          ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyBuffer, device,
+-                                                 it->second.buffers[0]);
+-          ui::vulkan::util::DestroyAndNullHandle(dfn.vkFreeMemory, device,
+-                                                 it->second.memories[0]);
+-          ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyBuffer, device,
+-                                                 it->second.buffers[1]);
+-          ui::vulkan::util::DestroyAndNullHandle(dfn.vkFreeMemory, device,
+-                                                 it->second.memories[1]);
++            slots_completed) {
++          // Release every slot's buffer and memory (fix 35: kCount slots).
++          for (uint32_t slot = 0; slot < readback_slots::kCount; ++slot) {
++            ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyBuffer, device,
++                                                   it->second.buffers[slot]);
++            ui::vulkan::util::DestroyAndNullHandle(dfn.vkFreeMemory, device,
++                                                   it->second.memories[slot]);
++          }
+           it = readback_buffers_.erase(it);
+         } else {
+           ++it;
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
+index 2d2cfc7..0626e75 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
+@@ -29,6 +29,7 @@
+ #include "xenia/gpu/registers.h"
+ #include "xenia/gpu/spirv_shader_translator.h"
+ #include "xenia/gpu/vulkan/deferred_command_buffer.h"
++#include "xenia/gpu/vulkan/readback_slots.h"
+ #include "xenia/gpu/vulkan/vulkan_graphics_system.h"
+ #include "xenia/gpu/vulkan/vulkan_pipeline_cache.h"
+ #include "xenia/gpu/vulkan/vulkan_primitive_processor.h"
+@@ -885,14 +886,15 @@ class VulkanCommandProcessor final : public CommandProcessor {
+   std::vector<uint8_t> memexport_before_;
+ 
+   // Per-resolve double-buffered readback for delayed sync
++  // Xbox360PS5 (fix 35): up to readback_slots::kCount slots per key, chosen by the
++  // submission of their last copy (readback_slots.h), not flipped per frame.
+   struct ReadbackBuffer {
+-    VkBuffer buffers[2] = {VK_NULL_HANDLE, VK_NULL_HANDLE};
+-    VkDeviceMemory memories[2] = {VK_NULL_HANDLE, VK_NULL_HANDLE};
+-    uint32_t sizes[2] = {0, 0};
+-    uint32_t valid_sizes[2] = {0, 0};
+-    uint64_t submissions[2] = {0, 0};
+-    bool host_coherent[2] = {false, false};
+-    uint32_t current_index = 0;
++    VkBuffer buffers[readback_slots::kCount] = {};
++    VkDeviceMemory memories[readback_slots::kCount] = {};
++    uint32_t sizes[readback_slots::kCount] = {};
++    uint32_t valid_sizes[readback_slots::kCount] = {};
++    uint64_t submissions[readback_slots::kCount] = {};
++    bool host_coherent[readback_slots::kCount] = {};
+     uint64_t last_used_frame = 0;
+   };
+   // Map: (written_address << 32 | written_length) -> ReadbackBuffer
