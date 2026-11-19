@@ -1,0 +1,76 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_video.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_video.cc
+index 1283523..c6a5c6c 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_video.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_video.cc
+@@ -9,7 +9,11 @@
+ 
+ #include "xenia/kernel/xboxkrnl/xboxkrnl_video.h"
+ 
++#include <atomic>
++#include <chrono>
++
+ #include "xenia/base/logging.h"
++#include "xenia/base/threading.h"
+ #include "xenia/emulator.h"
+ #include "xenia/gpu/graphics_system.h"
+ #include "xenia/kernel/kernel_state.h"
+@@ -18,6 +22,12 @@
+ #include "xenia/kernel/xboxkrnl/xboxkrnl_rtl.h"
+ #include "xenia/kernel/xconfig.h"
+ #include "xenia/xbox.h"
++#if __has_include("xbox360ps5/patch_runtime.hpp")
++#include "xbox360ps5/patch_runtime.hpp"
++#define XBOX360PS5_SWAP_CAP 1
++#endif
++
++DECLARE_bool(vsync);
+ 
+ DEFINE_bool(interlaced, false, "Toggles interlaced mode.", "Video");
+ // BT.709 on modern monitors and TVs looks the closest to the Xbox 360 connected
+@@ -463,6 +473,36 @@ dword_result_t VdRetrainEDRAM_entry(unknown_t unk0, unknown_t unk1,
+ }
+ DECLARE_XBOXKRNL_EXPORT1(VdRetrainEDRAM, kVideo, kStub);
+ 
++#if XBOX360PS5_SWAP_CAP
++// Xbox360PS5 (binary release patch group 10): VSync on means at most about 60
++// frames a second. On the PS5 the guest gets 60 vblanks a second whatever the
++// VSync option says, so the option only changed the host presentation, and a
++// game unlocked by a 60 FPS patch with a fixed 1/60 s step (Battlefield: Bad
++// Company) ran at 80 frames and more, too fast. Swaps are paced on a 16.60 ms
++// grid (about 60.2 Hz, a little faster than the 60 Hz vblank, so vblank-paced
++// games never wait here) while VSync is on and no game patch asked for it off.
++// An early swap sleeps until its deadline. A swap late by less than one period
++// keeps the grid (the next frames may catch up, so a fixed-step game keeps its
++// average speed); one further behind, or the first, restarts the grid.
++static void PaceSwap() {
++  if (!xbox360ps5::EffectiveVsync(cvars::vsync)) {
++    return;
++  }
++  constexpr int64_t kPeriodNs = 16600000;
++  static std::atomic<int64_t> deadline_ns{0};
++  const int64_t now = std::chrono::duration_cast<std::chrono::nanoseconds>(
++                          std::chrono::steady_clock::now().time_since_epoch())
++                          .count();
++  const int64_t deadline = deadline_ns.load(std::memory_order_relaxed);
++  const bool on_grid = deadline != 0 && now < deadline + kPeriodNs;
++  deadline_ns.store(on_grid ? deadline + kPeriodNs : now + kPeriodNs,
++                    std::memory_order_relaxed);
++  if (on_grid) {
++    xe::threading::NanoSleep(deadline - now);  // Returns at once if late.
++  }
++}
++#endif
++
+ void VdSwap_entry(
+     lpvoid_t buffer_ptr,        // ptr into primary ringbuffer
+     lpvoid_t fetch_ptr,         // frontbuffer Direct3D 9 texture header fetch
+@@ -546,6 +586,9 @@ void VdSwap_entry(
+   for (uint32_t i = offset; i < 64; i++) {
+     dwords[i] = xenos::MakePacketType2();
+   }
++#if XBOX360PS5_SWAP_CAP
++  PaceSwap();
++#endif
+ }
+ DECLARE_XBOXKRNL_EXPORT3(VdSwap, kVideo, kImplemented, kHighFrequency,
+                          kImportant);
