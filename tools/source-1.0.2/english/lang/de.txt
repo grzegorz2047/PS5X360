@@ -288,6 +288,8 @@ One\sshader\soperation\srounds\stoward\szero.\sFixes\sdistorted\sgeometry\sin\sV
 One\supdate\sis\sactive\sat\sa\stime.\sCopy\sthe\sfile\sto\sPPSA50011/assets/updates\sor\sto\sthe\sgame's\supdates\sfolder:\sthe\snewest\sinstalls\sby\sitself\swhen\syou\spress\sPlay\s(or\shere,\swith\sX).\sPatches\smade\sfor\sthe\sgame\swithout\san\supdate\sdo\snot\sapply\swhile\sone\sis\sactive. = Es\sist\simmer\snur\sein\sUpdate\saktiv.\sKopiere\sdie\sDatei\snach\sPPSA50011/assets/updates\soder\sin\sden\supdates-Ordner\sdes\sSpiels:\sDas\sneueste\sinstalliert\ssich\svon\sselbst,\swenn\sdu\sSpielen\sdrückst\s(oder\shier\smit\sX).\sFür\sdas\sSpiel\sohne\sUpdate\sgemachte\sPatches\sgelten\snicht,\ssolange\seines\saktiv\sist.
 Online = Online
 Online\son.\sThe\semulator\swill\srestart;\ssign\sin\swith\sa\sprofile\sto\suse\sXenia's\sXbox\sLive. = Online\san.\sDer\sEmulator\sstartet\sneu;\smelde\sdich\smit\seinem\sProfil\sbei\sXenias\sXbox\sLive\san.
+Online\s–\sconnected = Online\s–\sverbunden
+Online\s–\sserver\snot\sreached = Online\s–\sServer\snicht\serreicht
 On||DLC = Ein
 On||feminine = Ein
 On||plural = Ein

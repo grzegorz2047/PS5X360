@@ -275,6 +275,8 @@ One\sshader\soperation\srounds\stoward\szero.\sFixes\sdistorted\sgeometry\sin\sV
 One\supdate\sis\sactive\sat\sa\stime.\sCopy\sthe\sfile\sto\sPPSA50011/assets/updates\sor\sto\sthe\sgame's\supdates\sfolder:\sthe\snewest\sinstalls\sby\sitself\swhen\syou\spress\sPlay\s(or\shere,\swith\sX).\sPatches\smade\sfor\sthe\sgame\swithout\san\supdate\sdo\snot\sapply\swhile\sone\sis\sactive. = Solo\suna\sactualización\sestá\sactiva\sa\sla\svez.\sCopia\sel\sarchivo\sen\sPPSA50011/assets/updates\so\sen\sla\scarpeta\supdates\sdel\sjuego:\sla\smás\snueva\sse\sinstala\ssola\sal\spulsar\sJugar\s(o\saquí,\scon\sX).\sLos\sparches\shechos\spara\sel\sjuego\ssin\sactualización\sno\sse\saplican\scon\sella\sactiva.
 Online = Online
 Online\son.\sThe\semulator\swill\srestart;\ssign\sin\swith\sa\sprofile\sto\suse\sXenia's\sXbox\sLive. = Online\sactivado.\sEl\semulador\sse\sreiniciará;\susa\sun\sperfil\spara\sentrar\sen\sel\sXbox\sLive\sde\sXenia.
+Online\s–\sconnected = Online\s–\sconectado
+Online\s–\sserver\snot\sreached = Online\s–\sservidor\sno\salcanzado
 On||DLC = Activada
 On||feminine = Activada
 On||plural = Activados

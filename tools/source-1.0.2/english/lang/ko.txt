@@ -288,6 +288,8 @@ One\sshader\soperation\srounds\stoward\szero.\sFixes\sdistorted\sgeometry\sin\sV
 One\supdate\sis\sactive\sat\sa\stime.\sCopy\sthe\sfile\sto\sPPSA50011/assets/updates\sor\sto\sthe\sgame's\supdates\sfolder:\sthe\snewest\sinstalls\sby\sitself\swhen\syou\spress\sPlay\s(or\shere,\swith\sX).\sPatches\smade\sfor\sthe\sgame\swithout\san\supdate\sdo\snot\sapply\swhile\sone\sis\sactive. = 업데이트는\s한\s번에\s하나만\s켜집니다.\s파일을\sPPSA50011/assets/updates\s또는\s게임의\supdates\s폴더에\s복사하면,\s플레이를\s누를\s때(또는\s여기서\sX로)\s가장\s최신\s것이\s저절로\s설치됩니다.\s업데이트\s없는\s게임용\s패치는\s업데이트가\s켜져\s있는\s동안\s적용되지\s않습니다.
 Online = 온라인
 Online\son.\sThe\semulator\swill\srestart;\ssign\sin\swith\sa\sprofile\sto\suse\sXenia's\sXbox\sLive. = 온라인\s켜짐.\s에뮬레이터가\s다시\s시작됩니다.\s프로필로\sXenia의\sXbox\sLive에\s로그인하세요.
+Online\s–\sconnected = 온라인\s–\s연결됨
+Online\s–\sserver\snot\sreached = 온라인\s–\s서버에\s연결할\s수\s없음
 On||DLC = 켜기
 On||feminine = 켜기
 On||plural = 켜기

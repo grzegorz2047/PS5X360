@@ -288,6 +288,8 @@ One\sshader\soperation\srounds\stoward\szero.\sFixes\sdistorted\sgeometry\sin\sV
 One\supdate\sis\sactive\sat\sa\stime.\sCopy\sthe\sfile\sto\sPPSA50011/assets/updates\sor\sto\sthe\sgame's\supdates\sfolder:\sthe\snewest\sinstalls\sby\sitself\swhen\syou\spress\sPlay\s(or\shere,\swith\sX).\sPatches\smade\sfor\sthe\sgame\swithout\san\supdate\sdo\snot\sapply\swhile\sone\sis\sactive. = Naraz\saktywna\sjest\sjedna\saktualizacja.\sSkopiuj\splik\sdo\sPPSA50011/assets/updates\slub\sdo\sfolderu\supdates\sgry:\snajnowsza\szainstaluje\ssię\ssama\spo\snaciśnięciu\sGraj\s(lub\stutaj,\sprzyciskiem\sX).\sŁatki\szrobione\sdla\sgry\sbez\saktualizacji\snie\sdziałają,\sgdy\sjakaś\sjest\saktywna.
 Online = Online
 Online\son.\sThe\semulator\swill\srestart;\ssign\sin\swith\sa\sprofile\sto\suse\sXenia's\sXbox\sLive. = Online\swłączone.\sEmulator\suruchomi\ssię\sponownie;\szaloguj\ssię\sprofilem\sdo\sXbox\sLive\sXenii.
+Online\s–\sconnected = Online\s–\społączono
+Online\s–\sserver\snot\sreached = Online\s–\sbrak\społączenia\sz\sserwerem
 On||DLC = Włączone
 On||feminine = Włączone
 On||plural = Włączone

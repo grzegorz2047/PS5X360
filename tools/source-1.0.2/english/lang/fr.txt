@@ -288,6 +288,8 @@ One\sshader\soperation\srounds\stoward\szero.\sFixes\sdistorted\sgeometry\sin\sV
 One\supdate\sis\sactive\sat\sa\stime.\sCopy\sthe\sfile\sto\sPPSA50011/assets/updates\sor\sto\sthe\sgame's\supdates\sfolder:\sthe\snewest\sinstalls\sby\sitself\swhen\syou\spress\sPlay\s(or\shere,\swith\sX).\sPatches\smade\sfor\sthe\sgame\swithout\san\supdate\sdo\snot\sapply\swhile\sone\sis\sactive. = Une\sseule\smise\sà\sjour\sest\sactive\sà\sla\sfois.\sCopiez\sle\sfichier\sdans\sPPSA50011/assets/updates\sou\sdans\sle\sdossier\supdates\sdu\sjeu\s:\sla\splus\srécente\ss'installe\sd'elle-même\squand\svous\sappuyez\ssur\sJouer\s(ou\sici,\savec\sX).\sLes\spatchs\sfaits\spour\sle\sjeu\ssans\smise\sà\sjour\sne\ss'appliquent\spas\stant\squ'une\sest\sactive.
 Online = En\sligne
 Online\son.\sThe\semulator\swill\srestart;\ssign\sin\swith\sa\sprofile\sto\suse\sXenia's\sXbox\sLive. = En\sligne\sactivé.\sL'émulateur\sva\sredémarrer\s;\sconnectez-vous\savec\sun\sprofil\sau\sXbox\sLive\sde\sXenia.
+Online\s–\sconnected = En\sligne\s–\sconnecté
+Online\s–\sserver\snot\sreached = En\sligne\s–\sserveur\sinjoignable
 On||DLC = Activé
 On||feminine = Activée
 On||plural = Activé

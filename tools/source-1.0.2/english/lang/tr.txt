@@ -288,6 +288,8 @@ One\sshader\soperation\srounds\stoward\szero.\sFixes\sdistorted\sgeometry\sin\sV
 One\supdate\sis\sactive\sat\sa\stime.\sCopy\sthe\sfile\sto\sPPSA50011/assets/updates\sor\sto\sthe\sgame's\supdates\sfolder:\sthe\snewest\sinstalls\sby\sitself\swhen\syou\spress\sPlay\s(or\shere,\swith\sX).\sPatches\smade\sfor\sthe\sgame\swithout\san\supdate\sdo\snot\sapply\swhile\sone\sis\sactive. = Aynı\sanda\stek\sbir\sgüncelleme\setkindir.\sDosyayı\sPPSA50011/assets/updates\sveya\soyunun\supdates\sklasörüne\skopyalayın:\sen\syenisi\sOyna'ya\sbastığınızda\s(veya\sburada\sX\sile)\skendiliğinden\skurulur.\sGüncellemesiz\soyun\siçin\syapılan\syamalar\sbiri\setkinken\suygulanmaz.
 Online = Çevrim\siçi
 Online\son.\sThe\semulator\swill\srestart;\ssign\sin\swith\sa\sprofile\sto\suse\sXenia's\sXbox\sLive. = Çevrim\siçi\saçık.\sEmülatör\syeniden\sbaşlayacak;\sXenia'nın\sXbox\sLive'ına\sbir\sprofille\sgir.
+Online\s–\sconnected = Çevrim\siçi\s–\sbağlı
+Online\s–\sserver\snot\sreached = Çevrim\siçi\s–\ssunucuya\sulaşılamadı
 On||DLC = Açık
 On||feminine = Açık
 On||plural = Açık

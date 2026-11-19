@@ -288,6 +288,8 @@ One\sshader\soperation\srounds\stoward\szero.\sFixes\sdistorted\sgeometry\sin\sV
 One\supdate\sis\sactive\sat\sa\stime.\sCopy\sthe\sfile\sto\sPPSA50011/assets/updates\sor\sto\sthe\sgame's\supdates\sfolder:\sthe\snewest\sinstalls\sby\sitself\swhen\syou\spress\sPlay\s(or\shere,\swith\sX).\sPatches\smade\sfor\sthe\sgame\swithout\san\supdate\sdo\snot\sapply\swhile\sone\sis\sactive. = 一度に有効にできるアップデートは\s1\sつです。ファイルを\sPPSA50011/assets/updates\sまたはゲームの\supdates\sフォルダーにコピーすると、プレイを押したとき（またはここで\s×\sボタン）に最新のものが自動でインストールされます。アップデートなしのゲーム用パッチは、アップデートが有効な間は適用されません。
 Online = オンライン
 Online\son.\sThe\semulator\swill\srestart;\ssign\sin\swith\sa\sprofile\sto\suse\sXenia's\sXbox\sLive. = オンラインがオンになりました。エミュレーターが再起動します。プロフィールで\sXenia\sの\sXbox\sLive\sにサインインしてください。
+Online\s–\sconnected = オンライン\s–\s接続済み
+Online\s–\sserver\snot\sreached = オンライン\s–\sサーバーに接続できません
 On||DLC = オン
 On||feminine = オン
 On||plural = オン

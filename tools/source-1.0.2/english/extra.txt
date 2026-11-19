@@ -80,71 +80,99 @@ Automática = Automatic||feminine
 
 [es]
 Rede = Red
+Online – conectado = Online\s–\sconectado
+Online – servidor não alcançado = Online\s–\sservidor\sno\salcanzado
 opção = opción
 opções = opciones
 
 [es-419]
 Rede = Red
+Online – conectado = Online\s–\sconectado
+Online – servidor não alcançado = Online\s–\sservidor\sno\salcanzado
 opção = opción
 opções = opciones
 
 [pt]
 Rede = Rede
+Online – conectado = Online\s–\sligado
+Online – servidor não alcançado = Online\s–\sservidor\sinacessível
 opção = opção
 opções = opções
 
 [de]
 Rede = Netzwerk
+Online – conectado = Online\s–\sverbunden
+Online – servidor não alcançado = Online\s–\sServer\snicht\serreicht
 opção = Option
 opções = Optionen
 
 [fr]
 Rede = Réseau
+Online – conectado = En\sligne\s–\sconnecté
+Online – servidor não alcançado = En\sligne\s–\sserveur\sinjoignable
 opção = option
 opções = options
 
 [it]
 Rede = Rete
+Online – conectado = Online\s–\sconnesso
+Online – servidor não alcançado = Online\s–\sserver\snon\sraggiunto
 opção = opzione
 opções = opzioni
 
 [ja]
 Rede = ネットワーク
+Online – conectado = オンライン\s–\s接続済み
+Online – servidor não alcançado = オンライン\s–\sサーバーに接続できません
 opção = 項目
 opções = 項目
 
 [ko]
 Rede = 네트워크
+Online – conectado = 온라인\s–\s연결됨
+Online – servidor não alcançado = 온라인\s–\s서버에\s연결할\s수\s없음
 opção = 개
 opções = 개
 
 [nl]
 Rede = Netwerk
+Online – conectado = Online\s–\sverbonden
+Online – servidor não alcançado = Online\s–\sserver\sniet\sbereikt
 opção = optie
 opções = opties
 
 [pl]
 Rede = Sieć
+Online – conectado = Online\s–\społączono
+Online – servidor não alcançado = Online\s–\sbrak\społączenia\sz\sserwerem
 opção = opcja
 opções = opcji
 
 [ru]
 Rede = Сеть
+Online – conectado = Онлайн\s–\sподключено
+Online – servidor não alcançado = Онлайн\s–\sсервер\sнедоступен
 opção = параметр
 opções = параметров
 
 [tr]
 Rede = Ağ
+Online – conectado = Çevrim\siçi\s–\sbağlı
+Online – servidor não alcançado = Çevrim\siçi\s–\ssunucuya\sulaşılamadı
 opção = seçenek
 opções = seçenek
 
 [zh-Hans]
 Rede = 网络
+Online – conectado = 在线\s–\s已连接
+Online – servidor não alcançado = 在线\s–\s无法连接服务器
 opção = 个选项
 opções = 个选项
 
 [zh-Hant]
 Rede = 網路
+Online – conectado = 線上\s–\s已連線
+Online – servidor não alcançado = 線上\s–\s無法連線至伺服器
 opção = 個選項
 opções = 個選項
 

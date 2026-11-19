@@ -94,6 +94,8 @@ CONTEXTS = [
     ('port/kinect_state.inc', 'const char* const kKinectChannels[] =', 'statement', 'home channels (Tr where drawn)'),
     ('port/guide_network.hpp', 'inline const char* const kModeLabels[] =', 'statement',
      'fix 22 network modes (Tr where drawn)'),
+    ('port/network_switch.hpp', 'inline const char* OutcomeLabel(Outcome outcome) {', 'block',
+     'fix 22 guide row after a switch (Tr where drawn)'),
     ('reconstructed/xbox360ps5/game_info.hpp', 'inline const char* CompatStateText(const std::string& state) {',
      'block', 'compatibility states (Tr at the caller)'),
     ('reconstructed/dark_theme.hpp', 'inline const char* ToggleMessage(bool done) {', 'block',

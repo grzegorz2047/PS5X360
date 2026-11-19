@@ -288,6 +288,8 @@ One\sshader\soperation\srounds\stoward\szero.\sFixes\sdistorted\sgeometry\sin\sV
 One\supdate\sis\sactive\sat\sa\stime.\sCopy\sthe\sfile\sto\sPPSA50011/assets/updates\sor\sto\sthe\sgame's\supdates\sfolder:\sthe\snewest\sinstalls\sby\sitself\swhen\syou\spress\sPlay\s(or\shere,\swith\sX).\sPatches\smade\sfor\sthe\sgame\swithout\san\supdate\sdo\snot\sapply\swhile\sone\sis\sactive. = Er\sis\séén\supdate\stegelijk\sactief.\sKopieer\shet\sbestand\snaar\sPPSA50011/assets/updates\sof\snaar\sde\supdates-map\svan\sde\sgame:\sde\snieuwste\sinstalleert\svanzelf\sals\sje\sop\sSpelen\sdrukt\s(of\shier,\smet\sX).\sPatches\svoor\sde\sgame\szonder\supdate\sgelden\sniet\szolang\ser\seen\sactief\sis.
 Online = Online
 Online\son.\sThe\semulator\swill\srestart;\ssign\sin\swith\sa\sprofile\sto\suse\sXenia's\sXbox\sLive. = Online\saan.\sDe\semulator\sstart\sopnieuw;\smeld\sje\smet\seen\sprofiel\saan\sbij\sXbox\sLive\svan\sXenia.
+Online\s–\sconnected = Online\s–\sverbonden
+Online\s–\sserver\snot\sreached = Online\s–\sserver\sniet\sbereikt
 On||DLC = Aan
 On||feminine = Aan
 On||plural = Aan

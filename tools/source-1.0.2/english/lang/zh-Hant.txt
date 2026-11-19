@@ -288,6 +288,8 @@ One\sshader\soperation\srounds\stoward\szero.\sFixes\sdistorted\sgeometry\sin\sV
 One\supdate\sis\sactive\sat\sa\stime.\sCopy\sthe\sfile\sto\sPPSA50011/assets/updates\sor\sto\sthe\sgame's\supdates\sfolder:\sthe\snewest\sinstalls\sby\sitself\swhen\syou\spress\sPlay\s(or\shere,\swith\sX).\sPatches\smade\sfor\sthe\sgame\swithout\san\supdate\sdo\snot\sapply\swhile\sone\sis\sactive. = 一次只能啟用一個更新。將檔案複製到\sPPSA50011/assets/updates\s或遊戲的\supdates\s資料夾：按“開始遊戲”時（或在這裡按\sX）最新的會自動安裝。為無更新遊戲製作的修補程式在啟用更新時不會生效。
 Online = 線上
 Online\son.\sThe\semulator\swill\srestart;\ssign\sin\swith\sa\sprofile\sto\suse\sXenia's\sXbox\sLive. = 線上已開啟。模擬器將重新啟動；請用個人檔案登入\sXenia\s的\sXbox\sLive。
+Online\s–\sconnected = 線上\s–\s已連線
+Online\s–\sserver\snot\sreached = 線上\s–\s無法連線至伺服器
 On||DLC = 開啟
 On||feminine = 開啟
 On||plural = 開啟

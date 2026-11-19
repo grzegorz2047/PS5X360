@@ -295,6 +295,7 @@ def new_text(key, language, lang):
 
 def check_equivalence(data, lang, problems):
     before, official = data.before, data.official
+    extra_translations = rekey.load_extra()  # [<code>] Portuguese = translation
     sites = []
     for pt, kinds in sorted(data.used.items()):
         if 'tr' in kinds:
@@ -322,6 +323,13 @@ def check_equivalence(data, lang, problems):
             if old == pt and language not in (9, 19) and pt != english:
                 category = ('Portuguese leak -> English' if new == english else
                             'Portuguese leak -> translation')
+            elif ((old == english or (language == 19 and old == pt)) and language not in (1, 9)
+                  and pt not in official.get(code, {})
+                  and new == extra_translations.get(code, {}).get(pt)):
+                # The language's file never had the text, so the old build fell back to the
+                # English (Portugal's Portuguese: to the Brazilian source); the new files carry the translation written in english/extra.txt
+                # (fix 22's network row: Rede, Online – conectado, Online – servidor não alcançado).
+                category = 'English fallback -> translation (extra.txt)'
             elif (kind, pt, code) in ALLOWED_DIFFERENCES:
                 category = ALLOWED_DIFFERENCES[(kind, pt, code)]
             else:

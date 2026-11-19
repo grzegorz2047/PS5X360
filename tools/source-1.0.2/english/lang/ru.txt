@@ -288,6 +288,8 @@ One\sshader\soperation\srounds\stoward\szero.\sFixes\sdistorted\sgeometry\sin\sV
 One\supdate\sis\sactive\sat\sa\stime.\sCopy\sthe\sfile\sto\sPPSA50011/assets/updates\sor\sto\sthe\sgame's\supdates\sfolder:\sthe\snewest\sinstalls\sby\sitself\swhen\syou\spress\sPlay\s(or\shere,\swith\sX).\sPatches\smade\sfor\sthe\sgame\swithout\san\supdate\sdo\snot\sapply\swhile\sone\sis\sactive. = Одновременно\sактивно\sодно\sобновление.\sСкопируйте\sфайл\sв\sPPSA50011/assets/updates\sили\sв\sпапку\supdates\sигры:\sсамое\sновое\sустановится\sсамо,\sкогда\sвы\sнажмёте\s«Играть»\s(или\sздесь,\sкнопкой\sX).\sПатчи\sдля\sигры\sбез\sобновления\sне\sприменяются,\sпока\sоно\sактивно.
 Online = Онлайн
 Online\son.\sThe\semulator\swill\srestart;\ssign\sin\swith\sa\sprofile\sto\suse\sXenia's\sXbox\sLive. = Онлайн\sвключён.\sЭмулятор\sперезапустится;\sвойдите\sс\sпрофилем\sв\sXbox\sLive\sот\sXenia.
+Online\s–\sconnected = Онлайн\s–\sподключено
+Online\s–\sserver\snot\sreached = Онлайн\s–\sсервер\sнедоступен
 On||DLC = Вкл.
 On||feminine = Вкл.
 On||plural = Вкл.
