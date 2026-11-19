@@ -34,6 +34,117 @@ index 76184c6..7d56c74 100644
    std::vector<uint32_t> GetAllThreadIDs();
  
    void RegisterNotifyListener(XNotifyListener* listener);
+diff --git a/.deps/xenia-canary/src/xenia/kernel/native_object_resolve.h b/.deps/xenia-canary/src/xenia/kernel/native_object_resolve.h
+new file mode 100644
+index 0000000..658eaa6
+--- /dev/null
++++ b/.deps/xenia-canary/src/xenia/kernel/native_object_resolve.h
+@@ -0,0 +1,105 @@
++// Xbox360PS5 (tools/source-1.0.2/fixes/20-stale-dispatch-header.patch): what
++// XObject::GetNativeObject does with a guest dispatch header, as a template over the kernel
++// operations it needs, so the host check tools/check-stale-dispatch-header.cpp drives the
++// same code with a fake kernel. No Xenia headers here.
++//
++// A header the emulator stamped (wait_list.flink_ptr == kXObjSignature) records the handle of
++// its object in wait_list.blink_ptr. That handle can since have been given to another object
++// (the object this header named was released, the header was not reset). The other object is
++// then left alone and the header gets a new object, as on its first use: answering "no
++// object" made the game's event or semaphore disappear, and Battlefield 3 (45410950) hung
++// loading the campaign. A stale thread header whose thread no longer runs names a thread that
++// has exited: it gets an event signalled for good, so waits on it end at once. A running
++// thread can also have lost its handle; that one is left alone.
++#ifndef XENIA_KERNEL_NATIVE_OBJECT_RESOLVE_H_
++#define XENIA_KERNEL_NATIVE_OBJECT_RESOLVE_H_
++
++#include <cstdint>
++
++namespace xbox360ps5 {
++namespace native_object {
++
++enum class Outcome : uint8_t {
++  kRecorded,      // the object the header's handle names
++  kCreated,       // a new event, mutant or semaphore (first use, or a stale header)
++  kExitedThread,  // a stale thread header of an exited thread: the signalled stand-in
++  kNone,          // no object: the handle is gone, the type has no object, or a running
++                  // thread's stale header
++};
++
++struct Report {
++  Outcome outcome = Outcome::kNone;
++  bool stale = false;           // the recorded handle belonged to another object
++  bool running_thread = false;  // a stale thread header whose thread still runs
++  uint32_t stale_handle = 0;
++};
++
++// Backend (B::Object is the kernel object type):
++//   bool Stamped();                     the header carries the emulator's signature
++//   uint32_t RecordedHandle();          its wait_list.blink_ptr
++//   Object* Lookup(uint32_t handle);    the table's object for the handle, retained, or null
++//   bool BelongsToHeader(Object*);      the object's guest object is this header
++//   void NoteStaleOwner(Object*);       remembers the other object (for the log line)
++//   void Release(Object*);              gives back one reference
++//   void SyncFromGuest(Object*);        takes the guest's direct writes to the header
++//   Object* Create();                   a new event, mutant or semaphore for the header's
++//                                       type, bound to the header (one reference), or null
++//   bool IsThreadType();                the header's type is ThreadObject
++//   bool ThreadRunning();               a running thread's guest object is this header
++//   Object* CreateExitedThread();       the signalled stand-in, bound to the header
++//   void Stamp(Object*);                records the object's handle in the header
++//   void NoteUnsupported(bool stale);   nothing could be made for the header's type
++// The returned object carries one reference for the caller.
++template <typename B>
++typename B::Object* Resolve(B& backend, Report& report) {
++  using Object = typename B::Object;
++  Object* result = nullptr;
++  bool create = !backend.Stamped();
++  if (!create) {
++    const uint32_t handle = backend.RecordedHandle();
++    result = backend.Lookup(handle);
++    if (result && !backend.BelongsToHeader(result)) {
++      report.stale = true;
++      report.stale_handle = handle;
++      backend.NoteStaleOwner(result);
++      // The reference the lookup took, given back once.
++      backend.Release(result);
++      result = nullptr;
++      create = true;
++    }
++    if (result) {
++      // The only place the guest hands us a raw dispatch header, so the only place a
++      // direct write to it can be picked up.
++      backend.SyncFromGuest(result);
++      report.outcome = Outcome::kRecorded;
++      return result;
++    }
++  }
++  if (!create) {
++    // A recorded handle no longer in the table: no object, as before.
++    report.outcome = Outcome::kNone;
++    return nullptr;
++  }
++  result = backend.Create();
++  if (result) {
++    report.outcome = Outcome::kCreated;
++  } else if (report.stale && backend.IsThreadType()) {
++    report.running_thread = backend.ThreadRunning();
++    if (!report.running_thread) {
++      result = backend.CreateExitedThread();
++      if (result) report.outcome = Outcome::kExitedThread;
++    }
++  }
++  if (!result) {
++    backend.NoteUnsupported(report.stale);
++    report.outcome = Outcome::kNone;
++    return nullptr;
++  }
++  backend.Stamp(result);
++  return result;
++}
++
++}  // namespace native_object
++}  // namespace xbox360ps5
++
++#endif  // XENIA_KERNEL_NATIVE_OBJECT_RESOLVE_H_
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xevent.cc b/.deps/xenia-canary/src/xenia/kernel/xevent.cc
 index 736a5b8..396d6de 100644
 --- a/.deps/xenia-canary/src/xenia/kernel/xevent.cc
@@ -92,32 +203,46 @@ index 7bd027c..a8d246a 100644
  
  }  // namespace kernel
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xobject.cc b/.deps/xenia-canary/src/xenia/kernel/xobject.cc
-index e8b4307..d273625 100644
+index e8b4307..649a0ce 100644
 --- a/.deps/xenia-canary/src/xenia/kernel/xobject.cc
 +++ b/.deps/xenia-canary/src/xenia/kernel/xobject.cc
-@@ -469,8 +469,17 @@ object_ref<XObject> XObject::GetNativeObject(KernelState* kernel_state,
+@@ -8,11 +8,13 @@
+  */
+ 
+ #include <atomic>
++#include <iterator>
+ 
+ #include "xenia/kernel/xobject.h"
+ 
+ #include "xenia/base/byte_stream.h"
+ #include "xenia/kernel/kernel_state.h"
++#include "xenia/kernel/native_object_resolve.h"
+ #include "xenia/kernel/util/shim_utils.h"
+ #include "xenia/kernel/xboxkrnl/xboxkrnl_private.h"
+ #include "xenia/kernel/xenumerator.h"
+@@ -461,87 +463,131 @@ object_ref<XObject> XObject::GetNativeObject(KernelState* kernel_state,
+     global_critical_region::mutex().lock();
+   }
+ 
+-  XObject* result = nullptr;
+-
+   auto header = reinterpret_cast<X_DISPATCH_HEADER*>(native_ptr);
+   X_OBJECT_TYPES type = as_type;
+ 
    if (as_type == X_OBJECT_TYPES::UndefinedObject) {
      type = header->type;
    }
-+  const uint32_t guest_ptr =
-+      kernel_state->memory()->HostToGuestVirtual(native_ptr);
- 
+-
 -  if (header->wait_list.flink_ptr == kXObjSignature) {
-+  // Xbox360PS5 (fix 20): what a stale header (below) recorded, for its log line.
-+  bool stale = false, running_thread = false;
-+  uint32_t stale_handle = 0, stale_owner_ptr = 0;
-+  XObject::Type stale_owner_type = XObject::Type::Undefined;
-+  const uint32_t guest_signal_state = header->signal_state;
-+
-+  bool create = header->wait_list.flink_ptr != kXObjSignature;
-+  if (!create) {
-     // Already initialized.
-     // TODO: assert if the type of the object != as_type
-     uint32_t handle = header->wait_list.blink_ptr;
-@@ -480,28 +489,31 @@ object_ref<XObject> XObject::GetNativeObject(KernelState* kernel_state,
-     // Xbox360PS5: the handle recorded in the header can be one the table has
-     // since given to another object (the object this header named was
-     // released, the header was not reset). Kernel calls on this object then
+-    // Already initialized.
+-    // TODO: assert if the type of the object != as_type
+-    uint32_t handle = header->wait_list.blink_ptr;
+-    result = kernel_state->object_table()
+-                 ->LookupObject<XObject>(handle, true)
+-                 .release();
+-    // Xbox360PS5: the handle recorded in the header can be one the table has
+-    // since given to another object (the object this header named was
+-    // released, the header was not reset). Kernel calls on this object then
 -    // acted on that other one: a reference given back here released it. Such
 -    // a header answers as one whose object is gone.
 -    if (result && result->guest_object() !=
@@ -130,118 +255,170 @@ index e8b4307..d273625 100644
 -            kernel_state->memory()->HostToGuestVirtual(native_ptr), handle,
 -            result->guest_object());
 -      }
-+    // acted on that other one: a reference given back here released it. The
-+    // other object is left alone, and the header gets a new object as on its
-+    // first use below (fix 20): answering "no object" made the game's object
-+    // disappear, and Battlefield 3 (45410950) hung loading the campaign (its
-+    // ClientLoad thread and five JobManager threads spinning at 0 frames a
-+    // second).
-+    if (result && result->guest_object() != guest_ptr) {
-+      stale = true;
-+      stale_handle = handle;
-+      stale_owner_ptr = result->guest_object();
-+      stale_owner_type = result->type();
-+      // Gives back the reference LookupObject took, once.
-       result->Release();
-       result = nullptr;
-+      create = true;
+-      result->Release();
+-      result = nullptr;
++  const uint32_t guest_ptr =
++      kernel_state->memory()->HostToGuestVirtual(native_ptr);
++  const uint32_t guest_signal_state = header->signal_state;
++
++  // Xbox360PS5 (fix 20): the decisions are xbox360ps5::native_object::Resolve
++  // (native_object_resolve.h, checked on the host by
++  // tools/check-stale-dispatch-header.cpp); this is the kernel side of them.
++  struct Kernel {
++    using Object = XObject;
++    KernelState* kernel_state;
++    X_DISPATCH_HEADER* header;
++    void* native_ptr;
++    uint32_t guest_ptr;
++    X_OBJECT_TYPES type;
++    uint32_t stale_owner_ptr = 0;
++    XObject::Type stale_owner_type = XObject::Type::Undefined;
++
++    bool Stamped() const {
++      return header->wait_list.flink_ptr == kXObjSignature;
      }
-     if (result) {
-       // The only place the guest hands us a raw dispatch header, so the only
-       // place a direct write to it can be picked up.
-       result->SyncFromGuest();
+-    if (result) {
+-      // The only place the guest hands us a raw dispatch header, so the only
+-      // place a direct write to it can be picked up.
+-      result->SyncFromGuest();
++    uint32_t RecordedHandle() const { return header->wait_list.blink_ptr; }
++    XObject* Lookup(uint32_t handle) {
++      return kernel_state->object_table()
++          ->LookupObject<XObject>(handle, true)
++          .release();
      }
 -  } else {
 -    // First use, create new.
-+  }
-+  if (create) {
-+    // First use (or a stale header, above), create new. InitializeNative
-+    // records the new object's handle in the header.
-     // https://www.nirsoft.net/kernel_struct/vista/KOBJECTS.html
-     switch (type) {
-       case X_OBJECT_TYPES::EventNotificationObject:
-@@ -522,9 +534,26 @@ object_ref<XObject> XObject::GetNativeObject(KernelState* kernel_state,
-         assert_true(success);
-         result = sem;
-       } break;
-+      case X_OBJECT_TYPES::ThreadObject:
-+        // Xbox360PS5 (fix 20): a stale thread header whose thread is no longer
-+        // running names a thread that has exited (its XThread was released and
-+        // its handle given to another object). It is stood in for by an event
-+        // signalled for good, so waits on it complete at once, as on a
-+        // terminated thread. A running thread can also have lost its handle
-+        // (xobject.cc RetainHandle): that one is left alone. A thread header
-+        // that was never initialised is not one of ours: unsupported, as before.
-+        if (stale) {
-+          running_thread = kernel_state->IsRunningThreadObject(guest_ptr);
-+          if (!running_thread) {
-+            auto ev = new XEvent(kernel_state);
-+            ev->InitializeNativeExitedThread(native_ptr);
-+            result = ev;
-+            break;
-+          }
-+        }
-+        [[fallthrough]];
-       case X_OBJECT_TYPES::ProcessObject:
-       case X_OBJECT_TYPES::QueueObject:
+-    // https://www.nirsoft.net/kernel_struct/vista/KOBJECTS.html
+-    switch (type) {
+-      case X_OBJECT_TYPES::EventNotificationObject:
+-      case X_OBJECT_TYPES::EventSynchronizationObject: {
+-        auto ev = new XEvent(kernel_state);
+-        ev->InitializeNative(native_ptr, header);
+-        result = ev;
+-      } break;
+-      case X_OBJECT_TYPES::MutantObject: {
+-        auto mutant = new XMutant(kernel_state);
+-        mutant->InitializeNative(native_ptr, header);
+-        result = mutant;
+-      } break;
+-      case X_OBJECT_TYPES::SemaphoreObject: {
+-        auto sem = new XSemaphore(kernel_state);
+-        auto success = sem->InitializeNative(native_ptr, header);
+-        // Can't report failure to the guest at late initialization:
+-        assert_true(success);
+-        result = sem;
+-      } break;
+-      case X_OBJECT_TYPES::ProcessObject:
+-      case X_OBJECT_TYPES::QueueObject:
 -      case X_OBJECT_TYPES::ThreadObject:
-       case X_OBJECT_TYPES::Spare1Object:
-       case X_OBJECT_TYPES::TimerNotificationObject:
-       case X_OBJECT_TYPES::TimerSynchronizationObject:
-@@ -534,9 +563,20 @@ object_ref<XObject> XObject::GetNativeObject(KernelState* kernel_state,
-       case X_OBJECT_TYPES::EventPairObject:
-       case X_OBJECT_TYPES::InterruptObject:
-       case X_OBJECT_TYPES::ProfileObject:
+-      case X_OBJECT_TYPES::Spare1Object:
+-      case X_OBJECT_TYPES::TimerNotificationObject:
+-      case X_OBJECT_TYPES::TimerSynchronizationObject:
+-      case X_OBJECT_TYPES::ApcObject:
+-      case X_OBJECT_TYPES::DpcObject:
+-      case X_OBJECT_TYPES::DeviceQueueObject:
+-      case X_OBJECT_TYPES::EventPairObject:
+-      case X_OBJECT_TYPES::InterruptObject:
+-      case X_OBJECT_TYPES::ProfileObject:
 -      default:
-+      default: {
-+        // Xbox360PS5 (fix 20): said once per type.
-+        static std::atomic<uint64_t> said_types{0};
-+        const uint64_t bit = uint64_t(1) << (uint32_t(type) & 63);
-+        if (!(said_types.fetch_or(bit) & bit)) {
-+          XELOGW(
-+              "Kernel object {:08X}: dispatch header type {:02X} (as_type "
-+              "{:02X}) has no object to create{}; none given",
-+              guest_ptr, uint32_t(type), uint32_t(as_type),
-+              stale ? " (stale header)" : "");
+-        assert_always();
+-        result = nullptr;
++    bool BelongsToHeader(XObject* object) const {
++      return object->guest_object() == guest_ptr;
++    }
++    void NoteStaleOwner(XObject* object) {
++      stale_owner_ptr = object->guest_object();
++      stale_owner_type = object->type();
++    }
++    void Release(XObject* object) { object->Release(); }
++    void SyncFromGuest(XObject* object) { object->SyncFromGuest(); }
++    XObject* Create() {
++      // First use (or a stale header), create new; InitializeNative records the
++      // new object's handle in the header.
++      // https://www.nirsoft.net/kernel_struct/vista/KOBJECTS.html
++      switch (type) {
++        case X_OBJECT_TYPES::EventNotificationObject:
++        case X_OBJECT_TYPES::EventSynchronizationObject: {
++          auto ev = new XEvent(kernel_state);
++          ev->InitializeNative(native_ptr, header);
++          return ev;
 +        }
-         assert_always();
-         result = nullptr;
++        case X_OBJECT_TYPES::MutantObject: {
++          auto mutant = new XMutant(kernel_state);
++          mutant->InitializeNative(native_ptr, header);
++          return mutant;
++        }
++        case X_OBJECT_TYPES::SemaphoreObject: {
++          auto sem = new XSemaphore(kernel_state);
++          auto success = sem->InitializeNative(native_ptr, header);
++          // Can't report failure to the guest at late initialization:
++          assert_true(success);
++          return sem;
++        }
++        default:
++          // ProcessObject, QueueObject, ThreadObject, Spare1Object, the
++          // timers, ApcObject, DpcObject, DeviceQueueObject, EventPairObject,
++          // InterruptObject, ProfileObject.
++          return nullptr;
 +      }
++    }
++    bool IsThreadType() const { return type == X_OBJECT_TYPES::ThreadObject; }
++    bool ThreadRunning() { return kernel_state->IsRunningThreadObject(guest_ptr); }
++    XObject* CreateExitedThread() {
++      auto ev = new XEvent(kernel_state);
++      ev->InitializeNativeExitedThread(native_ptr);
++      return ev;
      }
      // Stash pointer in struct.
      // FIXME: This assumes the object contains a dispatch header (some don't!)
-@@ -545,6 +585,34 @@ object_ref<XObject> XObject::GetNativeObject(KernelState* kernel_state,
-     }
-   }
- 
-+  if (stale) {
+-    if (result) {
+-      StashHandle(header, result->handle());
++    void Stamp(XObject* object) { StashHandle(header, object->handle()); }
++    void NoteUnsupported(bool stale) {
++      // Said once per type.
++      static std::atomic<uint64_t> said_types{0};
++      const uint64_t bit = uint64_t(1) << (uint32_t(type) & 63);
++      if (!(said_types.fetch_or(bit) & bit)) {
++        XELOGW(
++            "Kernel object {:08X}: dispatch header type {:02X} has no object "
++            "to create{}; none given",
++            guest_ptr, uint32_t(type), stale ? " (stale header)" : "");
++      }
++      assert_always();
++    }
++  } kernel{kernel_state, header, native_ptr, guest_ptr, type};
++
++  xbox360ps5::native_object::Report report;
++  XObject* result = xbox360ps5::native_object::Resolve(kernel, report);
++
++  if (report.stale) {
 +    static const char* const kTypeNames[] = {
-+        "Undefined", "Enumerator",     "Event",     "File",
-+        "IOCompletion", "Module",      "Mutant",    "NotifyListener",
-+        "Semaphore", "Session",        "Socket",    "SymbolicLink",
-+        "Thread",    "Timer",          "Device"};
-+    const uint32_t owner = uint32_t(stale_owner_type);
++        "Undefined", "Enumerator", "Event",          "File",
++        "IOCompletion", "Module",  "Mutant",         "NotifyListener",
++        "Semaphore", "Session",    "Socket",         "SymbolicLink",
++        "Thread",    "Timer",      "Device"};
++    const uint32_t owner = uint32_t(kernel.stale_owner_type);
 +    static std::atomic<uint32_t> said{0};
 +    if (said.fetch_add(1) < 16) {
++      using xbox360ps5::native_object::Outcome;
 +      XELOGW(
 +          "Kernel object {:08X}: the handle {:08X} recorded in it now belongs "
 +          "to the object at {:08X} ({}); header type {:02X}, as_type {:02X}, "
 +          "signal_state {}; {}",
-+          guest_ptr, stale_handle, stale_owner_ptr,
++          guest_ptr, report.stale_handle, kernel.stale_owner_ptr,
 +          owner < std::size(kTypeNames) ? kTypeNames[owner] : "?",
 +          uint32_t(header->type), uint32_t(as_type), guest_signal_state,
-+          result
-+              ? fmt::format("re-created as a new {}object, handle {:08X}",
-+                            type == X_OBJECT_TYPES::ThreadObject
-+                                ? "exited-thread stand-in (signalled event) "
-+                                : "",
++          report.outcome == Outcome::kCreated
++              ? fmt::format("re-created as a new object, handle {:08X}",
 +                            result->handle())
-+          : running_thread
++          : report.outcome == Outcome::kExitedThread
++              ? fmt::format("re-created as an exited-thread stand-in "
++                            "(signalled event), handle {:08X}",
++                            result->handle())
++          : report.running_thread
 +              ? std::string("not re-created: its thread is still running")
 +              : std::string("not re-created: unsupported type"));
-+    }
-+  }
-+
-   if (!already_locked) {
-     global_critical_region::mutex().unlock();
+     }
    }
+ 
