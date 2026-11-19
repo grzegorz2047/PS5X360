@@ -1,0 +1,211 @@
+diff --git a/platform/ps5/canary_audio.cpp b/platform/ps5/canary_audio.cpp
+index cef8f9a..9486c2c 100644
+--- a/platform/ps5/canary_audio.cpp
++++ b/platform/ps5/canary_audio.cpp
+@@ -1,5 +1,6 @@
+ // SPDX-License-Identifier: MIT
+ #include "xbox360ps5/canary_audio.hpp"
++#include "media_voice.hpp"  // fix 32: media voices of any rate and channel count
+ #include "xenia/apu/audio_driver.h"
+ #include "xenia/apu/conversion.h"
+ #include "xenia/base/cvar.h"
+@@ -33,23 +34,27 @@ class PacedDriver final : public xe::apu::AudioDriver {
+  public:
+   PacedDriver(xe::threading::Semaphore* semaphore, uint32_t frequency, uint32_t channels, bool convert)
+       : semaphore_(semaphore), frequency_(frequency), channels_(channels), convert_(convert),
+-        // As Canary's own drivers: 256 samples per channel in a 5.1 frame, 768 in a stereo one.
+-        channel_samples_(channels == 6 ? 256 : 768) {}
++        // Fix 32: every frame holds AudioDriver::kFrameSamplesMax floats: 256 samples per
++        // channel in a 5.1 frame, 768 in a stereo one, 1536 in a mono one (1.0.2 took 768 from
++        // every voice that was not 5.1, so mono music lost half of each frame).
++        channel_samples_(media_voice::ChannelSamples(channels)), resampler_(frequency) {}
+   ~PacedDriver() override { Shutdown(); }
+ 
+   bool Initialize() override {
+ #if XE_PLATFORM_PS5
+-    // The port takes 48 kHz stereo; voices at other rates are consumed in time
+-    // without sound. The main port belongs to the system user (255), not to
+-    // the signed-in one. Parameter 1 means 16-bit stereo.
+-    if (frequency_ == 48000) {
++    // The port takes 48 kHz stereo. Fix 32: a voice at another rate (XMP music at
++    // 44.1 kHz) is resampled to it; 1.0.2 opened no port for it and played it silently.
++    // The main port belongs to the system user (255), not to the signed-in one.
++    // Parameter 1 means 16-bit stereo.
++    {
+       const int initialized = sceAudioOutInit();
+-      port_ = sceAudioOutOpen(0xff, 0, 0, kGrain, 48000, 1);
++      port_ = sceAudioOutOpen(0xff, 0, 0, kGrain, media_voice::kPortRate, 1);
+       if (port_ < 0) {
+         XELOGW("AudioOut open failed {:08X} (init {:08X}): this voice is silent", unsigned(port_),
+                unsigned(initialized));
+       } else {
+-        XELOGW("AudioOut port {} open", port_);
++        XELOGW("AudioOut port {} open for a voice of {} channel(s) at {} Hz{}", port_, channels_,
++               frequency_, frequency_ == media_voice::kPortRate ? "" : " (resampled to 48000 Hz)");
+       }
+     }
+ #endif
+@@ -95,15 +100,9 @@ class PacedDriver final : public xe::apu::AudioDriver {
+     stereo.resize(size_t(channel_samples_) * 2);
+     if (convert_ && channels_ == 6) {
+       xe::apu::conversion::sequential_6_BE_to_interleaved_2_LE(stereo.data(), frame.data(), channel_samples_);
+-    } else if (channels_ == 2) {
+-      std::copy(frame.begin(), frame.end(), stereo.begin());
+     } else {
+-      // Interleaved 5.1: front left and right, with the centre in both.
+-      for (uint32_t n = 0; n < channel_samples_; ++n) {
+-        const float* in = &frame[size_t(n) * channels_];
+-        stereo[n * 2] = in[0] + in[2] * 0.7071f;
+-        stereo[n * 2 + 1] = in[1] + in[2] * 0.7071f;
+-      }
++      // Fix 32: mono to both sides (1.0.2 mixed it as 5.1, reading past the frame).
++      media_voice::InterleavedToStereo(frame.data(), channels_, channel_samples_, stereo);
+     }
+   }
+ 
+@@ -111,6 +110,9 @@ class PacedDriver final : public xe::apu::AudioDriver {
+     xe::threading::set_name("Xbox360PS5 audio");
+     auto next = std::chrono::steady_clock::now();
+     std::vector<float> stereo;
++    // Fix 32: 48 kHz stereo not yet given to the port (a resampled frame is not a whole
++    // number of grains; the rest goes out with the next frame).
++    std::vector<float> at48;
+     std::array<int16_t, kGrain * 2> grain;
+     for (;;) {
+       std::vector<float> frame;
+@@ -122,12 +124,14 @@ class PacedDriver final : public xe::apu::AudioDriver {
+         frames_.pop_front();
+       }
+       ToStereo(frame, stereo);
++      resampler_.Process(stereo.data(), channel_samples_, at48);
+       const float volume = cvars::mute ? 0.0f : volume_ * audio_volume.load(std::memory_order_relaxed);
+       int peak = 0;
+       bool played = false;
+-      for (uint32_t at = 0; at + kGrain <= channel_samples_; at += kGrain) {
++      size_t at = 0;
++      for (; at + kGrain * 2 <= at48.size(); at += kGrain * 2) {
+         for (uint32_t n = 0; n < kGrain * 2; ++n) {
+-          const float sample = stereo[size_t(at) * 2 + n] * volume;
++          const float sample = at48[at + n] * volume;
+           const float clamped = std::isfinite(sample) ? std::clamp(sample, -1.0f, 1.0f) : 0.0f;
+           grain[n] = int16_t(std::lround(clamped * 32767.0f));
+           peak = std::max(peak, std::abs(int(grain[n])));
+@@ -137,6 +141,7 @@ class PacedDriver final : public xe::apu::AudioDriver {
+         if (port_ >= 0 && sceAudioOutOutput(port_, grain.data()) >= 0) played = true;
+ #endif
+       }
++      at48.erase(at48.begin(), at48.begin() + ptrdiff_t(at));
+       if (!played) {
+         // No port: keep the real rate by the clock (never more than 50 ms behind).
+         next = std::max(next, std::chrono::steady_clock::now() - std::chrono::milliseconds(50)) +
+@@ -164,6 +169,7 @@ class PacedDriver final : public xe::apu::AudioDriver {
+   const uint32_t frequency_, channels_;
+   const bool convert_;
+   const uint32_t channel_samples_;
++  media_voice::Resampler resampler_;
+   std::mutex mutex_;
+   std::condition_variable wake_;
+   std::deque<std::vector<float>> frames_;
+diff --git a/port/media_voice.hpp b/port/media_voice.hpp
+new file mode 100644
+index 0000000..749c26b
+--- /dev/null
++++ b/port/media_voice.hpp
+@@ -0,0 +1,97 @@
++// SPDX-License-Identifier: MIT
++// Fix 32: the shape of the frames an audio voice submits, their stereo mix and their rate change
++// to the console's 48 kHz port (platform/ps5/canary_audio.cpp, PacedDriver).
++//
++// Two kinds of voice reach PacedDriver:
++//  * a game's audio client: 5.1 at 48 kHz, 256 samples per channel, in the console's byte order
++//    and channel after channel (converted by xe::apu::conversion);
++//  * an XMP media voice (a game's or the dashboard's playlist music, apu/audio_media_player.cc):
++//    whatever the file has (mono, stereo, 44.1 kHz, ...), native floats, interleaved, always
++//    AudioDriver::kFrameSamplesMax (1536) floats per frame.
++// 1.0.2 opened the port only for 48 kHz voices (44.1 kHz music was silent), took 768 samples
++// per channel from every voice that was not 5.1 (a mono frame of 1536 lost its second half and
++// played at twice the speed) and mixed mono through the 5.1 branch, reading in[1] and in[2]
++// past the frame's end.
++#ifndef XBOX360PS5_MEDIA_VOICE_HPP_
++#define XBOX360PS5_MEDIA_VOICE_HPP_
++
++#include <cstddef>
++#include <cstdint>
++#include <vector>
++
++namespace xbox360ps5::media_voice {
++
++constexpr uint32_t kPortRate = 48000;
++// AudioDriver::kFrameSamplesMax: 6 channels x 256 samples.
++constexpr uint32_t kFrameFloats = 6 * 256;
++
++// Samples per channel in one submitted frame: every frame holds kFrameFloats floats.
++inline uint32_t ChannelSamples(uint32_t channels) {
++  return channels ? kFrameFloats / channels : 0;
++}
++
++// An interleaved native-float frame of `channels` channels as interleaved stereo (`samples`
++// pairs). Mono goes to both sides; three channels and more are taken as front left, front
++// right and centre first (the centre in both sides at -3 dB), the others left out.
++inline void InterleavedToStereo(const float* in, uint32_t channels, uint32_t samples,
++                                std::vector<float>& stereo) {
++  stereo.resize(size_t(samples) * 2);
++  for (uint32_t n = 0; n < samples; ++n) {
++    const float* s = in + size_t(n) * channels;
++    float left, right;
++    if (channels == 1) {
++      left = right = s[0];
++    } else if (channels == 2) {
++      left = s[0];
++      right = s[1];
++    } else {
++      left = s[0] + s[2] * 0.7071f;
++      right = s[1] + s[2] * 0.7071f;
++    }
++    stereo[size_t(n) * 2] = left;
++    stereo[size_t(n) * 2 + 1] = right;
++  }
++}
++
++// Interleaved stereo at `rate` to interleaved stereo at 48 kHz, by linear interpolation, carried
++// across frames (no click at frame boundaries). At 48 kHz the samples pass unchanged.
++class Resampler {
++ public:
++  explicit Resampler(uint32_t rate)
++      : rate_(rate ? rate : kPortRate), step_(double(rate_) / kPortRate) {}
++
++  uint32_t rate() const { return rate_; }
++
++  // Appends the 48 kHz samples for `frames` input pairs to `out`.
++  void Process(const float* in, size_t frames, std::vector<float>& out) {
++    if (!frames) return;
++    if (rate_ == kPortRate) {
++      out.insert(out.end(), in, in + frames * 2);
++      return;
++    }
++    // Input positions: -1 is the last pair of the previous frame, 0 .. frames-1 this frame's.
++    const double last = double(frames - 1);
++    while (position_ < last) {
++      const double floor = position_ < 0 ? -1.0 : double(size_t(position_));
++      const float t = float(position_ - floor);
++      const float* a = floor < 0 ? previous_ : in + size_t(floor) * 2;
++      const float* b = in + size_t(floor + 1) * 2;
++      out.push_back(a[0] + (b[0] - a[0]) * t);
++      out.push_back(a[1] + (b[1] - a[1]) * t);
++      position_ += step_;
++    }
++    position_ -= double(frames);
++    previous_[0] = in[(frames - 1) * 2];
++    previous_[1] = in[(frames - 1) * 2 + 1];
++  }
++
++ private:
++  uint32_t rate_;
++  double step_;
++  double position_ = 0.0;
++  float previous_[2] = {0.0f, 0.0f};
++};
++
++}  // namespace xbox360ps5::media_voice
++
++#endif  // XBOX360PS5_MEDIA_VOICE_HPP_

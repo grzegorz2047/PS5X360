@@ -36,6 +36,7 @@ checks=(
   check-ui-lang-overlay.cpp        # fix 43
   check-game-info.cpp              # fix 43
   check-kinect-usb.cpp             # fix 44
+  check-media-voice.cpp            # fix 32
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
