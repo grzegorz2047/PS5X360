@@ -1,8 +1,8 @@
 diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
-index cad0b6b..e9bc8ab 100644
+index 5c3db7d..4ec36c0 100644
 --- a/src/canary_game_main.cpp
 +++ b/src/canary_game_main.cpp
-@@ -724,6 +724,23 @@ std::string CallersText(xe::Memory* memory, uint32_t stack) {
+@@ -727,6 +727,23 @@ std::string CallersText(xe::Memory* memory, uint32_t stack) {
    }
    return text.empty() ? " none read" : text;
  }
@@ -26,7 +26,7 @@ index cad0b6b..e9bc8ab 100644
  void ReportStall(xe::Emulator& emulator, int pass) {
    const auto threads = emulator.kernel_state()->object_table()->GetObjectsByType<xe::kernel::XThread>();
    XELOGW("STALL pass {}: {} threads", pass, threads.size());
-@@ -736,6 +753,11 @@ void ReportStall(xe::Emulator& emulator, int pass) {
+@@ -739,6 +756,11 @@ void ReportStall(xe::Emulator& emulator, int pass) {
             thread->handle(), thread->thread_id(), thread->thread_name(), thread->is_guest_thread() ? 1 : 0,
             thread->suspend_count(), uint32_t(context->lr), uint32_t(context->ctr), uint32_t(context->r[1]),
             uint32_t(context->r[3]), uint32_t(context->r[4]), uint32_t(context->r[5]));

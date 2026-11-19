@@ -30,7 +30,9 @@ struct Profile {
 struct FakeEmulator {
   int network_mode = 0;
   bool server_reachable = true;
-  bool online_prepared = false;
+  bool server_prepared = false;  // the Xenia server set (System Link and online)
+  ns::Queue* queue = nullptr;    // a press made while Select runs, when set
+  int press_during_select = -1;
   std::vector<Profile> profiles;
   std::vector<std::pair<uint32_t, uint32_t>> notifications;
   std::vector<uint64_t> registered;
@@ -59,10 +61,14 @@ struct FakeEmulator {
 struct Backend {
   FakeEmulator& emulator;
   int Mode() { return emulator.network_mode; }
-  void PrepareOnline() { emulator.online_prepared = true; }
+  void PrepareServer() { emulator.server_prepared = true; }
   // XLiveAPI::SelectNetworkMode: offline at once; System Link always ends in System Link;
   // online ends in System Link without the server, and then broadcasts nothing.
   bool Select(int mode) {
+    if (emulator.queue && emulator.press_during_select >= 0) {
+      emulator.queue->Ask(emulator.press_during_select);  // the user presses again meanwhile
+      emulator.press_during_select = -1;
+    }
     if (mode == 0) {
       emulator.network_mode = 0;
       emulator.BroadcastNetworkStatus();
@@ -121,7 +127,7 @@ void OfflineToOnline() {
   assert(!emulator.LiveFor(0xE000000000000001ull) && !emulator.LiveFor(0xE000000000000002ull));
   const ns::Result result = ns::Run(backend, 2);
   assert(result.asked == 2 && result.from == 0 && result.now == 2 && result.selected && result.saved);
-  assert(emulator.network_mode == 2 && emulator.online_prepared && emulator.saved == "online");
+  assert(emulator.network_mode == 2 && emulator.server_prepared && emulator.saved == "online");
   // Only the profile that was not Live-enabled is converted; the other was already.
   assert(emulator.converts == 1 && result.profiles == "Player now uses Xbox Live");
   assert(emulator.LiveFor(0xE000000000000001ull) && emulator.LiveFor(0xE000000000000002ull));
@@ -159,7 +165,7 @@ void OnlineToOfflineAndSystemLink() {
   assert(emulator.LiveFor(0xE000000000000004ull));
   ns::Result result = ns::Run(backend, 0);
   assert(result.from == 2 && result.now == 0 && result.selected && emulator.saved == "offline");
-  assert(!emulator.LiveFor(0xE000000000000004ull) && emulator.converts == 0 && !emulator.online_prepared);
+  assert(!emulator.LiveFor(0xE000000000000004ull) && emulator.converts == 0 && !emulator.server_prepared);
   std::vector<std::pair<uint32_t, uint32_t>> expected = {
       {ns::kLiveConnectionChanged, kLogonDisconnected}, {ns::kLiveLinkStateChanged, 0}, {ns::kSignInChanged, 0b1}};
   assert(emulator.notifications == expected);
@@ -167,6 +173,8 @@ void OnlineToOfflineAndSystemLink() {
   emulator.notifications.clear();
   result = ns::Run(backend, 1);
   assert(result.from == 0 && result.now == 1 && result.selected && emulator.saved == "systemlink");
+  // System Link asks the configured (else public) server too, never the core's 192.168.0.1.
+  assert(emulator.server_prepared);
   assert(!emulator.LiveFor(0xE000000000000004ull));
   expected = {{ns::kLiveConnectionChanged, kLogonDisconnected}, {ns::kLiveLinkStateChanged, 1}, {ns::kSignInChanged, 0b1}};
   assert(emulator.notifications == expected);
@@ -187,6 +195,62 @@ void NoPlayers() {
   assert(emulator.notifications.back() == std::make_pair(ns::kSignInChanged, 0u));
   std::printf("  no one signed in: switched, nothing converted or registered\n");
 }
+
+void QueueNeverBlocks() {
+  {
+    ns::Queue queue;
+    assert(!queue.Busy() && queue.Ask(1) && queue.Busy() && queue.Target() == 1);
+    assert(!queue.Ask(2) && queue.Target() == 2);  // a press while switching: remembered
+    assert(queue.Finished(1) == 2 && queue.Busy() && queue.Target() == 2);
+    assert(queue.Finished(2) == -1 && !queue.Busy());
+  }
+  {
+    ns::Queue queue;  // pressed past System Link to offline: only the last one runs
+    assert(queue.Ask(1) && !queue.Ask(2) && !queue.Ask(0) && queue.Target() == 0);
+    assert(queue.Finished(1) == 0 && queue.Finished(0) == -1);
+  }
+  {
+    ns::Queue queue;  // online failed into System Link, System Link asked meanwhile: nothing more
+    assert(queue.Ask(2) && !queue.Ask(1));
+    assert(queue.Finished(1) == -1 && !queue.Busy());
+  }
+  std::printf("  queue: a press while switching is kept, intermediate modes skipped\n");
+}
+
+void DrainRunsTheLastWanted() {
+  // Black Ops III on candidate_3: System Link pressed, then Online while it ran. Both run, in
+  // order, and the row ends on Online.
+  FakeEmulator emulator;
+  emulator.profiles = {{0xE000000000000005ull, "Player", false, 0}};
+  ns::Queue queue;
+  emulator.queue = &queue;
+  emulator.press_during_select = 2;
+  Backend backend{emulator};
+  std::vector<int> started;
+  std::vector<ns::Outcome> outcomes;
+  assert(queue.Ask(1));
+  ns::Drain(backend, queue, 1, [&](int mode) { started.push_back(mode); },
+            [&](const ns::Result& result) { outcomes.push_back(ns::OutcomeOf(result)); });
+  assert((started == std::vector<int>{1, 2}));
+  assert((outcomes == std::vector<ns::Outcome>{ns::Outcome::kSystemLink, ns::Outcome::kOnlineConnected}));
+  assert(!queue.Busy() && emulator.network_mode == 2 && emulator.saved == "online");
+  assert(emulator.LiveFor(0xE000000000000005ull));
+  std::printf("  drain: System Link, then the Online pressed meanwhile; signed in to Live\n");
+}
+
+void RowTexts() {
+  ns::Result result;
+  result.asked = 2; result.now = 2;
+  assert(ns::OutcomeOf(result) == ns::Outcome::kOnlineConnected);
+  assert(std::string(ns::OutcomeLabel(ns::OutcomeOf(result))) == "Online – conectado");
+  result.now = 1;  // the server was not reached
+  assert(std::string(ns::OutcomeLabel(ns::OutcomeOf(result))) == "Online – servidor não alcançado");
+  result.asked = 1;
+  assert(std::string(ns::OutcomeLabel(ns::OutcomeOf(result))) == "System Link");
+  result.asked = 0; result.now = 0;
+  assert(std::string(ns::OutcomeLabel(ns::OutcomeOf(result))) == "Desligada");
+  std::printf("  row: connected, server not reached, System Link, off\n");
+}
 }  // namespace
 
 int main() {
@@ -195,5 +259,8 @@ int main() {
   OnlineWithoutServer();
   OnlineToOfflineAndSystemLink();
   NoPlayers();
+  QueueNeverBlocks();
+  DrainRunsTheLastWanted();
+  RowTexts();
   std::puts("PASS: network mode from the guide (fix 22)");
 }

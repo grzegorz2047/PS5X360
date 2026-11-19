@@ -1,8 +1,8 @@
 diff --git a/include/xbox360ps5/i18n.hpp b/include/xbox360ps5/i18n.hpp
-index 97b316d..6d8bfd0 100644
+index c7eb01e..87c0ec7 100644
 --- a/include/xbox360ps5/i18n.hpp
 +++ b/include/xbox360ps5/i18n.hpp
-@@ -407,9 +407,19 @@ inline const char* Tr(const char* key) {
+@@ -411,9 +411,19 @@ inline const char* Tr(const char* key) {
    const int language = ui_language.load(std::memory_order_relaxed);
    if (language == 9) return key;
    if (const char* loaded = LoadedUiText(key)) return loaded;
