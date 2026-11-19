@@ -1,0 +1,22 @@
+{
+ "overrides": "the fork's assets/lang-overrides/<code>.txt, merged as build_package.py merge_lang",
+ "overrides_sha256": {
+  "de.txt": "ba5396ea7209fb92cdc792a117b160d80208d318e7cff90c7a05d0f95262c722",
+  "en.txt": "12ef621019add1d826935b7b122626b9328ff2d81de3f665cc7a3d31c21f4b58",
+  "es-419.txt": "649fec591fd5dff750908b725d9a7ac40c7788d1d6dec718985fc11f047b7f0c",
+  "es.txt": "f1b79d27fd48de95647ec62335567eb218e2498859b3a03d8c2cc85fb5f09a81",
+  "fr.txt": "72baf338dd3af18429680900e54357723969ce1516341d702a26a1bd3215cc0d",
+  "it.txt": "2419f3a5ca4656d564b2753c7ec2d3a72e28c698b27c89e20e482f1ae20c836a",
+  "ja.txt": "bbc5b187f2f7e7d4ba6fac278e28c236c9be902dc1953208472871ac992dbcf7",
+  "ko.txt": "0a81049b95f60a1fdaa9c1c6c36f8a0b092878baeb616f51eb8b4247eb63ff93",
+  "nl.txt": "77c82b5eabc77b7415bba1f76842671631974a3dd03ce545f3bb381423334fe7",
+  "pl.txt": "53819cda47f583df9d00908a33e719682bfaec689f67f747eac3f3c8e27b78d4",
+  "pt.txt": "cd8d28e8ac1513bff826d78b37083ceaadf6990f105c8e768ff4406cda629feb",
+  "ru.txt": "1355710be3e159c757406322a743b9df90a8ab69f8e3e69fd0a65db1fa9ae259",
+  "tr.txt": "5377acbaeb308a5b011ce9490435d0e6349251664fd180aafc1bbd969d4bf9b3",
+  "zh-Hans.txt": "6c60813d923d5d75f5c011edb044c5bd41653e4a70d2062b933b618194deed1a",
+  "zh-Hant.txt": "1992c45a031960b9ca678627f2fcfd15bf0f84b89890862fe343979d153da72d"
+ },
+ "package": "PPSA50011.zip of PS5X360 v1.0.2 (assets/lang/<code>.txt)",
+ "package_sha256": "230359c2638f99add3972147e1690e62d8984a37c00181501680bdda7c1096c8"
+}
