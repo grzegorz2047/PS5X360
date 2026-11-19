@@ -1,0 +1,21 @@
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+index 560585b..0fd3f5a 100644
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -262,9 +262,14 @@ void CheckpointExitCache(const std::shared_ptr<ExitCacheState>& state) noexcept
+   std::lock_guard<std::mutex> lock(state->mutex);
+   if (!state->processor) return;
+   auto completion = state->processor->RequestPipelineCacheSnapshot();
+-  if (completion.wait_for(std::chrono::milliseconds(1500)) !=
++  // Binary release patch group 7: 30 s, not 1.5 s. A cache of about 30 MB did
++  // not finish writing in 1.5 s and stayed behind as .vk.bin.pending-0, so the
++  // shaders compiled again at the next start.
++  constexpr auto kExitCheckpointTimeout = std::chrono::milliseconds(30000);
++  if (completion.wait_for(kExitCheckpointTimeout) !=
+       std::future_status::ready) {
+-    XELOGW("Vulkan cache: exit checkpoint timed out after 1500 ms");
++    XELOGW("Vulkan cache: exit checkpoint timed out after {} ms",
++           kExitCheckpointTimeout.count());
+     return;
+   }
+   XELOGI("Vulkan cache: exit checkpoint {}",
