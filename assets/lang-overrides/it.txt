@@ -1,0 +1,13 @@
+# Overrides merged into assets/lang/it.txt by tools/binary-release/build_package.py.
+# The banner now shows after 2 s without a new frame, typically while shaders compile.
+Sem\sframes\snovos.\sTouchpad:\sguia = Nessun\snuovo\sfotogramma\s(compilazione\sshader\so\scaricamento).\sTouchpad:\sguida
+Sem\sframes\snovos.\sOPTIONS\s+\stouchpad:\sguia = Nessun\snuovo\sfotogramma\s(compilazione\sshader\so\scaricamento).\sOPTIONS\s+\stouchpad:\sguida
+# VSync now caps games at 60 frames a second (binary patch 10).
+Controla\sa\ssincronização\svertical\semulada.\sO\sritmo\sautomático\spermanece\sem\s60\sHz\smesmo\squando\sdesligado,\spara\sevitar\sacelerar\so\sjogo. = Controlla\sla\ssincronizzazione\sverticale\semulata.\sAttivo:\si\sgiochi\smostrano\sal\smassimo\s60\sfotogrammi\sal\ssecondo,\scosì\squelli\scon\suna\spatch\sa\s60\sFPS\snon\saccelerano.\sSpento:\snessun\slimite\sdi\sfotogrammi.
+Controla\sa\ssincronização\svertical\semulada.\sO\sritmo\sautomático\spermanece\sem\s60\sHz\smesmo\squando\sdesligado,\spara\sevitar\sacelerar\so\sjogo.\sAo\sfechar\seste\spainel,\so\semulador\sreinicia\spara\saplicar\sa\smudança. = Controlla\sla\ssincronizzazione\sverticale\semulata.\sAttivo:\si\sgiochi\smostrano\sal\smassimo\s60\sfotogrammi\sal\ssecondo,\scosì\squelli\scon\suna\spatch\sa\s60\sFPS\snon\saccelerano.\sSpento:\snessun\slimite\sdi\sfotogrammi.\sChiudere\squesto\spannello\sriavvia\sl'emulatore\sper\sapplicare\sle\smodifiche.
+# Third async_shaders choice (binary patch 12).
+Ligado\s(experimental) = Attivo\s(sperimentale)
+Ligado:\so\sjogo\snão\strava\senquanto\sum\sefeito\snovo\sé\spreparado,\smas\so\sefeito\spode\saparecer\sum\sinstante\sdepois.\sDesligado:\sespera\scada\sefeito\sficar\spronto,\scom\stravadinhas\sna\sprimeira\svez. = Attivo:\sil\sgioco\snon\ssi\sferma\smentre\ssi\sprepara\sun\snuovo\seffetto,\sma\sl'effetto\spuò\scomparire\sun\sattimo\sdopo.\sSperimentale:\sancora\smeno\sinterruzioni\sal\sprimo\savvio;\sgli\soggetti\sil\scui\sshader\snon\sè\sancora\spronto\scompaiono\sin\sritardo\sinvece\sche\scome\smacchie\snere.\sSpento:\saspetta\sche\sogni\seffetto\ssia\spronto,\scon\sscatti\sla\sprima\svolta.
+# Per-game FSI option (binary patch 13).
+FSI\spor\sjogo = FSI\s(per\sgioco)
+Padrão:\spreset\sdo\sjogo\sou\sFSI\sgeral.\sAs\soutras\sforçam. = Rendering\spreciso\s(FSI)\sper\sun\sgioco.\sStandard:\sil\spreset\sdel\sgioco\so,\sse\smanca,\sl'opzione\sFSI\sgenerale\squi\ssotto.\sSpenta\so\sAttiva\sforza\sla\sscelta;\snelle\simpostazioni\sgenerali\svale\sper\stutti\si\sgiochi\ssenza\sun\svalore\sproprio.\sFSI\sdà\sparticelle\se\strasparenze\spiù\sfedeli,\sma\sla\scompilazione\sdegli\sshader\srichiede\spiù\stempo\se\sil\sgioco\sè\spiù\slento.\sHa\seffetto\sdal\sprossimo\savvio\sdel\sgioco\s(l'emulatore\ssi\sriavvia\sda\ssolo).

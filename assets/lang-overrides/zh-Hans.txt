@@ -1,0 +1,13 @@
+# Overrides merged into assets/lang/zh-Hans.txt by tools/binary-release/build_package.py.
+# The banner now shows after 2 s without a new frame, typically while shaders compile.
+Sem\sframes\snovos.\sTouchpad:\sguia = 没有新画面（正在编译着色器或加载）。触摸板：指南
+Sem\sframes\snovos.\sOPTIONS\s+\stouchpad:\sguia = 没有新画面（正在编译着色器或加载）。OPTIONS\s+\s触摸板：指南
+# VSync now caps games at 60 frames a second (binary patch 10).
+Controla\sa\ssincronização\svertical\semulada.\sO\sritmo\sautomático\spermanece\sem\s60\sHz\smesmo\squando\sdesligado,\spara\sevitar\sacelerar\so\sjogo. = 控制模拟的垂直同步。开启：游戏最多每秒显示\s60\s帧，带\s60\sFPS\s补丁的游戏不会加速。关闭：不限制帧率。
+Controla\sa\ssincronização\svertical\semulada.\sO\sritmo\sautomático\spermanece\sem\s60\sHz\smesmo\squando\sdesligado,\spara\sevitar\sacelerar\so\sjogo.\sAo\sfechar\seste\spainel,\so\semulador\sreinicia\spara\saplicar\sa\smudança. = 控制模拟的垂直同步。开启：游戏最多每秒显示\s60\s帧，带\s60\sFPS\s补丁的游戏不会加速。关闭：不限制帧率。关闭此面板会重启模拟器以应用更改。
+# Third async_shaders choice (binary patch 12).
+Ligado\s(experimental) = 开启（实验性）
+Ligado:\so\sjogo\snão\strava\senquanto\sum\sefeito\snovo\sé\spreparado,\smas\so\sefeito\spode\saparecer\sum\sinstante\sdepois.\sDesligado:\sespera\scada\sefeito\sficar\spronto,\scom\stravadinhas\sna\sprimeira\svez. = 开启：准备新特效时游戏不会停顿，但特效可能稍晚出现。实验性：首次运行时停顿更少；着色器未就绪的物体会稍晚出现，而不是显示为黑块。关闭：等待每个特效准备好，首次会有卡顿。
+# Per-game FSI option (binary patch 13).
+FSI\spor\sjogo = FSI（按游戏）
+Padrão:\spreset\sdo\sjogo\sou\sFSI\sgeral.\sAs\soutras\sforçam. = 按游戏设置精确渲染（FSI）。标准：使用游戏预设；若无预设，则使用下方的通用\sFSI\s开关。关闭或开启会强制该选择；在通用设置页中，适用于所有未单独设置的游戏。FSI\s让粒子和透明效果更忠实，但着色器编译更久，游戏运行更慢。下次启动游戏时生效（模拟器会自动重启）。

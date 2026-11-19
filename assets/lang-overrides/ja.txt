@@ -1,0 +1,13 @@
+# Overrides merged into assets/lang/ja.txt by tools/binary-release/build_package.py.
+# The banner now shows after 2 s without a new frame, typically while shaders compile.
+Sem\sframes\snovos.\sTouchpad:\sguia = 新しいフレームがありません（シェーダーのコンパイル中または読み込み中）。タッチパッド：ガイド
+Sem\sframes\snovos.\sOPTIONS\s+\stouchpad:\sguia = 新しいフレームがありません（シェーダーのコンパイル中または読み込み中）。OPTIONS\s＋\sタッチパッド：ガイド
+# VSync now caps games at 60 frames a second (binary patch 10).
+Controla\sa\ssincronização\svertical\semulada.\sO\sritmo\sautomático\spermanece\sem\s60\sHz\smesmo\squando\sdesligado,\spara\sevitar\sacelerar\so\sjogo. = エミュレートされた垂直同期を制御します。オン：ゲームは毎秒最大\s60\sフレームで表示され、60\sFPS\sパッチを適用したゲームも速くなりません。オフ：フレームレートの上限なし。
+Controla\sa\ssincronização\svertical\semulada.\sO\sritmo\sautomático\spermanece\sem\s60\sHz\smesmo\squando\sdesligado,\spara\sevitar\sacelerar\so\sjogo.\sAo\sfechar\seste\spainel,\so\semulador\sreinicia\spara\saplicar\sa\smudança. = エミュレートされた垂直同期を制御します。オン：ゲームは毎秒最大\s60\sフレームで表示され、60\sFPS\sパッチを適用したゲームも速くなりません。オフ：フレームレートの上限なし。このパネルを閉じると、変更を反映するためエミュレーターが再起動します。
+# Third async_shaders choice (binary patch 12).
+Ligado\s(experimental) = オン（実験的）
+Ligado:\so\sjogo\snão\strava\senquanto\sum\sefeito\snovo\sé\spreparado,\smas\so\sefeito\spode\saparecer\sum\sinstante\sdepois.\sDesligado:\sespera\scada\sefeito\sficar\spronto,\scom\stravadinhas\sna\sprimeira\svez. = オン：新しいエフェクトの準備中もゲームは止まりませんが、エフェクトの表示が少し遅れることがあります。実験的：初回の停止がさらに減ります。シェーダーの準備ができていないオブジェクトは、黒い斑点ではなく少し遅れて表示されます。オフ：各エフェクトの準備を待つため、初回にカクつきます。
+# Per-game FSI option (binary patch 13).
+FSI\spor\sjogo = FSI（ゲームごと）
+Padrão:\spreset\sdo\sjogo\sou\sFSI\sgeral.\sAs\soutras\sforçam. = ゲームごとの正確な描画（FSI）。標準：ゲームのプリセット、なければ下の共通\sFSI\sスイッチに従います。オフまたはオンで強制します。共通の設定ページでは、個別の値がないすべてのゲームに適用されます。FSI\sはパーティクルや半透明をより忠実にしますが、シェーダーのコンパイルが長くなり、ゲームも遅くなります。次回のゲーム起動から適用されます（エミュレーターは自動で再起動します）。

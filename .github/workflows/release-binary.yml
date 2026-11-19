@@ -16,6 +16,7 @@ on:
     paths:
       - 'assets/**'
       - 'tools/binary-release/**'
+      - 'tools/check-lang-overrides.py'
       - '.github/workflows/release-binary.yml'
 
 permissions:
@@ -27,6 +28,9 @@ jobs:
     steps:
       - name: Checkout PS5X360
         uses: actions/checkout@v4
+
+      - name: Check the UI text overrides of every language
+        run: python3 tools/check-lang-overrides.py
 
       - name: Setup .NET 8 for UFS2Tool (.ffpkg)
         uses: actions/setup-dotnet@v4
