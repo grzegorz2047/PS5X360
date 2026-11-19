@@ -68,6 +68,7 @@ file, a handful of reconstructed headers, and no OpenGL renderer.
 | Xenia Canary netplay | `AdrianCassar/xenia-canary` `netplay_canary_experimental` | commit `d2cf527aa` |
 | wolfSSL 5.9.4, libcurl 8.23.0-DEV, miniupnpc | netplay's submodules | `3c5eead`, `3163ec0`, `b91c025` (the commits 1.0.0's notice names) |
 | Mbed TLS 3.6.7 | GitHub release archive | SHA-256 `a7e8bcbe…` (the archive the author's Helper build records) |
+| `PPSA50011.zip` (official package) and its `KINECT-source-and-licenses.zip` (fix 44) | release `v1.0.2` | SHA-256 `230359c2…` (as `tools/binary-release`) and `8cff3386…`; the 1.0.x Kinect headers no drop has (`KINECT_LAYERS` in `assemble.py`) |
 | PS5 toolchain, RADV, payload SDK | `mihawk-99/PS5_Vulkan`, `PS5_Mesa`, `PS5_PayloadSDK` | the commits `build-ps5.yml` pins |
 
 ## What came from which drop
