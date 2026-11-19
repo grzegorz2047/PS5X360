@@ -12,6 +12,11 @@ name: Rebuild v1.0.2 from source drops (not for release)
 # build-only packages are needed only when that key changes; and ccache for the compile.
 on:
   workflow_dispatch:
+    inputs:
+      skip_fixes:
+        description: Fixes to leave out of this build (comma-separated, e.g. 01), for a test build
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -88,6 +93,8 @@ jobs:
           echo "$HOME/shader-tools" >> "$GITHUB_PATH"
 
       - name: Assemble the 1.0.2 source tree
+        env:
+          PS5X360_SKIP_FIXES: ${{ inputs.skip_fixes }}
         run: python3 -I tools/source-1.0.2/assemble.py --out build/src102 --cache .deps/src102-cache
 
       # The host checks of the release fixes (tools/check-*.cpp), before the long compile.

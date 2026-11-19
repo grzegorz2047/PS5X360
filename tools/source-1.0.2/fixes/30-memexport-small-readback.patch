@@ -1,0 +1,376 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/command_processor.cc
+index 369853d..2492054 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/command_processor.cc
+@@ -123,6 +123,14 @@ DEFINE_bool(
+     "the GPU, and this flag isn't needed to handle such behavior), but causes "
+     "mid-frame synchronization, so it has a huge performance impact.",
+     "GPU");
++// Xbox360PS5 (tools/source-1.0.2/fixes/30-memexport-small-readback.patch).
++DEFINE_uint32(
++    readback_memexport_small, 64 * 1024,
++    "Read back the memory exports of a draw that exports at most this many "
++    "bytes even with readback_memexport off (0: never). Battlefield 3 makes its "
++    "render jobs runnable with one such export; only the dwords the draw "
++    "changed are written to guest memory.",
++    "GPU");
+ 
+ #if XE_PLATFORM_PS5
+ namespace xbox360ps5 {
+diff --git a/.deps/xenia-canary/src/xenia/gpu/memexport_merge.h b/.deps/xenia-canary/src/xenia/gpu/memexport_merge.h
+new file mode 100644
+index 0000000..dfe5ecc
+--- /dev/null
++++ b/.deps/xenia-canary/src/xenia/gpu/memexport_merge.h
+@@ -0,0 +1,177 @@
++// Xbox360PS5 (tools/source-1.0.2/fixes/30-memexport-small-readback.patch): which memory
++// exports of a draw the CPU must see, and how they reach guest memory.
++//
++// Battlefield 3 starts its render jobs from the GPU: a vertex shader exports one dword (8888,
++// 0x3F in the affinity byte) into a slot of the job manager's queue, and only then may a
++// worker take the job (research/bf3/ANALYSIS.md, candidate 21). With the readback of memory
++// exports off (the default; it stalls the GPU after each exporting draw), the dword stays in
++// the GPU's copy of guest memory, no worker ever runs the job, and the game deadlocks with its
++// GPU waiting on a command buffer the job would have recorded.
++//
++// So exports of up to `small_limit` bytes per draw are read back even with the option off
++// (large ones are GPU-side buffers such as particles, where the stall costs most and the CPU
++// rarely reads), and only the dwords the draw changed are written to guest memory, each only if
++// the CPU has not changed it meanwhile: the export range is the whole queue, whose other slots
++// the workers change with ldarx/stdcx. while the GPU runs, and copying the GPU's older copy over
++// them would lose jobs.
++//
++// Header-only and free of Xenia headers, so the host check tools/check-memexport-merge.cpp
++// drives it.
++#ifndef XENIA_GPU_MEMEXPORT_MERGE_H_
++#define XENIA_GPU_MEMEXPORT_MERGE_H_
++
++#include <atomic>
++#include <cstddef>
++#include <cstdint>
++#include <cstdio>
++#include <cstring>
++#include <string>
++#include <vector>
++
++namespace xbox360ps5 {
++namespace memexport_merge {
++
++constexpr uint32_t kDefaultSmallBytes = 64 * 1024;
++
++// `setting`: the readback option (cvars::readback_memexport); `total_bytes`: the draw's
++// memexport ranges together; `small_limit`: cvars::readback_memexport_small (0: off).
++inline bool ShouldReadBack(bool setting, uint64_t total_bytes, uint32_t small_limit) {
++  if (!total_bytes) return false;
++  if (setting) return true;
++  return small_limit != 0 && total_bytes <= small_limit;
++}
++
++// A memexport range in physical memory.
++struct Range {
++  uint32_t start, length;
++};
++
++// Before a draw whose exports are read back: guest memory of each range into `before`
++// (concatenated), then each range invalidated exactly in the GPU's copy of guest memory, so
++// the RequestRange that follows uploads all of it from guest memory. Without that the copy can
++// be older than guest memory: the range was marked GPU-written by the previous readback, and
++// CPU writes next to GPU-written data are kept off the copy until a later hash check, so the
++// draw's copy differs from `before` in dwords no shader wrote and Merge wrote them back
++// (Battlefield 3, candidate 25 with the option on: 8 dwords "written" for one export, old
++// dependency links of its job manager restored, a worker calling a cleared callback at
++// 8346D64C). The snapshot comes first: a dword the CPU changes between it and the upload then
++// differs from `before` in the GPU's copy and in guest memory alike, and Merge keeps the CPU's.
++//   shared.MemoryInvalidationCallback(start, length, true)
++//   read_guest(start, destination, length)
++template <typename Shared, typename ReadGuest>
++void PrepareReadback(Shared& shared, ReadGuest read_guest, const std::vector<Range>& ranges,
++                     std::vector<uint8_t>& before) {
++  size_t total = 0;
++  for (const Range& range : ranges) total += range.length;
++  before.resize(total);
++  size_t offset = 0;
++  for (const Range& range : ranges) {
++    read_guest(range.start, before.data() + offset, range.length);
++    offset += range.length;
++  }
++  for (const Range& range : ranges) shared.MemoryInvalidationCallback(range.start, range.length, true);
++}
++
++struct Merged {
++  size_t written = 0;  // dwords (and tail bytes) the draw changed, now in guest memory
++  size_t kept = 0;     // the draw changed them, but so did the CPU since: the CPU's value kept
++};
++
++// Writes to `guest` each dword of `after` (the GPU's copy once the draw is done) that differs
++// from `before` (guest memory just before the draw): what the draw exported. A dword is
++// written only while guest memory still holds its `before` value, by one 32-bit compare and
++// swap where aligned (as a guest stwcx. would), so a slot the CPU changed meanwhile keeps the
++// CPU's value, and a guest ldarx/stdcx. on the same doubleword sees the store or retries.
++// Dwords the draw did not change are never touched. A tail shorter than a dword goes byte by
++// byte.
++inline bool SwapIfUnchanged(uint8_t* guest, uint32_t was, uint32_t now) {
++  if ((reinterpret_cast<uintptr_t>(guest) & 3) == 0) {
++#if defined(__GNUC__) || defined(__clang__)
++    return __atomic_compare_exchange_n(reinterpret_cast<uint32_t*>(guest), &was, now, false,
++                                       __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
++#endif
++  }
++  uint32_t current;
++  std::memcpy(&current, guest, 4);
++  if (current != was) return false;
++  std::memcpy(guest, &now, 4);
++  return true;
++}
++
++// Candidate 31: one dword Merge found changed by the draw, for the log (values as the guest
++// reads them, big-endian; `guest` is guest memory right after the decision).
++struct Change {
++  uint32_t offset = 0;  // from the range's start
++  uint32_t before = 0, after = 0, guest = 0;
++  bool written = false;  // false: the CPU had changed it, its value kept
++};
++inline uint32_t GuestWord(const uint8_t* bytes) {
++  return uint32_t(bytes[0]) << 24 | uint32_t(bytes[1]) << 16 | uint32_t(bytes[2]) << 8 | bytes[3];
++}
++
++// With `changes`, each changed dword is also recorded, up to `limit` of them (the rest only
++// counted).
++inline Merged Merge(uint8_t* guest, const uint8_t* before, const uint8_t* after, size_t size,
++                    std::vector<Change>* changes = nullptr, size_t limit = 0) {
++  Merged merged;
++  size_t at = 0;
++  for (; at + 4 <= size; at += 4) {
++    uint32_t was, now;
++    std::memcpy(&was, before + at, 4);
++    std::memcpy(&now, after + at, 4);
++    if (was == now) continue;
++    const bool written = SwapIfUnchanged(guest + at, was, now);
++    if (written)
++      ++merged.written;
++    else
++      ++merged.kept;
++    if (changes && changes->size() < limit) {
++      Change change;
++      change.offset = uint32_t(at);
++      change.before = GuestWord(before + at);
++      change.after = GuestWord(after + at);
++      change.guest = GuestWord(guest + at);
++      change.written = written;
++      changes->push_back(change);
++    }
++  }
++  for (; at < size; ++at) {
++    if (before[at] == after[at]) continue;
++    if (guest[at] != before[at]) {
++      ++merged.kept;
++      continue;
++    }
++    guest[at] = after[at];
++    ++merged.written;
++  }
++  return merged;
++}
++
++// The log line of a change at physical `start + offset`; `other` is the other dword of its
++// 8-byte doubleword (a job queue slot: the job pointer when the export hit the affinity word).
++inline std::string ChangeLine(uint32_t start, const Change& change, uint32_t other) {
++  char text[200];
++  std::snprintf(text, sizeof(text),
++                "memexport %08X (+%X): %08X -> %08X, guest %08X, %s; other half of the doubleword %08X",
++                start + change.offset, change.offset, change.before, change.after, change.guest,
++                change.written ? "written" : "kept (the CPU changed it)", other);
++  return text;
++}
++
++// The title enables the per-dword lines (Battlefield 3); only ranges with few changes are
++// logged, up to a total.
++constexpr size_t kChangesPerRange = 64;
++constexpr uint32_t kChangeLinesTotal = 800;
++inline std::atomic<bool>& DetailEnabled() {
++  static std::atomic<bool> enabled{false};
++  return enabled;
++}
++inline std::atomic<uint32_t>& DetailLines() {
++  static std::atomic<uint32_t> lines{0};
++  return lines;
++}
++
++}  // namespace memexport_merge
++}  // namespace xbox360ps5
++
++#endif  // XENIA_GPU_MEMEXPORT_MERGE_H_
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+index ffd416c..de968fe 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+@@ -34,6 +34,7 @@
+ #include "xenia/gpu/vulkan/vulkan_pipeline_cache.h"
+ #include "xenia/gpu/vulkan/vulkan_render_target_cache.h"
+ #include "xenia/gpu/vulkan/vulkan_shader.h"
++#include "xenia/gpu/memexport_merge.h"  // Xbox360PS5 (fix 30)
+ #include "xenia/gpu/vulkan/vulkan_shared_memory.h"
+ #include "xenia/gpu/xenos.h"
+ #include "xenia/gpu/xenos_zpd_report.h"
+@@ -44,6 +45,7 @@
+ 
+ DECLARE_bool(clear_memory_page_state);
+ DECLARE_bool(readback_resolve_half_pixel_offset);
++DECLARE_uint32(readback_memexport_small);  // Xbox360PS5 (fix 30)
+ 
+ DEFINE_bool(vulkan_depth_bias_force_unorm, true,
+             "Apply the depth bias in constant units on float depth buffers "
+@@ -2708,6 +2710,15 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+   if (vertex_shader->memexport_eM_written() != 0 &&
+       device_properties.vertexPipelineStoresAndAtomics) {
+     draw_util::AddMemExportRanges(regs, *vertex_shader, memexport_ranges_);
++  } else if (vertex_shader->memexport_eM_written() != 0) {
++    // Xbox360PS5 (fix 30): the export is dropped; say so once.
++    static bool memexport_unsupported_logged = false;
++    if (!memexport_unsupported_logged) {
++      memexport_unsupported_logged = true;
++      XELOGW(
++          "GPU: a vertex shader exports to memory, but the device has no "
++          "vertexPipelineStoresAndAtomics: the export is not done");
++    }
+   }
+ 
+   // Pixel shader analysis.
+@@ -3304,6 +3315,34 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+     }
+   }
+ 
++  // Xbox360PS5 (fix 30): whether this draw's exports are read back to guest
++  // memory (all with the option, small ones always: Battlefield 3 starts its
++  // jobs with one), and guest memory before the draw, so only what the draw
++  // changed is written back (xenia/gpu/memexport_merge.h).
++  uint64_t memexport_total_bytes = 0;
++  for (const draw_util::MemExportRange& memexport_range : memexport_ranges_) {
++    memexport_total_bytes += memexport_range.size_bytes;
++  }
++  const bool memexport_readback = xbox360ps5::memexport_merge::ShouldReadBack(
++      GetGPUSetting(GPUSetting::ReadbackMemexport), memexport_total_bytes,
++      cvars::readback_memexport_small);
++  if (memexport_readback) {
++    // Candidate 28: and the GPU's copy of the ranges refreshed from guest
++    // memory before the draw (see PrepareReadback).
++    std::vector<xbox360ps5::memexport_merge::Range> ranges;
++    for (const draw_util::MemExportRange& memexport_range :
++         memexport_ranges_) {
++      ranges.push_back({memexport_range.base_address_dwords << 2,
++                        memexport_range.size_bytes});
++    }
++    xbox360ps5::memexport_merge::PrepareReadback(
++        *shared_memory_,
++        [this](uint32_t start, uint8_t* destination, uint32_t length) {
++          std::memcpy(destination, memory_->TranslatePhysical(start), length);
++        },
++        ranges, memexport_before_);
++  }
++
+   // Synchronize the memory pages backing memory scatter export streams, and
+   // calculate the range that includes the streams for the buffer barrier.
+   uint32_t memexport_extent_start = UINT32_MAX, memexport_extent_end = 0;
+@@ -3419,9 +3458,8 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+                                       memexport_range.size_bytes);
+   }
+ 
+-  // CPU readback for memexport data (if enabled).
+-  if (GetGPUSetting(GPUSetting::ReadbackMemexport) &&
+-      !memexport_ranges_.empty()) {
++  // CPU readback for memexport data (if enabled, or small: fix 30).
++  if (memexport_readback && !memexport_ranges_.empty()) {
+     // Calculate total size of all memexport ranges.
+     uint32_t memexport_total_size = 0;
+     for (const draw_util::MemExportRange& memexport_range : memexport_ranges_) {
+@@ -3475,12 +3513,56 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+             if (mapped_data) {
+               const uint8_t* readback_bytes =
+                   static_cast<const uint8_t*>(mapped_data);
++              // Xbox360PS5 (fix 30): only the dwords the draw changed; the
++              // CPU may have written the others since (a job queue's slots).
++              const uint8_t* before_bytes = memexport_before_.data();
+               for (const draw_util::MemExportRange& memexport_range :
+                    memexport_ranges_) {
+-                std::memcpy(memory_->TranslatePhysical(
+-                                memexport_range.base_address_dwords << 2),
+-                            readback_bytes, memexport_range.size_bytes);
++                namespace mm = xbox360ps5::memexport_merge;
++                const uint32_t range_start =
++                    memexport_range.base_address_dwords << 2;
++                // Candidate 31: each changed dword of a range with few changes
++                // (Battlefield 3's job queue), when the title asked for them.
++                std::vector<mm::Change> changes;
++                const bool detail =
++                    mm::DetailEnabled().load(std::memory_order_relaxed) &&
++                    mm::DetailLines().load(std::memory_order_relaxed) <
++                        mm::kChangeLinesTotal;
++                const auto merged = mm::Merge(
++                    memory_->TranslatePhysical(range_start), before_bytes,
++                    readback_bytes, memexport_range.size_bytes,
++                    detail ? &changes : nullptr, mm::kChangesPerRange + 1);
++                if (detail &&
++                    merged.written + merged.kept <= mm::kChangesPerRange) {
++                  for (const mm::Change& change : changes) {
++                    if (mm::DetailLines().fetch_add(
++                            1, std::memory_order_relaxed) >=
++                        mm::kChangeLinesTotal) {
++                      break;
++                    }
++                    const uint32_t other_address =
++                        (range_start + change.offset) ^ 4;
++                    const uint32_t other = xe::load_and_swap<uint32_t>(
++                        memory_->TranslatePhysical(other_address));
++                    XELOGW("GPU: {}", mm::ChangeLine(range_start, change, other));
++                  }
++                }
++                static uint32_t memexport_logged = 0;
++                if (memexport_logged < 16) {
++                  ++memexport_logged;
++                  XELOGW(
++                      "GPU: memory export read back at physical {:08X}, {} "
++                      "bytes ({}): {} dwords written, {} changed by the CPU "
++                      "meanwhile and kept",
++                      memexport_range.base_address_dwords << 2,
++                      memexport_range.size_bytes,
++                      GetGPUSetting(GPUSetting::ReadbackMemexport)
++                          ? "option on"
++                          : "small export",
++                      merged.written, merged.kept);
++                }
+                 readback_bytes += memexport_range.size_bytes;
++                before_bytes += memexport_range.size_bytes;
+               }
+             } else {
+               XELOGE(
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
+index 3b55f80..2d2cfc7 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
+@@ -880,6 +880,9 @@ class VulkanCommandProcessor final : public CommandProcessor {
+ 
+   // Temporary storage for memexport stream constants used in the draw.
+   std::vector<draw_util::MemExportRange> memexport_ranges_;
++  // Xbox360PS5 (fix 30): guest memory of the ranges before a draw whose
++  // exports are read back.
++  std::vector<uint8_t> memexport_before_;
+ 
+   // Per-resolve double-buffered readback for delayed sync
+   struct ReadbackBuffer {
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+index 2b7ee96..f171f9c 100644
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -83,4 +83,5 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
+ #include "xenia/gpu/cp_trace.h"
+ #include "xenia/cpu/entry_probe.h"  // candidate 21: Battlefield 3's render-job probes
++#include "xenia/gpu/memexport_merge.h"  // fix 30: the export lines for Battlefield 3
+ #include "xenia/kernel/user_module.h"
+ #include "xenia/base/memory.h"
+@@ -2265,4 +2266,6 @@ int main(int argc, char** argv) {
+         // its code anyway; counts are kept either way).
+         xbox360ps5::entry_probe::Global().Enable(std::strtoul(log_id.c_str(), nullptr, 16) == 0x45410950ul);
++        // Fix 30, candidate 31: each dword Battlefield 3's job queue gets from a memory export.
++        xbox360ps5::memexport_merge::DetailEnabled().store(std::strtoul(log_id.c_str(), nullptr, 16) == 0x45410950ul);
+         overrides = xbox360ps5::LoadGameOverrides(settings_title);
+         settings = xbox360ps5::ForGame(global, settings_title, overrides);

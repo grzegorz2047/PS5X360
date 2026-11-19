@@ -867,7 +867,7 @@ index 435c185..382b77d 100644
    {
      std::lock_guard<std::mutex> guard(keep_lock);
 diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
-index 99510b7..e49255c 100644
+index 2b7ee96..3f917db 100644
 --- a/src/canary_game_main.cpp
 +++ b/src/canary_game_main.cpp
 @@ -36,32 +36,27 @@ extern const char* (*ui_text)(const char* english);  // xam_ui.cc: the system wi
@@ -921,7 +921,7 @@ index 99510b7..e49255c 100644
    }
    return english;
  }
-@@ -329,7 +324,7 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
+@@ -330,7 +325,7 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
      ImDrawList* list = ImGui::GetForegroundDrawList();
      const float scale = io.DisplaySize.y / 1080.0f;
      if(stalled_) {
@@ -930,7 +930,7 @@ index 99510b7..e49255c 100644
        const ImVec2 size=ImGui::GetFont()->CalcTextSizeA(24*scale,4096,0,notice);
        list->AddRectFilled(ImVec2(24*scale,1000*scale),ImVec2((60+size.x/scale)*scale,1048*scale),IM_COL32(0,0,0,180),8*scale);
        list->AddText(ImGui::GetFont(),24*scale,ImVec2(42*scale,1010*scale),IM_COL32(245,204,137,255),notice);
-@@ -373,17 +368,17 @@ struct GuideState {
+@@ -374,17 +369,17 @@ struct GuideState {
    float focus_y = -1.0f;
    float hint = 7.0f;  // Seconds the reminder of how to open it stays up.
  };
@@ -955,7 +955,7 @@ index 99510b7..e49255c 100644
      return items;
    }
    // The options that take effect at once. (The level of logging is left to the
-@@ -396,7 +391,7 @@ std::vector<GuideItem> GuideItems(int page, const xbox360ps5::Settings& settings
+@@ -397,7 +392,7 @@ std::vector<GuideItem> GuideItems(int page, const xbox360ps5::Settings& settings
      // Fix 22: the network mode, changed while the game runs (network.conf, as the home's Online
      // channel); "..." while the change is under way.
      namespace net = xbox360ps5::guide_network;
@@ -964,7 +964,7 @@ index 99510b7..e49255c 100644
      // The categories that have something to change while the game runs.
      const int categories = int(sizeof(xbox360ps5::kOptionCategories) / sizeof(xbox360ps5::kOptionCategories[0]));
      for (int c = 0; c < categories; ++c) {
-@@ -404,11 +399,11 @@ std::vector<GuideItem> GuideItems(int page, const xbox360ps5::Settings& settings
+@@ -405,11 +400,11 @@ std::vector<GuideItem> GuideItems(int page, const xbox360ps5::Settings& settings
        for (const auto& option : xbox360ps5::Options()) count += shown(option) && option.category == c;
        if (!count) continue;
        GuideItem item{GuideAction::category, Tr(xbox360ps5::kOptionCategories[c]),
@@ -978,7 +978,7 @@ index 99510b7..e49255c 100644
      return items;
    }
    for (const auto& option : xbox360ps5::Options()) {
-@@ -469,7 +464,7 @@ class Guide final : public xe::ui::ImGuiDialog {
+@@ -470,7 +465,7 @@ class Guide final : public xe::ui::ImGuiDialog {
      if (!state_.open && state_.openness == 0.0f) {
        if (state_.hint <= 0.0f) return;
        state_.hint -= io.DeltaTime;
@@ -987,7 +987,7 @@ index 99510b7..e49255c 100644
        const float alpha = std::min(1.0f, state_.hint);
        const ImVec2 size = small->CalcTextSizeA(22 * scale, 4096.0f, 0.0f, text);
        const float x = io.DisplaySize.x - size.x - 60 * scale, y = 36 * scale;
-@@ -507,7 +502,7 @@ class Guide final : public xe::ui::ImGuiDialog {
+@@ -508,7 +503,7 @@ class Guide final : public xe::ui::ImGuiDialog {
      const auto at = [&](float x, float y) { return ImVec2(x * scale, y * scale); };
      const float left = 412, right = 1508, top = 304, bottom = 778, blade = 66;
      // Header: the guide's name, who is signed in, what is running.
@@ -996,7 +996,7 @@ index 99510b7..e49255c 100644
      char speed[32];
      std::snprintf(speed, sizeof(speed), "%.0f FPS", fps_);
      const std::string who = profile_.empty() ? std::string(speed) : profile_ + "   ·   " + speed;
-@@ -570,16 +565,16 @@ class Guide final : public xe::ui::ImGuiDialog {
+@@ -571,16 +566,16 @@ class Guide final : public xe::ui::ImGuiDialog {
      }
      list->PopClipRect();
      if (!game_.empty()) {
@@ -1017,7 +1017,7 @@ index 99510b7..e49255c 100644
      list->AddText(small, 20 * scale, at(left + 136, 835), fade(140, 146, 154), xbox360ps5::kBuildVersionLabel);
      if (!web_.empty()) {
        const ImVec2 size = small->CalcTextSizeA(20 * scale, 4096.0f, 0.0f, web_.c_str());
-@@ -674,14 +669,14 @@ std::string WebState(const xbox360ps5::Settings& global, std::vector<std::pair<s
+@@ -675,14 +670,14 @@ std::string WebState(const xbox360ps5::Settings& global, std::vector<std::pair<s
      json += "}";
      first = false;
    }
@@ -1040,7 +1040,7 @@ index 99510b7..e49255c 100644
    return json;
  }
  // The options that are not at their recommended value, for the log of a session.
-@@ -1640,17 +1635,17 @@ int main(int argc, char** argv) {
+@@ -1738,17 +1733,17 @@ int main(int argc, char** argv) {
    const auto show_web_address = [&launcher, &web_hint] {
      const std::string plain = xbox360ps5::WebSettingsPlainAddress(), key = xbox360ps5::WebSettingsKey();
      launcher.SetWebPage(xbox360ps5::WebSettingsAddress(), plain, key);
@@ -1061,7 +1061,7 @@ index 99510b7..e49255c 100644
        notice.close();
        std::error_code notice_error;
        std::filesystem::remove(storage / "notice.txt", notice_error);
-@@ -1816,7 +1811,7 @@ int main(int argc, char** argv) {
+@@ -1914,7 +1909,7 @@ int main(int argc, char** argv) {
          xbox360ps5::Toast toast;
          toast.title = earned.name;
          const auto* profile = emulator.kernel_state()->xam_state()->profile_manager()->GetProfile(earned.xuid);
@@ -1070,7 +1070,7 @@ index 99510b7..e49255c 100644
          toast.icon_path = xbox360ps5::SaveAchievementIcon(earned.title_id, earned.id, earned.icon);
          toast.trophy_sound = true;
          xbox360ps5::Notify(std::move(toast));
-@@ -1825,7 +1820,7 @@ int main(int argc, char** argv) {
+@@ -1923,7 +1918,7 @@ int main(int argc, char** argv) {
          // A notification without earning anything: a file put in the title's folder asks for one.
          std::error_code test_error;
          if (std::filesystem::remove("/app0/notify-test.txt", test_error))
@@ -1079,7 +1079,7 @@ index 99510b7..e49255c 100644
        }
        int toasts_were = global.achievement_toasts;
        // The settings page: what it shows, and the changes it asked for. A change
-@@ -1952,7 +1947,7 @@ int main(int argc, char** argv) {
+@@ -2050,7 +2045,7 @@ int main(int argc, char** argv) {
              const auto* profile = profiles->GetProfile(uint8_t(slot));
              const std::string name = profile ? profile->name() : "Player " + std::to_string(slot + 1);
              XELOGW("Local player {}: {} ({})", slot + 1, sample.connected ? "connected" : "disconnected", name);
@@ -1088,7 +1088,7 @@ index 99510b7..e49255c 100644
            }
          }
        };
-@@ -2148,7 +2143,7 @@ int main(int argc, char** argv) {
+@@ -2246,7 +2241,7 @@ int main(int argc, char** argv) {
              else if (pressed & 0xCF0) xbox360ps5::PlayUiSound(xbox360ps5::UiSound::move);
              // Switching the achievement notifications on shows what one looks like.
              if (global.achievement_toasts && !toasts_were)
@@ -1097,8 +1097,8 @@ index 99510b7..e49255c 100644
              toasts_were = global.achievement_toasts;
              if (apply_web(false) || ++web_tick % 90 == 0) { show_web_address(); publish_web("", ""); }
              context.Tick(); window.Paint();
-@@ -2165,7 +2160,7 @@ int main(int argc, char** argv) {
-         settings_title = log_id;
+@@ -2266,7 +2261,7 @@ int main(int argc, char** argv) {
+         xbox360ps5::entry_probe::Global().Enable(std::strtoul(log_id.c_str(), nullptr, 16) == 0x45410950ul);
          overrides = xbox360ps5::LoadGameOverrides(settings_title);
          settings = xbox360ps5::ForGame(global, settings_title, overrides);
 -        // Binary release patch group 13: the game's own "fsi" option (1, Padrão: its preset,
@@ -1106,7 +1106,7 @@ index 99510b7..e49255c 100644
          // else the general choice; 0 and 2 force it).
          if (const bool fsi_wanted =
                  settings.fsi == 1 ? xbox360ps5::FsiWantedFor(settings_title) : settings.fsi == 2;
-@@ -2250,7 +2245,7 @@ int main(int argc, char** argv) {
+@@ -2351,7 +2346,7 @@ int main(int argc, char** argv) {
          if (!status) { launched = true; break; }
          if (!dialog) { result = 5; break; }
          char text[96];
@@ -1115,7 +1115,7 @@ index 99510b7..e49255c 100644
          launcher.SetMessage(text);
          game.clear();
        }
-@@ -2276,7 +2271,7 @@ int main(int argc, char** argv) {
+@@ -2377,7 +2372,7 @@ int main(int argc, char** argv) {
          publish_web(settings_title, game_name);
          ApplyPicture(settings, emulator.graphics_system()->presenter());
          bool trigger_was = true, swallow = false, quit = false;
@@ -1124,7 +1124,7 @@ index 99510b7..e49255c 100644
          bool library_open = false, close_library = false, create_seen = false;
          XELOGW("Controller: asked for the system's buttons (Create as BACK), answer {:08X}", unsigned(ps5x360_pad_privilege_answer));
          xbox360ps5::LauncherDialog* library_dialog = nullptr;
-@@ -2459,8 +2454,8 @@ int main(int argc, char** argv) {
+@@ -2560,8 +2555,8 @@ int main(int argc, char** argv) {
                    library_held = ~0u;
                    launcher.SetLoading("");
                    launcher.Scan();
@@ -1135,7 +1135,7 @@ index 99510b7..e49255c 100644
                    xbox360ps5::LauncherSetRunningGame(game.string(), game_name);
                    library_dialog = new xbox360ps5::LauncherDialog(&drawer, launcher);
                    emulator.kernel_state()->BroadcastNotification(xe::kXNotificationSystemUI, 1);
-@@ -2748,7 +2743,7 @@ int main(int argc, char** argv) {
+@@ -2849,7 +2844,7 @@ int main(int argc, char** argv) {
            XELOGW("Network: sessions removed and ports closed{}", done->load() ? "" : " (timed out)");
          }
          if (quit) {

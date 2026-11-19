@@ -1527,7 +1527,7 @@ index d5ce5b0..68d414e 100644
  }  // namespace xam
  }  // namespace kernel
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
-index bf19396..a7d6fff 100644
+index 481f8b0..2475ee5 100644
 --- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
 +++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
 @@ -8,6 +8,8 @@
@@ -1572,7 +1572,7 @@ index bf19396..a7d6fff 100644
  
  // TODO(gibbed): This is all one giant WIP that seems to work better than the
  // previous immediate synchronous completion of dialogs.
-@@ -684,6 +698,67 @@ dword_result_t XamShowKeyboardUI_entry(
+@@ -698,6 +712,67 @@ dword_result_t XamShowKeyboardUI_entry(
  }
  DECLARE_XAM_EXPORT1(XamShowKeyboardUI, kUI, kImplemented);
  
@@ -1640,7 +1640,7 @@ index bf19396..a7d6fff 100644
  dword_result_t XamShowDeviceSelectorUI_entry(
      dword_t user_index, dword_t content_type, dword_t content_flags,
      qword_t total_requested, lpdword_t device_id_ptr,
-@@ -715,47 +790,119 @@ dword_result_t XamShowDeviceSelectorUI_entry(
+@@ -729,47 +804,119 @@ dword_result_t XamShowDeviceSelectorUI_entry(
          overlapped);
    }
  
@@ -1831,7 +1831,7 @@ index 572a353..5a47bad 100644
    static const char* FilterName(int filter);
    void Load();
 diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
-index e49255c..72e8ec3 100644
+index 432ea0e..a9428fe 100644
 --- a/src/canary_game_main.cpp
 +++ b/src/canary_game_main.cpp
 @@ -32,6 +32,25 @@ extern std::filesystem::path config_folder;  // xenia/config.cc: LoadGameConfig
@@ -1880,7 +1880,7 @@ index e49255c..72e8ec3 100644
      {"Cancel", "Cancel"},
      {"Who is playing?", "Who is playing?"},
      {"Choose the profile for this game.", "Choose the profile for this game."},
-@@ -1422,6 +1454,10 @@ int main(int argc, char** argv) {
+@@ -1520,6 +1552,10 @@ int main(int argc, char** argv) {
    // and the system windows in the emulator's language.
    cvars::storage_selection_dialog = true;
    xe::kernel::xam::ui_text = &CoreUiText;
@@ -1891,7 +1891,7 @@ index e49255c..72e8ec3 100644
    const std::filesystem::path storage = "/download0/xbox360ps5";
    std::error_code error;
    std::filesystem::create_directories(storage, error);
-@@ -1831,7 +1867,32 @@ int main(int argc, char** argv) {
+@@ -1929,7 +1965,32 @@ int main(int argc, char** argv) {
          xbox360ps5::PublishWebState(WebState(global, launcher.Games(), running_id, running_name));
        };
        const auto apply_web = [&](bool in_game) {

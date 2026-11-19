@@ -4,7 +4,9 @@
 # Each tools/check-*.cpp listed below is copied into <tree>/tools and built from the tree's root
 # with the host's clang++-18 and the same flags as tools/source-checks/run.py (Zen 2, the
 # tree's include/ and reconstructed/ and the core's include roots), then run with its arguments.
-# Then tools/check-english-source.py checks fix 25 (English keys) with python3.
+# Then tools/check-assemble-skip.py (the switch that leaves fixes out) and tools/check-english-source.py
+# (fix 25, English keys) run with python3, and tools/check-gdfx-names.sh (fix 26: GDFX names and
+# guest paths, linked with the tree's xenia/base and disc image device) with bash.
 set -euo pipefail
 repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 tree=$(realpath "$1")
@@ -15,6 +17,13 @@ checks=(
   check-guide-network.cpp          # fix 22
   check-english-fallback.cpp       # fixes 23 and 25
   check-stall-dump.cpp             # fix 24
+  check-label-owner.cpp            # fix 24, candidate 21
+  check-memexport-merge.cpp        # fix 30
+  check-notify-first-poll.cpp      # fix 28
+  check-net-conf.cpp               # fix 29
+  check-xtl-locale.cpp             # fix 26
+  check-system-ui.cpp              # fix 26
+  check-fix26-tree.cpp             # fix 26
   check-save-devices.cpp           # fix 27
 )
 declare -A arguments=(
@@ -38,11 +47,25 @@ for name in "${checks[@]}"; do
     status=1
   fi
 done
+echo "=== check-assemble-skip.py"
+if "$python" -I "$repo/tools/check-assemble-skip.py" --tree "$tree"; then
+  echo "pass check-assemble-skip.py"
+else
+  echo "FAIL check-assemble-skip.py"
+  status=1
+fi
 echo "=== check-english-source.py"
 if "$python" -I "$repo/tools/check-english-source.py" --tree "$tree"; then
   echo "pass check-english-source.py"
 else
   echo "FAIL check-english-source.py"
+  status=1
+fi
+echo "=== check-gdfx-names.sh"
+if bash "$repo/tools/check-gdfx-names.sh" "$tree"; then
+  echo "pass check-gdfx-names.sh"
+else
+  echo "FAIL check-gdfx-names.sh"
   status=1
 fi
 exit $status

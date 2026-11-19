@@ -119,7 +119,8 @@ void DataPointers() {
   assert(!sd::LooksLikeData(3) && !sd::LooksLikeData(0x33));
   assert(sd::LooksLikeData(0x7018D5A0));  // Battlefield 3's main thread spins on an object in its frame
   assert(sd::LooksLikeData(0x30083010) && sd::LooksLikeData(0x437F8D80) && sd::LooksLikeData(0x89014FA0));
-  assert(!sd::LooksLikeData(0xF8000090) && !sd::LooksLikeData(0xFFFFFFFF));
+  assert(!sd::LooksLikeData(0xF8000090) && !sd::LooksLikeData(0xFFFFFFFF) && !sd::LooksLikeData(0xFFFF0000));
+  assert(sd::LooksLikeData(0xFFC4A410));  // physical memory above the handles: Battlefield 3's job objects
   assert(sd::LooksLikeHandle(0xF8000090) && sd::LooksLikeHandle(0xF80001A8));
   assert(!sd::LooksLikeHandle(0xF8000000) && !sd::LooksLikeHandle(0xF8000091) && !sd::LooksLikeHandle(0x30083010));
   assert(!sd::LooksLikeHandle(0xFFC49088));
@@ -214,6 +215,12 @@ void PointersFollowed() {
   pointers = sd::Pointers(memory, 0x7018D5A0, 8, 4);
   assert(pointers.size() == 2 && pointers[1].value == 0x4021C120);
   assert(sd::IsStack(0x7018D5A0) && !sd::IsStack(0x40218A00));
+  // Its r29 object with readback full (candidate_10): the job memory at FFC4A410 is followed.
+  FakeMemory job;
+  const uint32_t r29[8] = {0x8401081C, 0xFFC4A410, 3, 0, 0x8401081C, 0xFFC4A780, 0x1E, 0};
+  for (uint32_t n = 0; n < 8; ++n) job.Put(0x7018E2F0 + n * 4, r29[n]);
+  pointers = sd::Pointers(job, 0x7018E2F0, 8, 2);
+  assert(pointers.size() == 2 && pointers[0].value == 0x8401081C && pointers[1].value == 0xFFC4A410);
   std::printf("  pointers followed: heap objects only (the device at 40218A00)\n");
 }
 
@@ -262,6 +269,74 @@ void GpuTrace() {
   assert(std::string(ct::KindName(ct::Kind::kEventShd)) == "EVENT_WRITE_SHD");
   std::printf("  gpu trace: fence address and value found, targets bounded, wait state, ring pointers\n");
 }
+// The GPU's view of physical memory and the CPU's three views of it, as separate maps, so a
+// write that reached one and not the others can be shown.
+struct FakeViews {
+  std::map<uint32_t, uint32_t> physical, virt;
+  bool Physical(uint32_t at, uint32_t& value) {
+    auto found = physical.find(at);
+    value = found == physical.end() ? 0 : found->second;
+    return at < 0x20000000;
+  }
+  bool Virtual(uint32_t at, uint32_t& value) {
+    auto found = virt.find(at);
+    if (found != virt.end()) {
+      value = found->second;
+      return true;
+    }
+    // No CPU-side difference recorded: the view shows the physical memory.
+    uint32_t physical_address = at >= 0xE0000000 ? at - 0xE0000000 + 0x1000
+                                : at >= 0xC0000000 ? at - 0xC0000000 : at - 0xA0000000;
+    return Physical(physical_address, value);
+  }
+};
+
+void AwaitedDword() {
+  namespace ct = xbox360ps5::cp_trace;
+  // Battlefield 3 on candidate_16: WAIT_REG_MEM on memory 1F9BA0FE (endian 8in32) == FFFFFFFF.
+  assert(ct::PacketAddress(0x1F9BA0FE) == 0x1F9BA0FC && std::string(ct::EndianName(0x1F9BA0FE)) == "8in32");
+  assert(std::string(ct::EndianName(0x1F9BA0FC)) == "none" && std::string(ct::EndianName(0x1F9BA0FF)) == "16in32");
+  const auto aliases = ct::Aliases(0x1F9BA0FC);
+  assert(aliases.size() == 3);
+  assert(aliases[0].address == 0xBF9BA0FC && aliases[1].address == 0xDF9BA0FC && aliases[2].address == 0xFF9B90FC);
+  assert(ct::Aliases(0x800).size() == 2 && ct::Aliases(0x20000000).empty());
+  {
+    // (a) Nobody wrote it: all views agree on 0, the value is nowhere near.
+    FakeViews views;
+    const std::string text = ct::AliasReport(views, 0x1F9BA0FC, 0xFFFFFFFF, 0xFFFFFFFF);
+    assert(text.find("physical 1F9BA0FC = 00000000") == 0);
+    assert(text.find("E0000000 view FF9B90FC = 00000000") != std::string::npos);
+    assert(text.find("the views agree") != std::string::npos);
+    assert(text.find("nowhere within 8 KiB") != std::string::npos);
+  }
+  {
+    // (b) A CPU write through the 0xE0000000 view without its 4 KiB offset: FFFFFFFF lands 0x1000
+    // below the awaited dword, and that view shows something else at the awaited address.
+    FakeViews views;
+    views.physical[0x1F9BA0FC - 0x1000] = 0xFFFFFFFF;
+    views.virt[0xFF9B90FC] = 0x12345678;
+    const std::string text = ct::AliasReport(views, 0x1F9BA0FC, 0xFFFFFFFF, 0xFFFFFFFF);
+    assert(text.find("THE VIEWS DIFFER") != std::string::npos);
+    assert(text.find("near at 1F9B90FC(-4096)") != std::string::npos);
+  }
+  {
+    // The masked comparison: only the masked bits must match.
+    FakeViews views;
+    views.physical[0x1F9BA100] = 0x000000FF;
+    const std::string text = ct::AliasReport(views, 0x1F9BA0FC, 0x000000FF, 0x000000FF);
+    assert(text.find("1F9BA100(+4)") != std::string::npos);
+  }
+  // A wait's first value, and its report once it has lasted 2 s (only once).
+  ct::Trace trace;
+  trace.BeginWait(1000, true, 0x1F9BA0FE, 0xFFFFFFFF, 0xFFFFFFFF, 3, 0x0E7F1000);
+  trace.Poll(0);
+  trace.Poll(5);
+  assert(trace.Wait().first_value == 0 && trace.Wait().value == 5 && trace.Wait().packet == 0x0E7F1000);
+  assert(!trace.DueReport(2999, 2000) && trace.DueReport(3000, 2000) && !trace.DueReport(9000, 2000));
+  trace.EndWait();
+  assert(!trace.DueReport(9000, 2000));
+  std::printf("  awaited dword: address and endian, the three views, a write 4 KiB off found, 2 s report once\n");
+}
 }  // namespace
 
 int main() {
@@ -276,5 +351,6 @@ int main() {
   ObjectHistory();
   PointersFollowed();
   GpuTrace();
+  AwaitedDword();
   std::puts("PASS: STALL report guest memory (fix 24)");
 }

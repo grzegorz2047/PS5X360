@@ -1,0 +1,102 @@
+diff --git a/port/kinect_state.inc b/port/kinect_state.inc
+index 9ca5b19..0cc23cf 100644
+--- a/port/kinect_state.inc
++++ b/port/kinect_state.inc
+@@ -54,16 +54,11 @@ std::string KinectNetMode() {
+   return "offline";
+ }
+ bool KinectSetNetMode(const std::string& mode) {
+-  std::vector<std::string> kept;
+-  {
+-    std::ifstream conf(kKinectNetConf);
+-    for (std::string line; std::getline(conf, line);)
+-      if (line.rfind("mode=", 0) != 0) kept.push_back(line);
+-  }
+-  std::ofstream conf(kKinectNetConf, std::ios::trunc);
+-  conf << "mode=" << mode << '\n';
+-  for (const auto& line : kept) conf << line << '\n';
+-  return bool(conf);
++  // Fix 29: the folder is created first (net_conf.hpp); 1.0.2 failed when it was missing.
++  std::string error;
++  if (xbox360ps5::net_conf::SetMode(kKinectNetConf, mode, &error)) return true;
++  XELOGW("Network: network.conf not written (mode {}): {}", mode, error);
++  return false;
+ }
+ // The slots of each channel. Home: profile, achievements, the library, then the
+ // games played last. Settings: the emulator's settings and the user's own
+diff --git a/port/net_conf.hpp b/port/net_conf.hpp
+new file mode 100644
+index 0000000..29b6f6e
+--- /dev/null
++++ b/port/net_conf.hpp
+@@ -0,0 +1,58 @@
++// Fix 29: network.conf's mode, written by the home's Online / System Link channel and by the
++// guide's network row (fix 22), both through KinectSetNetMode (kinect_state.inc).
++//
++// 1.0.2 opened /data/homebrew/PPSA50011/network.conf with a bare std::ofstream. When that folder
++// does not exist (the title installed as a .ffpkg / fpkg and never run from the homebrew folder,
++// or a fresh console), the write always failed and the home showed "Could not write
++// network.conf." (BrinooTk/PS5X360 issue 111), so Online and System Link could not be turned on.
++// The folder is now created first, and the reason for a failure is given back for the log.
++// No Xenia headers here (checked on the host by tools/check-net-conf.cpp).
++#pragma once
++
++#include <cerrno>
++#include <cstring>
++#include <filesystem>
++#include <fstream>
++#include <string>
++#include <system_error>
++#include <vector>
++
++namespace xbox360ps5::net_conf {
++
++// Sets network.conf's "mode=" line to `mode` (first line), keeping every other line as it was.
++// Creates the file's folder when it is missing. On failure returns false and, when `error` is
++// given, says what failed.
++inline bool SetMode(const std::filesystem::path& file, const std::string& mode,
++                    std::string* error = nullptr) {
++  std::vector<std::string> kept;
++  {
++    std::ifstream conf(file);
++    for (std::string line; std::getline(conf, line);)
++      if (line.rfind("mode=", 0) != 0) kept.push_back(line);
++  }
++  if (file.has_parent_path()) {
++    std::error_code made;
++    std::filesystem::create_directories(file.parent_path(), made);
++    if (made) {
++      if (error) *error = "cannot create " + file.parent_path().string() + ": " + made.message();
++      return false;
++    }
++  }
++  errno = 0;
++  std::ofstream conf(file, std::ios::trunc);
++  if (!conf) {
++    if (error)
++      *error = "cannot open " + file.string() + ": " + (errno ? std::strerror(errno) : "unknown error");
++    return false;
++  }
++  conf << "mode=" << mode << '\n';
++  for (const auto& line : kept) conf << line << '\n';
++  conf.flush();
++  if (!conf) {
++    if (error) *error = "cannot write " + file.string();
++    return false;
++  }
++  return true;
++}
++
++}  // namespace xbox360ps5::net_conf
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+index 5da890b..8046b15 100644
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -14,6 +14,7 @@
+ #include "dlc_manager.hpp"
+ #include "update_manager.hpp"
+ #include "framegen_config.hpp"
++#include "net_conf.hpp"  // fix 29: network.conf written with its folder
+ #include "xbox360ps5/renderer.hpp"
+ #include "xbox360ps5/canary_audio.hpp"
+ #include "xbox360ps5/gpu_diagnostics.hpp"

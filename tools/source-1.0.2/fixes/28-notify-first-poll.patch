@@ -1,0 +1,427 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/kernel_state.cc b/.deps/xenia-canary/src/xenia/kernel/kernel_state.cc
+index 9d80ad8..cd5f3f6 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/kernel_state.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/kernel_state.cc
+@@ -1157,12 +1157,23 @@ void KernelState::RegisterNotifyListener(XNotifyListener* listener) {
+   // 4E4D07ED, 58410869. Fixes creating Xbox Live sessions.
+   // 4D5307D4 expects multiple notifications to access Xbox Live menus.
+   // Sign in related
++  // Xbox360PS5 (fix 28): held until the listener's first poll has returned.
++  // 55530825 (Naruto: The Broken Bond) polls its System|Live listener once
++  // inside the call that creates it, before it has made the object its
++  // sign-in handler uses, and crashed on this notification (read at 0x10).
++  // Upstream Canary does not send it at all; the titles above still get it,
++  // one poll later.
+   if (listener->mask() == (kXNotifySystem | kXNotifyLive)) {
+     const auto signed_in_players =
+         xam_state()->profile_manager()->GetUsedUserSlots().to_ulong();
+ 
+-    listener->EnqueueNotification(kXNotificationSystemSignInChanged,
+-                                  signed_in_players);
++    if (listener->EnqueueNotificationAfterFirstPoll(
++            kXNotificationSystemSignInChanged, signed_in_players)) {
++      XELOGW(
++          "Notifications: listener {:08X} (System|Live) gets its sign-in "
++          "change ({:X}) after its first poll",
++          listener->handle(), signed_in_players);
++    }
+   }
+ }
+ 
+diff --git a/.deps/xenia-canary/src/xenia/kernel/notify_queue.h b/.deps/xenia-canary/src/xenia/kernel/notify_queue.h
+new file mode 100644
+index 0000000..2bded86
+--- /dev/null
++++ b/.deps/xenia-canary/src/xenia/kernel/notify_queue.h
+@@ -0,0 +1,123 @@
++/**
++ ******************************************************************************
++ * Xbox360PS5 (fix 28): a notification listener's queue                       *
++ ******************************************************************************
++ * Released under the BSD license - see LICENSE in the root for more details. *
++ ******************************************************************************
++ */
++
++#ifndef XENIA_KERNEL_NOTIFY_QUEUE_H_
++#define XENIA_KERNEL_NOTIFY_QUEUE_H_
++
++#include <cstddef>
++#include <cstdint>
++#include <utility>
++#include <vector>
++
++namespace xe {
++namespace kernel {
++namespace notify {
++
++// The notifications of one XNotifyListener, in order.
++//
++// Push() makes a notification available to the next XNotifyGetNext at once.
++// PushAfterFirstPoll() holds it until the listener's first XNotifyGetNext has
++// returned: the core posts these itself when the listener is created, and on a
++// console XAM delivers such notifications from its own thread, never into the
++// call that creates the listener. Naruto: The Broken Bond (55530825) creates a
++// System|Live listener in its network start-up and polls it once right away,
++// before it has made the object its sign-in handler uses (the global at
++// 833A3400); a sign-in change in that first poll called 827F9D48 with a null
++// object and crashed (read at 0x10). Its next poll, from its frame loop after
++// start-up, handles the same notification safely.
++//
++// pending() says whether the listener's event should be set: held
++// notifications count, so a title that waits on the listener and polls too
++// early wakes again and gets them on its next poll.
++template <typename Id>
++class Queue {
++ public:
++  using Entry = std::pair<Id, uint32_t>;
++
++  void Push(Id id, uint32_t data) { ready_.emplace_back(id, data); }
++
++  // Returns true when the notification is held (the listener has not been
++  // polled yet), false when it is available at once.
++  bool PushAfterFirstPoll(Id id, uint32_t data) {
++    if (polled_) {
++      ready_.emplace_back(id, data);
++      return false;
++    }
++    held_.emplace_back(id, data);
++    return true;
++  }
++
++  // XNotifyGetNext without an id: the oldest available notification.
++  // released (optional) gets how many held notifications this poll made
++  // available (non-zero only on the first poll).
++  bool Next(Id* out_id, uint32_t* out_data, size_t* released = nullptr) {
++    bool taken = false;
++    if (!ready_.empty()) {
++      *out_id = ready_.front().first;
++      *out_data = ready_.front().second;
++      ready_.erase(ready_.begin());
++      taken = true;
++    }
++    FinishPoll(released);
++    return taken;
++  }
++
++  // XNotifyGetNext with an id: the oldest available notification with it.
++  bool Match(Id id, uint32_t* out_data, size_t* released = nullptr) {
++    bool taken = false;
++    for (auto it = ready_.begin(); it != ready_.end(); ++it) {
++      if (it->first != id) {
++        continue;
++      }
++      *out_data = it->second;
++      ready_.erase(it);
++      taken = true;
++      break;
++    }
++    FinishPoll(released);
++    return taken;
++  }
++
++  bool pending() const { return !ready_.empty() || !held_.empty(); }
++  bool polled() const { return polled_; }
++  size_t held() const { return held_.size(); }
++  size_t available() const { return ready_.size(); }
++
++  // Everything still queued, available first (Save).
++  std::vector<Entry> All() const {
++    std::vector<Entry> all(ready_);
++    all.insert(all.end(), held_.begin(), held_.end());
++    return all;
++  }
++
++ private:
++  void FinishPoll(size_t* released) {
++    if (released) {
++      *released = 0;
++    }
++    if (polled_) {
++      return;
++    }
++    polled_ = true;
++    if (released) {
++      *released = held_.size();
++    }
++    ready_.insert(ready_.end(), held_.begin(), held_.end());
++    held_.clear();
++  }
++
++  std::vector<Entry> ready_;
++  std::vector<Entry> held_;
++  bool polled_ = false;
++};
++
++}  // namespace notify
++}  // namespace kernel
++}  // namespace xe
++
++#endif  // XENIA_KERNEL_NOTIFY_QUEUE_H_
+diff --git a/.deps/xenia-canary/src/xenia/kernel/util/socket_option_posix.h b/.deps/xenia-canary/src/xenia/kernel/util/socket_option_posix.h
+new file mode 100644
+index 0000000..1dee23f
+--- /dev/null
++++ b/.deps/xenia-canary/src/xenia/kernel/util/socket_option_posix.h
+@@ -0,0 +1,71 @@
++/**
++ ******************************************************************************
++ * Xbox360PS5 (fix 28): Winsock-only socket options on a POSIX host           *
++ ******************************************************************************
++ * Released under the BSD license - see LICENSE in the root for more details. *
++ ******************************************************************************
++ */
++
++#ifndef XENIA_KERNEL_UTIL_SOCKET_OPTION_POSIX_H_
++#define XENIA_KERNEL_UTIL_SOCKET_OPTION_POSIX_H_
++
++#include <cstdint>
++
++#if !defined(_WIN32)
++#include <sys/socket.h>
++#endif
++
++namespace xe {
++namespace kernel {
++namespace socket_option {
++
++// The guest's SOL_SOCKET level and the two Winsock options written as the
++// complement of another (SO_DONTLINGER = ~SO_LINGER, SO_EXCLUSIVEADDRUSE =
++// ~SO_REUSEADDR). XSocket::SetOption mapped them to ~SO_LINGER and
++// ~SO_REUSEADDR, which only Winsock knows; a POSIX host answers ENOPROTOOPT
++// (WSAENOPROTOOPT 0x273A in the log). Naruto: The Broken Bond sets
++// SO_DONTLINGER on its UDP socket before binding port 1111.
++constexpr uint32_t kGuestSolSocket = 0xFFFF;
++constexpr uint32_t kGuestDontLinger = ~uint32_t(0x0080);
++constexpr uint32_t kGuestExclusiveAddrUse = ~uint32_t(0x0004);
++
++enum class Kind {
++  kPassThrough,       // the usual mapping
++  kDontLinger,        // SO_LINGER with l_onoff = !value, l_linger kept
++  kExclusiveAddrUse,  // nothing to set: a POSIX socket without SO_REUSEADDR
++                      // already refuses a second bind to its address
++};
++
++constexpr Kind Classify(uint32_t level, uint32_t optname) {
++  if (level != kGuestSolSocket) {
++    return Kind::kPassThrough;
++  }
++  if (optname == kGuestDontLinger) {
++    return Kind::kDontLinger;
++  }
++  if (optname == kGuestExclusiveAddrUse) {
++    return Kind::kExclusiveAddrUse;
++  }
++  return Kind::kPassThrough;
++}
++
++#if !defined(_WIN32)
++// SO_DONTLINGER as Winsock does it: a non-zero value turns lingering off, zero
++// turns it on with the timeout the socket had. value is in host order.
++// Returns setsockopt's result (errno set on failure).
++inline int SetDontLinger(int fd, uint32_t value) {
++  linger current{};
++  socklen_t length = sizeof(current);
++  if (getsockopt(fd, SOL_SOCKET, SO_LINGER, &current, &length) != 0) {
++    current = linger{};
++  }
++  current.l_onoff = value ? 0 : 1;
++  return setsockopt(fd, SOL_SOCKET, SO_LINGER, &current, sizeof(current));
++}
++#endif
++
++}  // namespace socket_option
++}  // namespace kernel
++}  // namespace xe
++
++#endif  // XENIA_KERNEL_UTIL_SOCKET_OPTION_POSIX_H_
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xnotifylistener.cc b/.deps/xenia-canary/src/xenia/kernel/xnotifylistener.cc
+index 2cce3b1..bc8fffb 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xnotifylistener.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xnotifylistener.cc
+@@ -46,46 +46,57 @@ void XNotifyListener::EnqueueNotification(XNotificationID id, uint32_t data) {
+     return;
+   }
+   auto global_lock = global_critical_region_.Acquire();
+-  notifications_.push_back(std::pair<XNotificationID, uint32_t>(id, data));
++  notifications_.Push(id, data);
+   wait_handle_->Set();
+ }
+ 
++bool XNotifyListener::EnqueueNotificationAfterFirstPoll(XNotificationID id,
++                                                        uint32_t data) {
++  auto key = XNotificationKey(id);
++  if ((mask_ & uint64_t(1ULL << key.mask_index)) == 0) {
++    return false;
++  }
++  if (key.version > max_version_) {
++    return false;
++  }
++  auto global_lock = global_critical_region_.Acquire();
++  const bool held = notifications_.PushAfterFirstPoll(id, data);
++  // Set while held too: a title waiting on the listener wakes, and its poll
++  // after the first gets the notification.
++  wait_handle_->Set();
++  return held;
++}
++
++// Xbox360PS5 (fix 28): after a poll, the event follows what is still queued
++// (held notifications included), and the first poll's release is logged.
++static void AfterPoll(xe::threading::Event* wait_handle, bool pending,
++                      size_t released, uint32_t handle) {
++  if (!pending) {
++    wait_handle->Reset();
++  }
++  if (released) {
++    XELOGW(
++        "Notifications: listener {:08X} polled for the first time; {} "
++        "notification(s) it got at creation now available",
++        handle, released);
++  }
++}
++
+ bool XNotifyListener::DequeueNotification(XNotificationID* out_id,
+                                           uint32_t* out_data) {
+   auto global_lock = global_critical_region_.Acquire();
+-  bool dequeued = false;
+-  if (notifications_.size()) {
+-    dequeued = true;
+-    auto it = notifications_.begin();
+-    *out_id = it->first;
+-    *out_data = it->second;
+-    notifications_.erase(it);
+-    if (!notifications_.size()) {
+-      wait_handle_->Reset();
+-    }
+-  }
++  size_t released = 0;
++  const bool dequeued = notifications_.Next(out_id, out_data, &released);
++  AfterPoll(wait_handle_.get(), notifications_.pending(), released, handle());
+   return dequeued;
+ }
+ 
+ bool XNotifyListener::DequeueNotification(XNotificationID id,
+                                           uint32_t* out_data) {
+   auto global_lock = global_critical_region_.Acquire();
+-  if (!notifications_.size()) {
+-    return false;
+-  }
+-  bool dequeued = false;
+-  for (auto it = notifications_.begin(); it != notifications_.end(); ++it) {
+-    if (it->first != id) {
+-      continue;
+-    }
+-    dequeued = true;
+-    *out_data = it->second;
+-    notifications_.erase(it);
+-    if (!notifications_.size()) {
+-      wait_handle_->Reset();
+-    }
+-    break;
+-  }
++  size_t released = 0;
++  const bool dequeued = notifications_.Match(id, out_data, &released);
++  AfterPoll(wait_handle_.get(), notifications_.pending(), released, handle());
+   return dequeued;
+ }
+ 
+@@ -94,8 +105,9 @@ bool XNotifyListener::Save(ByteStream* stream) {
+ 
+   stream->Write(mask_);
+   stream->Write(max_version_);
+-  stream->Write(notifications_.size());
+-  for (auto pair : notifications_) {
++  const auto queued = notifications_.All();
++  stream->Write(queued.size());
++  for (auto pair : queued) {
+     stream->Write<uint32_t>(pair.first);
+     stream->Write<uint32_t>(pair.second);
+   }
+@@ -120,7 +132,7 @@ object_ref<XNotifyListener> XNotifyListener::Restore(KernelState* kernel_state,
+     std::pair<XNotificationID, uint32_t> pair;
+     pair.first = stream->Read<uint32_t>();
+     pair.second = stream->Read<uint32_t>();
+-    notify->notifications_.push_back(pair);
++    notify->notifications_.Push(pair.first, pair.second);
+   }
+ 
+   return object_ref<XNotifyListener>(notify);
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xnotifylistener.h b/.deps/xenia-canary/src/xenia/kernel/xnotifylistener.h
+index a489ba2..f59f2cb 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xnotifylistener.h
++++ b/.deps/xenia-canary/src/xenia/kernel/xnotifylistener.h
+@@ -16,6 +16,7 @@
+ #include "xenia/base/assert.h"
+ #include "xenia/base/mutex.h"
+ #include "xenia/base/threading.h"
++#include "xenia/kernel/notify_queue.h"
+ #include "xenia/kernel/xobject.h"
+ #include "xenia/xbox.h"
+ 
+@@ -54,6 +55,9 @@ class XNotifyListener : public XObject {
+   void Initialize(uint64_t mask, uint32_t is_system, uint32_t max_version);
+ 
+   void EnqueueNotification(XNotificationID id, uint32_t data);
++  // Xbox360PS5 (fix 28): held until this listener's first XNotifyGetNext has
++  // returned (notify_queue.h). Returns true when it was held.
++  bool EnqueueNotificationAfterFirstPoll(XNotificationID id, uint32_t data);
+   bool DequeueNotification(XNotificationID* out_id, uint32_t* out_data);
+   bool DequeueNotification(XNotificationID id, uint32_t* out_data);
+ 
+@@ -69,7 +73,7 @@ class XNotifyListener : public XObject {
+  private:
+   std::unique_ptr<xe::threading::Event> wait_handle_;
+   xe::global_critical_region global_critical_region_;
+-  std::vector<std::pair<XNotificationID, uint32_t>> notifications_;
++  notify::Queue<XNotificationID> notifications_;
+   uint64_t mask_ = 0;
+   uint32_t is_system_ = 0;
+   uint32_t max_version_ = 0;
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xsocket.cc b/.deps/xenia-canary/src/xenia/kernel/xsocket.cc
+index 04c812a..d03afbc 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xsocket.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xsocket.cc
+@@ -19,6 +19,7 @@
+ 
+ #include "xenia/base/platform.h"
+ #include "xenia/kernel/kernel_state.h"
++#include "xenia/kernel/util/socket_option_posix.h"
+ #include "xenia/kernel/xam/xam_module.h"
+ #include "xenia/kernel/xboxkrnl/xboxkrnl_threading.h"
+ 
+@@ -201,6 +202,36 @@ int XSocket::SetOption(uint32_t level, uint32_t optname, void* optval_ptr,
+     return X_ERROR_SUCCESS;
+   }
+ 
++#ifndef XE_PLATFORM_WIN32
++  // Xbox360PS5 (fix 28): SO_DONTLINGER and SO_EXCLUSIVEADDRUSE exist only in
++  // Winsock (~SO_LINGER, ~SO_REUSEADDR); the console answered ENOPROTOOPT.
++  switch (socket_option::Classify(level, optname)) {
++    case socket_option::Kind::kDontLinger: {
++      void* value_ptr =
++          GetOptValueWithProperEndianness(optval_ptr, optname, optlen);
++      uint32_t value = 0;
++      if (optlen >= 4) {
++        std::memcpy(&value, value_ptr, 4);
++      } else if (optlen >= 1) {
++        value = *static_cast<const uint8_t*>(value_ptr);
++      }
++      if (value_ptr != optval_ptr) {
++        free(value_ptr);
++      }
++      if (socket_option::SetDontLinger(int(native_handle_), value) != 0) {
++        XELOGE("XSocket::SetOption: SO_DONTLINGER failed with error {:08X}",
++               XWSAGetLastError());
++        return X_SOCKET_ERROR;
++      }
++      return X_ERROR_SUCCESS;
++    }
++    case socket_option::Kind::kExclusiveAddrUse:
++      return X_ERROR_SUCCESS;
++    case socket_option::Kind::kPassThrough:
++      break;
++  }
++#endif
++
+   int native_level = level;
+ 
+   assert_false(!supported_levels.contains(level));
