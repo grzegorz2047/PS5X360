@@ -38,6 +38,7 @@ checks=(
   check-kinect-usb.cpp             # fix 44
   check-media-voice.cpp            # fix 32
   check-switch-title.cpp           # fix 33
+  check-pipeline-claim.cpp         # fix 34
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"

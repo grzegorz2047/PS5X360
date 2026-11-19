@@ -27,6 +27,7 @@ on:
       - 'tools/check-wait-wakeups.cpp'
       - 'tools/check-media-voice.cpp'
       - 'tools/check-switch-title.cpp'
+      - 'tools/check-pipeline-claim.cpp'
       - 'tools/check-assemble-skip.py'
       - 'tools/check-patch-syntax.py'
       - 'tools/check-bf3-preset.py'

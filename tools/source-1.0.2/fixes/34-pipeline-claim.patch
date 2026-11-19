@@ -1,0 +1,228 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/pipeline_claim.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/pipeline_claim.h
+new file mode 100644
+index 0000000..ebaa37f
+--- /dev/null
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/pipeline_claim.h
+@@ -0,0 +1,84 @@
++/**
++ ******************************************************************************
++ * Xbox360PS5: fix 34, a pipeline the GPU thread needs is created at once.    *
++ ******************************************************************************
++ * The creation workers take requests from a max-heap on priority. A warm start
++ * queues every pipeline of the game's .vk.bin storage (hundreds to thousands,
++ * shadow and depth-only ones at priority 0); a draw that needs one of them before
++ * a worker got to it found no pipeline handle and waited
++ * (VulkanCommandProcessor::IssueDrawInner, AwaitPipelineCompletion(pipeline))
++ * until the workers had worked through everything queued above it: frozen intros
++ * and loading screens of several hundred ms to seconds. The same wait served the
++ * stand-in pipelines a draw must not use (binary release patch group 8).
++ *
++ * Every queued request is also recorded here by pipeline. Whoever takes the
++ * record creates the pipeline: the worker that pops the request, or the GPU
++ * thread that needs it first, which then creates it itself instead of waiting.
++ * A worker that pops a request whose record is gone skips it. All calls are made
++ * with the cache's creation_request_lock_ held.
++ ******************************************************************************
++ */
++
++#ifndef XENIA_GPU_VULKAN_PIPELINE_CLAIM_H_
++#define XENIA_GPU_VULKAN_PIPELINE_CLAIM_H_
++
++#include <cstddef>
++#include <mutex>
++#include <unordered_map>
++
++namespace xe {
++namespace gpu {
++namespace vulkan {
++namespace pipeline_claim {
++
++template <typename Key, typename Args>
++class Queued {
++ public:
++  // A request was pushed to the queue.
++  void Add(Key key, const Args& args) { requests_[key] = args; }
++  // Takes the request of `key` if it is still unclaimed (a copy in `args`).
++  bool Take(Key key, Args* args = nullptr) {
++    auto it = requests_.find(key);
++    if (it == requests_.end()) {
++      return false;
++    }
++    if (args) {
++      *args = it->second;
++    }
++    requests_.erase(it);
++    return true;
++  }
++  size_t size() const { return requests_.size(); }
++
++ private:
++  std::unordered_map<Key, Args> requests_;
++};
++
++// The GPU thread needs a pipeline now (`lock` held on the creation lock). Done:
++// returns. Still queued: takes it, creates it without the lock and wakes the
++// other waiters. Taken by a worker already: waits for it as before. Returns true
++// when it created the pipeline itself.
++template <typename Mutex, typename Cond, typename Ready, typename Take,
++          typename Create>
++bool AwaitOrCreate(std::unique_lock<Mutex>& lock, Cond& cond, Ready&& ready,
++                   Take&& take, Create&& create) {
++  if (ready()) {
++    return false;
++  }
++  if (take()) {
++    lock.unlock();
++    create();
++    lock.lock();
++    cond.notify_all();
++    return true;
++  }
++  cond.wait(lock, ready);
++  return false;
++}
++
++}  // namespace pipeline_claim
++}  // namespace vulkan
++}  // namespace gpu
++}  // namespace xe
++
++#endif  // XENIA_GPU_VULKAN_PIPELINE_CLAIM_H_
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_pipeline_cache.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_pipeline_cache.cc
+index de35501..7db1b24 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_pipeline_cache.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_pipeline_cache.cc
+@@ -13,6 +13,7 @@
+ 
+ #include "shader_stutter_trace.hpp"
+ 
++#include <chrono>
+ #include <cstdint>
+ #include <cstdio>
+ #include <cstring>
+@@ -884,6 +885,8 @@ bool VulkanPipelineCache::ConfigurePipeline(
+         creation_arguments.render_pass = render_pass;
+         creation_arguments.priority = priority;
+         creation_queue_.push(creation_arguments);
++        // Fix 34: recorded, so a draw that needs it first can take it.
++        queued_requests_.Add(&pipeline_pair.second, creation_arguments);
+       }
+       creation_request_cond_.notify_one();
+     } else {
+@@ -1002,20 +1005,59 @@ void VulkanPipelineCache::AwaitPipelineCompletion(const Pipeline& pipeline) {
+     return;
+   }
+   std::unique_lock<std::mutex> lock(creation_request_lock_);
+-  // Wake creation workers as well as target waiters on the shared condition.
+-  if (!creation_queue_.empty()) {
+-    creation_request_cond_.notify_all();
+-  }
+-  creation_request_cond_.wait(lock, [&pipeline]() {
++  const auto ready = [&pipeline]() {
+     return pipeline.creation_failed.load(std::memory_order_acquire) ||
+            (!pipeline.is_placeholder.load(std::memory_order_acquire) &&
+             pipeline.pipeline.load(std::memory_order_acquire) != VK_NULL_HANDLE);
+-  });
++  };
++  // Xbox360PS5 (fix 34): a pipeline no worker has taken yet is created here at
++  // once instead of waiting until the workers reach it in the queue (a warm
++  // start queues all of the game's stored pipelines; this draw's could be the
++  // last of them). One a worker is creating is waited for as before.
++  PipelineCreationArguments claimed;
++  size_t still_queued = 0;
++  const auto start = std::chrono::steady_clock::now();
++  const bool created_here = pipeline_claim::AwaitOrCreate(
++      lock, creation_request_cond_, ready,
++      [&]() {
++        still_queued = queued_requests_.size();
++        return queued_requests_.Take(&pipeline, &claimed);
++      },
++      [&]() {
++        if (!EnsureShadersTranslated(claimed.vertex_shader,
++                                     claimed.pixel_shader) ||
++            !EnsurePipelineCreated(claimed)) {
++          claimed.pipeline->second.MarkCreationFailed();
++          XELOGE("Vulkan pipeline creation on the GPU thread failed: VS "
++                 "{:016X}, PS {:016X}",
++                 claimed.vertex_shader->shader().ucode_data_hash(),
++                 claimed.pixel_shader
++                     ? claimed.pixel_shader->shader().ucode_data_hash()
++                     : uint64_t(0));
++        }
++      });
++  if (created_here) {
++    ++created_on_gpu_thread_;
++    if (created_on_gpu_thread_ <= 16 || !(created_on_gpu_thread_ & 255)) {
++      XELOGW(
++          "Vulkan pipelines: a draw needed a pipeline still queued ({} queued, "
++          "priority {}); created on the GPU thread in {} ms ({} so far)",
++          still_queued, uint32_t(claimed.priority),
++          std::chrono::duration_cast<std::chrono::milliseconds>(
++              std::chrono::steady_clock::now() - start)
++              .count(),
++          created_on_gpu_thread_);
++    }
++  } else if (!creation_queue_.empty()) {
++    // Wake creation workers as well as target waiters on the shared condition.
++    creation_request_cond_.notify_all();
++  }
+ }
+ 
+ void VulkanPipelineCache::CreationThread() {
+   for (;;) {
+     PipelineCreationArguments creation_arguments;
++    bool taken_elsewhere = false;
+     {
+       std::unique_lock<std::mutex> lock(creation_request_lock_);
+       creation_request_cond_.wait(lock, [this]() {
+@@ -1026,11 +1068,15 @@ void VulkanPipelineCache::CreationThread() {
+       }
+       creation_arguments = creation_queue_.top();
+       creation_queue_.pop();
++      // Xbox360PS5 (fix 34): taken by the GPU thread already, which created it.
++      taken_elsewhere = !queued_requests_.Take(&creation_arguments.pipeline->second);
+       ++creation_threads_busy_;
+     }
+ 
+     bool creation_succeeded = false;
+-    if (!EnsureShadersTranslated(creation_arguments.vertex_shader,
++    if (taken_elsewhere) {
++      creation_succeeded = true;
++    } else if (!EnsureShadersTranslated(creation_arguments.vertex_shader,
+                                  creation_arguments.pixel_shader)) {
+       XELOGE("Failed to translate shaders for pipeline creation");
+     } else {
+@@ -3801,6 +3847,8 @@ void VulkanPipelineCache::InitializeShaderStorage(
+         creation_arguments.render_pass = render_pass;
+         creation_arguments.priority = priority;
+         creation_queue_.push(creation_arguments);
++        // Fix 34: recorded, so a draw that needs it first can take it.
++        queued_requests_.Add(&pipeline_pair.second, creation_arguments);
+         creation_request_cond_.notify_one();
+       } else {
+         // No creation threads - create synchronously.
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_pipeline_cache.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_pipeline_cache.h
+index 4a2b393..3d07b5d 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_pipeline_cache.h
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_pipeline_cache.h
+@@ -35,6 +35,7 @@
+ #include "xenia/gpu/registers.h"
+ #include "xenia/gpu/shader_storage.h"
+ #include "xenia/gpu/spirv_shader_translator.h"
++#include "xenia/gpu/vulkan/pipeline_claim.h"
+ #include "xenia/gpu/vulkan/vulkan_render_target_cache.h"
+ #include "xenia/gpu/vulkan/vulkan_shader.h"
+ #include "xenia/gpu/xenos.h"
+@@ -531,6 +532,12 @@ class VulkanPipelineCache {
+                       std::vector<PipelineCreationArguments>,
+                       PipelineCreationPriorityCompare>
+       creation_queue_;
++  // Xbox360PS5 (fix 34): the queued requests no one has taken yet, by
++  // pipeline, so the GPU thread can create one it needs at once
++  // (pipeline_claim.h). Guarded by creation_request_lock_.
++  pipeline_claim::Queued<const Pipeline*, PipelineCreationArguments>
++      queued_requests_;
++  uint64_t created_on_gpu_thread_ = 0;  // GPU thread only
+   std::mutex creation_request_lock_;
+   std::condition_variable creation_request_cond_;
+   std::unique_ptr<xe::threading::Event> creation_completion_event_ = nullptr;
