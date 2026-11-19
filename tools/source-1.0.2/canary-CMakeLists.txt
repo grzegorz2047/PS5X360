@@ -1,0 +1,93 @@
+# PS5X360 1.0.2 rebuilt from the author's source drops (tools/source-1.0.2/assemble.py writes
+# this file to <tree>/canary/CMakeLists.txt). Cross build only.
+#
+# The author linked 1.0.2 from objects of earlier builds plus recompiled ones (build_online.py);
+# here every object is compiled from the assembled tree. Flags follow the author's recorded
+# recipes: the core with Canary's own CMake files (Release, -O3), the port's title objects with
+# -O2 -mavx, everything with -march=znver2 -fno-stack-protector (0.5.9's canary/CMakeLists.txt).
+cmake_minimum_required(VERSION 3.20)
+project(ps5x360_102 LANGUAGES C CXX)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+if(NOT CMAKE_CROSSCOMPILING)
+  message(FATAL_ERROR "Configure with the PS5 payload SDK's toolchain file")
+endif()
+set(ROOT "${CMAKE_CURRENT_SOURCE_DIR}/..")
+set(XENIA_CANARY "${ROOT}/.deps/xenia-canary")
+file(STRINGS "${ROOT}/VERSION" XBOX360PS5_VERSION LIMIT_COUNT 1)
+option(PS5X360_OPENGL_GAME_RENDERER "Link the OpenGL game renderer (not reconstructed yet)" OFF)
+
+# Headers Linux has and the console's FreeBSD-derived SDK does not.
+include_directories(BEFORE SYSTEM "${ROOT}/platform/ps5/compat")
+# The port's headers, seen by the core too (the author compiled the core with -I for these
+# folders: include/, the dash-mode include, the framegen, disc and kinect build folders).
+include_directories("${ROOT}/include" "${ROOT}/port" "${ROOT}/reconstructed")
+add_compile_options(-march=znver2 -fno-stack-protector)
+add_compile_definitions(ZSTD_TRACE=0)
+# build_online.py's EXTRA_FLAGS for the online core: std::jthread is experimental in libc++ 18.
+add_compile_definitions(_LIBCPP_ENABLE_EXPERIMENTAL CURL_STATICLIB MINIUPNP_STATICLIB)
+
+add_subdirectory("${XENIA_CANARY}" core EXCLUDE_FROM_ALL)
+# Netplay's kernel: libcurl's headers (the library itself is built by online/net-libs).
+target_include_directories(xenia-kernel PRIVATE "${XENIA_CANARY}/third_party/libcurl/include")
+
+set(PS5X360_CORE_LIBRARIES
+  xenia-apu xenia-apu-nop xenia-base xenia-core xenia-cpu xenia-gpu xenia-hid xenia-hid-portal
+  xenia-kernel xenia-patcher xenia-ui xenia-vfs xenia-gpu-vulkan xenia-ui-vulkan
+  xenia-cpu-backend-x64
+  aes_128 capstone fmt dxbc imgui libavcodec libavutil libavformat mspack snappy xxhash
+  glslang-spirv zlib-ng pugixml zstd zarchive)
+add_custom_target(ps5x360-core-libraries DEPENDS ${PS5X360_CORE_LIBRARIES})
+
+# Mbed TLS 3.6.7 for the phone camera's HTTPS server, configured as kinect-native-20261009/build.py.
+file(GLOB PS5X360_MBEDTLS_SOURCES "${ROOT}/mbedtls/library/*.c")
+add_library(ps5x360-mbedtls STATIC ${PS5X360_MBEDTLS_SOURCES})
+target_include_directories(ps5x360-mbedtls PUBLIC "${ROOT}/mbedtls/include" PRIVATE "${ROOT}/mbedtls/library")
+target_compile_definitions(ps5x360-mbedtls PUBLIC MBEDTLS_USER_CONFIG_FILE="mbedtls_ps5x360_config.h")
+target_compile_options(ps5x360-mbedtls PRIVATE -O2 -w)
+
+add_library(xbox360ps5-title-objects OBJECT
+  "${ROOT}/src/canary_game_main.cpp"
+  "${ROOT}/src/launcher.cpp"
+  "${ROOT}/src/covers.cpp"
+  "${ROOT}/src/autotest.cpp"
+  "${ROOT}/src/game_patches.cpp"
+  "${ROOT}/src/dlc_install.cpp"
+  "${ROOT}/src/title_switch.cpp"
+  "${ROOT}/platform/ps5/memory_ps5.cpp"
+  "${ROOT}/platform/ps5/exception_handler.cpp"
+  "${ROOT}/platform/ps5/dualsense_input.cpp"
+  "${ROOT}/platform/ps5/canary_audio.cpp"
+  "${ROOT}/platform/ps5/ui_sounds.cpp"
+  "${ROOT}/platform/ps5/canary_system.cpp"
+  "${ROOT}/platform/ps5/crash_report.cpp"
+  "${ROOT}/platform/ps5/thread_place.cpp"
+  "${ROOT}/platform/ps5/notify.cpp"
+  "${ROOT}/platform/ps5/web_settings.cpp"
+  "${ROOT}/platform/ps5/net_log.cpp"
+  "${ROOT}/platform/ps5/libc_bits.c"
+  "${ROOT}/platform/ps5/native_memory_calls.cpp"
+  "${ROOT}/platform/ps5/radv_dispatch.cpp"
+  "${ROOT}/platform/ps5/vulkan_platform.cpp"
+  "${ROOT}/port/multi_disc.cpp"
+  "${ROOT}/port/disc_catalog.cpp"
+  "${ROOT}/port/disc_library.cpp"
+  "${ROOT}/port/kinect_skin.cpp"
+  "${ROOT}/port/game_art.cpp"
+  "${ROOT}/port/xex_package_decoder.cpp"
+  "${ROOT}/port/ps5_resolver.cpp"
+  "${ROOT}/port/phone_camera_tls.cpp"
+  "${ROOT}/port/vendor/ps5_framegen.cpp")
+target_include_directories(xbox360ps5-title-objects PRIVATE
+  "${ROOT}/port/shared" "${XENIA_CANARY}" "${XENIA_CANARY}/src" "${XENIA_CANARY}/src/xenia/vfs"
+  "${XENIA_CANARY}/third_party" "${XENIA_CANARY}/third_party/fmt/include"
+  "${XENIA_CANARY}/third_party/Vulkan-Headers/include"
+  "${XENIA_CANARY}/third_party/libcurl/include"
+  "${ROOT}/mbedtls/include")
+target_compile_definitions(xbox360ps5-title-objects PRIVATE XBOX360PS5_CANARY=1 NDEBUG
+  XBOX360PS5_VERSION="${XBOX360PS5_VERSION}"
+  MBEDTLS_USER_CONFIG_FILE="mbedtls_ps5x360_config.h")
+if(PS5X360_OPENGL_GAME_RENDERER)
+  target_compile_definitions(xbox360ps5-title-objects PRIVATE PS5X360_OPENGL_GAME_RENDERER=1)
+endif()
+target_compile_options(xbox360ps5-title-objects PRIVATE -O2 -mavx)

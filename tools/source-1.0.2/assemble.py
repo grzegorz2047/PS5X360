@@ -1,0 +1,319 @@
+"""Assemble a source tree for PS5X360 v1.0.2 from the author's public source drops.
+
+    python3 -I tools/source-1.0.2/assemble.py --out build/src102 [--cache .deps/src102-cache]
+
+Inputs (all public; every archive is checked against its SHA-256 below):
+  * BrinooTk/PS5X360 release assets PS5X360-source-{0.5.9-fix1,0.6.0-changes,1.0.0-changes,
+    1.0.2-changes}.zip
+  * AdrianCassar/xenia-canary netplay_canary_experimental d2cf527aa (the core's base, with its
+    submodules; wolfSSL, libcurl and miniupnpc are the commits the author names)
+  * Mbed TLS 3.6.7 (phone-camera TLS server; the archive the author records)
+
+Output (--out): a project root laid out like this repository, so the repository's toolchain
+steps can build it:
+  .deps/xenia-canary/   the core: netplay d2cf527aa + 1.0.0 ps5-port-over-netplay.diff
+                        + 1.0.2 commits-since-netplay-merge.diff + uncommitted.diff (hunk by hunk,
+                        see layer.py) + core-build-adapters.patch (CMake glue, not the author's)
+  include/ platform/ src/   the port's sources, newest drop wins (see TITLE_LAYERS)
+  port/                 loose port files the author built from build/ folders (framegen, disc
+                        library, update and DLC managers, phone camera, title files of 1.0.0/1.0.2)
+  reconstructed/        headers no drop contains, rebuilt from their uses (marked as such)
+  online/               net-libs/CMakeLists.txt of 1.0.0 with deps/ (wolfSSL, libcurl, miniupnp)
+  mbedtls/              Mbed TLS 3.6.7
+  SOURCES.json          where every file came from, and every core hunk's fate
+
+Downloaded material is data: nothing from it is executed by this script.
+"""
+import argparse
+import hashlib
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tarfile
+import urllib.request
+import zipfile
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+REPO = HERE.parents[1]
+sys.path.insert(0, str(HERE))
+from layer import layer  # noqa: E402
+
+RELEASES = 'https://github.com/BrinooTk/PS5X360/releases/download'
+DROPS = {
+    'v0.5.9-fix1': ('PS5X360-source-0.5.9-fix1.zip',
+                    '56de622c2596116812c5136b5f9b765c4ac18d015d71a8a3c9bb28138fdf948d'),
+    'v0.6.0': ('PS5X360-source-0.6.0-changes.zip',
+               '315a9df892995511403d2198e95058b850e470d6879d6c31d9e3397746412a93'),
+    'v1.0.0': ('PS5X360-source-1.0.0-changes.zip',
+               'b8854e2212d19b47a3ca6bcd8e21f15b236998bbc55bb25ac64afbf3af35f2ed'),
+    'v1.0.2': ('PS5X360-source-1.0.2-changes.zip',
+               'd9bd03469de0f858d6d3ef8ebde04771b26c6fbcad68f765b0f33bdd0f10d606'),
+}
+NETPLAY_URL = 'https://github.com/AdrianCassar/xenia-canary.git'
+NETPLAY_COMMIT = 'd2cf527aa2bcc7e6720aeeaab9e06bcc231f67fa'
+# Not needed for the PS5 title (Windows shader compiler, lint, tests, desktop-only libraries).
+SUBMODULES_EXCLUDED = {'third_party/DirectXShaderCompiler', 'third_party/DirectX-Headers',
+                       'third_party/cpplint', 'third_party/catch'}
+# The commits 1.0.0's LICENSE-NOTICE names; checked against the netplay submodules.
+NET_LIBS = {'third_party/wolfssl': '3c5eead44904df64e6a5a1f4ebdce377d35a849a',
+            'third_party/libcurl': '3163ec065643ba20709f190111f42c3e1fe95273',
+            'third_party/miniupnp': 'b91c025446d3ec3d9161cd56c91e200484af7906'}
+MBEDTLS = ('https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.7/mbedtls-3.6.7.tar.bz2',
+           'a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6')
+
+S59 = 'v0.5.9-fix1/source'
+O59 = S59 + '/release-overlays/build'
+V60 = 'v0.6.0'
+# (destination in --out, source in the extracted drops). Directories are merged; a later entry
+# replaces an earlier file. Order = the author's own chronology (release notes, folder dates).
+TITLE_LAYERS = [
+    # v0.5.9 Fix 1: the complete working snapshot, then the frozen changes linked into 0.5.9.
+    ('include', f'{S59}/include'),
+    ('platform', f'{S59}/platform'),
+    ('src', f'{S59}/src'),
+    ('include', f'{O59}/baseline-cache-20261008/include'),
+    ('include', f'{O59}/kinect-update-20261008/native/include'),
+    ('include', f'{O59}/kinect-update-20261008/web/include'),
+    ('include', f'{O59}/multidisc-20261008/include'),
+    ('src/title_switch.cpp', f'{O59}/multidisc-20261008/title_switch.cpp'),
+    ('port/multi_disc.cpp', f'{O59}/multidisc-20261008/multi_disc.cpp'),
+    ('port/phone_camera.hpp', f'{O59}/kinect-update-20261008/web/phone_camera.hpp'),
+    # v0.6.0 (2026-10-09/10), in the order of its README.
+    ('platform/ps5/dualsense_input.cpp', f'{V60}/net-fix-20261009/input/dualsense_input.cpp'),
+    ('port/socket_errno.h', f'{V60}/net-fix-20261009/socket_errno.h'),
+    ('port/overlay_rates.hpp', f'{V60}/framegen-counter-20261009/overlay/overlay_rates.hpp'),
+    ('port/disc_catalog.cpp', f'{V60}/bully-loading-20261009/candidate/disc_catalog.cpp'),
+    ('port/disc_catalog.hpp', f'{V60}/bully-loading-20261009/candidate/disc_catalog.hpp'),
+    ('port/disc_library.cpp', f'{V60}/bully-loading-20261009/candidate/disc_library.cpp'),
+    ('port/disc_library.hpp', f'{V60}/bully-loading-20261009/candidate/disc_library.hpp'),
+    ('port/readonly_file_pool.hpp', f'{V60}/bully-loading-20261009/readonly-pool/readonly_file_pool.hpp'),
+    ('platform/ps5/web_settings.cpp', f'{V60}/kinect-native-20261009/web_settings.cpp'),
+    ('port/dlc_manager.hpp', f'{V60}/kinect-native-20261009/dlc_manager.hpp'),
+    ('port/phone_camera_console.hpp', f'{V60}/kinect-native-20261009/phone_camera_console.hpp'),
+    ('port/phone_camera_tls.hpp', f'{V60}/kinect-native-20261009/phone_camera_tls.hpp'),
+    ('port/phone_camera_tls.cpp', f'{V60}/kinect-native-20261009/phone_camera_tls.cpp'),
+    ('port/mbedtls_ps5x360_config.h', f'{V60}/kinect-native-20261009/mbedtls_ps5x360_config.h'),
+    ('port/vendor', f'{V60}/0.5.9-framegen.4-local-SOURCE/vendor'),
+    ('port/source_clock.hpp', f'{V60}/0.5.9-framegen.4-local-SOURCE/source_clock.hpp'),
+    ('port/frame_pacing.hpp', f'{V60}/0.5.9-framegen.4-local-SOURCE/presenter/frame_pacing.hpp'),
+    ('port/shader_stutter_trace.hpp', f'{V60}/0.5.9-framegen.4-local-SOURCE/shader-agent/shader_stutter_trace.hpp'),
+    ('port/update_manager.hpp', f'{V60}/title-updates-20261010/update_manager.hpp'),
+    ('port/framegen_config.hpp', f'{V60}/framegen-always-20261010/framegen_config.hpp'),
+    ('port/pacing_adapter.hpp', f'{V60}/framegen-always-20261010/pacing_adapter.hpp'),
+    ('port/adaptive_pacing.hpp', f'{V60}/framegen-always-20261010/adaptive_pacing.hpp'),
+    ('port/presenter_sidecar.hpp', f'{V60}/framegen-always-20261010/presenter/presenter_sidecar.hpp'),
+    ('port/shared/output_metrics.hpp', f'{V60}/framegen-always-20261010/shared/output_metrics.hpp'),
+    # v1.0.0 (2026-10-22): the title of the release.
+    ('include/xbox360ps5/dashboard_mode.hpp', 'v1.0.0/src/include/xbox360ps5/dashboard_mode.hpp'),
+    ('src/canary_game_main.cpp', 'v1.0.0/src/title/canary_game_main.cpp'),
+    ('src/launcher.cpp', 'v1.0.0/src/title/launcher.cpp'),
+    ('port/kinect_skin.cpp', 'v1.0.0/src/title/kinect_skin.cpp'),
+    ('port/kinect_skin.hpp', 'v1.0.0/src/title/kinect_skin.hpp'),
+    ('port/kinect_home.inc', 'v1.0.0/src/title/kinect_home.inc'),
+    ('port/kinect_press.inc', 'v1.0.0/src/title/kinect_press.inc'),
+    ('port/kinect_shelf.inc', 'v1.0.0/src/title/kinect_shelf.inc'),
+    ('port/kinect_state.inc', 'v1.0.0/src/title/kinect_state.inc'),
+    ('port/game_art.cpp', 'v1.0.0/src/title/game_art.cpp'),
+    ('port/game_art.hpp', 'v1.0.0/src/title/game_art.hpp'),
+    ('port/xex_package_decoder.cpp', 'v1.0.0/src/title/xex_package_decoder.cpp'),
+    ('port/xex_package_decoder.hpp', 'v1.0.0/src/title/xex_package_decoder.hpp'),
+    ('port/ps5_resolver.cpp', 'v1.0.0/src/title/ps5_resolver.cpp'),
+    ('online/net-libs', 'v1.0.0/src/net-libs'),
+    # v1.0.2 (2026-10-22): the name resolver and the open phone-camera folder.
+    ('port/ps5_resolver.cpp', 'v1.0.2/port/port-src/ps5_resolver.cpp'),
+    ('port/phone_camera_tls.cpp', 'v1.0.2/port/phone-folder/phone_camera_tls.cpp'),
+]
+# The author's licence and notice files, kept with the tree.
+NOTICES = [
+    ('licenses/drop-1.0.0', 'v1.0.0/licenses'),
+    ('licenses/drop-1.0.0/LICENSE-NOTICE.txt', 'v1.0.0/LICENSE-NOTICE.txt'),
+    ('licenses/drop-1.0.2/LICENSE-NOTICE.txt', 'v1.0.2/1.0.2-package/LICENSE-NOTICE.txt'),
+    ('licenses/drop-0.5.9', f'{S59}/licenses'),
+    ('licenses/drop-0.5.9/LICENSE', f'{S59}/LICENSE'),
+    ('licenses/framegen-COPYING', f'{V60}/0.5.9-framegen.4-local-SOURCE/COPYING'),
+]
+# From this repository: build glue that is not in any drop (the author's build/ folders are not
+# published). Each is the repository's own file, used unchanged.
+FROM_REPO = ['platform/ps5/compat', 'tooling/native-game-symbols.map', 'tools/resolve-mesa-weaks.py',
+             'assets/fonts', 'LICENSE', 'licenses']
+
+
+def sha256(path):
+    h = hashlib.sha256()
+    with open(path, 'rb') as f:
+        for chunk in iter(lambda: f.read(1 << 20), b''):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def fetch(url, dest, digest):
+    if not dest.exists() or sha256(dest) != digest:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        print('download', url, flush=True)
+        with urllib.request.urlopen(url) as r, open(dest, 'wb') as f:
+            shutil.copyfileobj(r, f)
+    actual = sha256(dest)
+    if actual != digest:
+        sys.exit(f'{dest.name}: SHA-256 {actual}, expected {digest}')
+    return dest
+
+
+def run(*cmd, cwd=None):
+    print('+', ' '.join(map(str, cmd)), flush=True)
+    subprocess.run([str(c) for c in cmd], cwd=cwd, check=True)
+
+
+def git(tree, *args, capture=False):
+    cmd = ['git', '-C', str(tree), '-c', 'core.autocrlf=false', '-c', 'advice.detachedHead=false', *args]
+    if capture:
+        return subprocess.run(cmd, check=True, capture_output=True, text=True).stdout
+    run(*cmd)
+
+
+def extract_drops(cache):
+    root = cache / 'x'
+    for tag, (name, digest) in DROPS.items():
+        archive = fetch(f'{RELEASES}/{tag}/{name}', cache / tag / name, digest)
+        target = root / tag
+        stamp = target / '.sha256'
+        if stamp.exists() and stamp.read_text() == digest:
+            continue
+        if target.exists():
+            shutil.rmtree(target)
+        with zipfile.ZipFile(archive) as z:
+            for info in z.infolist():
+                # Untrusted archive: no absolute paths or parent references.
+                parts = Path(info.filename).parts
+                if info.filename.startswith(('/', '\\')) or '..' in parts:
+                    sys.exit(f'{name}: unsafe member {info.filename}')
+            z.extractall(target)
+        stamp.write_text(digest)
+    return root
+
+
+def build_core(out, drops, report):
+    core = out / '.deps/xenia-canary'
+    if not (core / '.git').exists():
+        core.mkdir(parents=True, exist_ok=True)
+        git(core, 'init', '-q')
+        git(core, 'remote', 'add', 'origin', NETPLAY_URL)
+    git(core, 'fetch', '-q', '--depth', '1', 'origin', NETPLAY_COMMIT)
+    git(core, 'checkout', '-q', '-f', '--detach', NETPLAY_COMMIT)
+    git(core, 'clean', '-qfdx')
+    paths = git(core, 'config', '-f', '.gitmodules', '--get-regexp', 'path', capture=True).split()[1::2]
+    wanted = [p for p in paths if p not in SUBMODULES_EXCLUDED]
+    git(core, 'submodule', 'update', '--init', '--depth', '1', '--', *wanted)
+    for path, commit in NET_LIBS.items():
+        actual = git(core / path, 'rev-parse', 'HEAD', capture=True).strip()
+        assert actual == commit, (path, actual, commit)
+    # 1.0.0: the PS5 port over netplay, whole (TREE-HEAD d8e0a65).
+    git(core, 'apply', '--whitespace=nowarn', drops / 'v1.0.0/src/core/ps5-port-over-netplay.diff')
+    # 1.0.2: the online core's commits since the netplay merge (partly in 1.0.0 already), then
+    # its uncommitted changes.
+    for name in ('commits-since-netplay-merge.diff', 'uncommitted.diff'):
+        result = layer(core, (drops / 'v1.0.2/online-core' / name).read_text(encoding='utf-8'))
+        report['core_layers'][name] = result
+        bad = {k: v for k, v in result.items() if v.get('conflict') or v.get('failed_whole')}
+        if bad:
+            sys.exit(f'{name}: hunks that neither apply nor are present: {bad}')
+    # libcurl: the author's one change (blocking PS5 sockets).
+    git(core / 'third_party/libcurl', 'apply', '--whitespace=nowarn', drops / 'v1.0.2/libcurl-3163ec0.diff')
+    # Not the author's: the CMake glue this repository already uses for the PS5 (no LTO for the
+    # PS5 link, POSIX platform sources, FFmpeg's config) so Canary's CMake files build the tree.
+    git(core, 'apply', '--whitespace=nowarn', HERE / 'core-build-adapters.patch')
+    report['core'] = {
+        'base': f'{NETPLAY_URL} {NETPLAY_COMMIT}',
+        'applied': ['v1.0.0/src/core/ps5-port-over-netplay.diff',
+                    'v1.0.2/online-core/commits-since-netplay-merge.diff (hunk by hunk)',
+                    'v1.0.2/online-core/uncommitted.diff (hunk by hunk)',
+                    'v1.0.2/libcurl-3163ec0.diff (third_party/libcurl)',
+                    'tools/source-1.0.2/core-build-adapters.patch (this repository)'],
+        'submodules_excluded': sorted(SUBMODULES_EXCLUDED),
+        'changed_files': git(core, 'status', '--porcelain', capture=True).count('\n'),
+    }
+    return core
+
+
+def copy_entry(src, dest, origin, manifest, out):
+    if src.is_dir():
+        for item in sorted(src.rglob('*')):
+            if item.is_file():
+                copy_entry(item, dest / item.relative_to(src), f'{origin}/{item.relative_to(src).as_posix()}',
+                           manifest, out)
+        return
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(src, dest)
+    rel = dest.relative_to(out).as_posix()
+    entry = {'from': origin, 'sha256': sha256(dest)}
+    if rel in manifest:
+        entry['replaces'] = manifest[rel]['from']
+    manifest[rel] = entry
+
+
+def build_title(out, drops, report):
+    manifest = report['files']
+    for dest, source in TITLE_LAYERS + NOTICES:
+        copy_entry(drops / source, out / dest, 'drop:' + source, manifest, out)
+    for rel in FROM_REPO:
+        copy_entry(REPO / rel, out / rel, 'repo:' + rel, manifest, out)
+    copy_entry(HERE / 'reconstructed', out / 'reconstructed', 'reconstructed (this repository)', manifest, out)
+    copy_entry(HERE / 'canary-CMakeLists.txt', out / 'canary/CMakeLists.txt',
+               'repo:tools/source-1.0.2/canary-CMakeLists.txt', manifest, out)
+    (out / 'VERSION').write_text('1.0.2\n')
+
+
+def build_online(out, core, cache, report):
+    # The layout 1.0.0's net-libs/CMakeLists.txt expects: ../deps/<lib> and ../tree.
+    deps = out / 'online/deps'
+    deps.mkdir(parents=True, exist_ok=True)
+    for name, path in (('wolfssl', 'third_party/wolfssl'), ('libcurl', 'third_party/libcurl'),
+                       ('miniupnp', 'third_party/miniupnp')):
+        link = deps / name
+        if link.is_symlink() or link.exists():
+            link.unlink() if link.is_symlink() else shutil.rmtree(link)
+        os.symlink(os.path.relpath(core / path, deps), link, target_is_directory=True)
+    tree = out / 'online/tree'
+    if tree.is_symlink():
+        tree.unlink()
+    os.symlink(os.path.relpath(core, tree.parent), tree, target_is_directory=True)
+    archive = fetch(MBEDTLS[0], cache / 'mbedtls-3.6.7.tar.bz2', MBEDTLS[1])
+    target = out / 'mbedtls'
+    if target.exists():
+        shutil.rmtree(target)
+    with tarfile.open(archive) as t:
+        t.extractall(out, filter='data')
+    (out / 'mbedtls-3.6.7').rename(target)
+    report['online'] = {'net_libs': NET_LIBS, 'mbedtls': {'url': MBEDTLS[0], 'sha256': MBEDTLS[1]}}
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
+    parser.add_argument('--out', type=Path, default=REPO / 'build/src102')
+    parser.add_argument('--cache', type=Path, default=REPO / '.deps/src102-cache')
+    parser.add_argument('--skip-core', action='store_true', help='title files only (no clone)')
+    args = parser.parse_args()
+    out, cache = args.out.resolve(), args.cache.resolve()
+    for sub in ('include', 'platform', 'src', 'port', 'reconstructed', 'online', 'canary', 'licenses'):
+        if (out / sub).exists():
+            shutil.rmtree(out / sub)
+    out.mkdir(parents=True, exist_ok=True)
+    drops = extract_drops(cache)
+    report = {'drops': {t: {'asset': n, 'sha256': d} for t, (n, d) in DROPS.items()},
+              'core_layers': {}, 'files': {}}
+    if not args.skip_core:
+        core = build_core(out, drops, report)
+        build_online(out, core, cache, report)
+    build_title(out, drops, report)
+    (out / 'SOURCES.json').write_text(json.dumps(report, indent=1, sort_keys=True) + '\n')
+    counts = {}
+    for info in report['files'].values():
+        kind = info['from'].split(':', 1)[0].split(' ')[0]
+        counts[kind] = counts.get(kind, 0) + 1
+    print('assembled', out, counts)
+
+
+if __name__ == '__main__':
+    main()

@@ -1,0 +1,62 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 30febc4b7..5d9c1329b 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -292,9 +292,13 @@ else()
+   add_compile_options($<$<CONFIG:Release>:-O3>)
+   # Link-time optimization (use lld and llvm-ar/ranlib to avoid system
+   # linker/archiver LTO plugin version mismatch with clang's bitcode)
+-  add_compile_options($<$<CONFIG:Release>:-flto=thin>)
+-  add_link_options($<$<CONFIG:Release>:-flto=thin>)
+-  add_link_options($<$<CONFIG:Release>:-fuse-ld=lld>)
++  # Xbox360PS5: the PS5 title is linked by its own linker script from plain
++  # objects.
++  if(NOT PROSPERO)
++    add_compile_options($<$<CONFIG:Release>:-flto=thin>)
++    add_link_options($<$<CONFIG:Release>:-flto=thin>)
++    add_link_options($<$<CONFIG:Release>:-fuse-ld=lld>)
++  endif()
+   find_program(LLVM_AR NAMES llvm-ar)
+   find_program(LLVM_RANLIB NAMES llvm-ranlib)
+   if(LLVM_AR)
+diff --git a/cmake/XeniaHelpers.cmake b/cmake/XeniaHelpers.cmake
+index b712553ca..bd701622c 100644
+--- a/cmake/XeniaHelpers.cmake
++++ b/cmake/XeniaHelpers.cmake
+@@ -75,6 +75,14 @@ function(xe_platform_sources target base_path)
+       "${base_path}/*_gtk.h"
+       "${base_path}/*_gtk.cc"
+     )
++  elseif(PROSPERO)
++    # Xbox360PS5: the PlayStation 5 takes the POSIX sources. Its memory
++    # mapping and fault handler are the Xbox360PS5 platform's own (direct
++    # memory, 16 KiB pages, a different signal context).
++    file(${glob_mode} _plat_sources      "${base_path}/*_posix.h"
++      "${base_path}/*_posix.cc"
++    )
++    list(FILTER _plat_sources EXCLUDE REGEX "/(memory_posix|exception_handler_posix)\.cc$")
+   endif()
+ 
+   list(APPEND _sources ${_plat_sources})
+diff --git a/third_party/ffmpeg-xenia/config.h b/third_party/ffmpeg-xenia/config.h
+index 3df8db9e5..8a23c840a 100644
+--- a/third_party/ffmpeg-xenia/config.h
++++ b/third_party/ffmpeg-xenia/config.h
+@@ -339,7 +339,7 @@
+   #define HAVE_STRUCT_SOCKADDR_STORAGE 1
+   #define HAVE_STRUCT_STAT_ST_MTIM_TV_NSEC 1
+   #define CONFIG_PIC 1
+-  #if defined(__ANDROID__)
++  #if defined(__ANDROID__) || defined(__PROSPERO__)  /* Xbox360PS5: no iconv, glob or symver */
+     #define HAVE_ARC4RANDOM 1
+     #define HAVE_RSYNC_CONTIMEOUT 1
+   #else
+@@ -360,7 +360,7 @@
+ #define HAVE_THREADS 1
+ #define HAVE_ACCESS 1
+ #define HAVE_ISATTY 1
+-#ifdef __APPLE__
++#if defined(__APPLE__) || defined(__PROSPERO__)
+ #define HAVE_MALLOC_H 0
+ #else
+ #define HAVE_MALLOC_H 1
