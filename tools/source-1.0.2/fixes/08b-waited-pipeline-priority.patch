@@ -1,0 +1,41 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/pipeline_util.h b/.deps/xenia-canary/src/xenia/gpu/pipeline_util.h
+index bad5e0d..996a0a5 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/pipeline_util.h
++++ b/.deps/xenia-canary/src/xenia/gpu/pipeline_util.h
+@@ -22,6 +22,9 @@ constexpr uint8_t kPriorityLowest = 0;     // Writes to unbound RTs only
+ constexpr uint8_t kPriorityDepthOnly = 1;  // Depth-only writes
+ constexpr uint8_t kPriorityVisibleRT = 2;  // Writes to any visible RT
+ constexpr uint8_t kPriorityRT0 = 3;        // Writes to RT0 (main color buffer)
++// Xbox360PS5 (binary release patch group 8b): a pipeline that the Vulkan
++// command processor's selective wait will wait for, ahead of all others.
++constexpr uint8_t kPriorityWaited = 4;
+ 
+ // Converts normalized_color_mask to a 4-bit bitmask of bound render targets.
+ // normalized_color_mask uses 4 bits per RT (for RGBA components).
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_pipeline_cache.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_pipeline_cache.cc
+index 8d21793..a698ba8 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_pipeline_cache.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_pipeline_cache.cc
+@@ -849,6 +849,22 @@ bool VulkanPipelineCache::ConfigurePipeline(
+             bound_rts, pixel_shader->shader().writes_color_targets(),
+             pixel_shader->shader().writes_depth());
+       }
++      // Binary release patch group 8b: the pipelines the command processor
++      // waits for (VulkanCommandProcessor::IssueDrawInner's selective wait)
++      // are compiled first. The queue is a max-heap on priority and equal
++      // priorities come out in no particular order, so a waited pipeline could
++      // sit behind hundreds of others: Battlefield: Bad Company froze for 15 s
++      // and more on a first run. A pipeline that writes a visible colour target
++      // and has at most 6 indices or a render target at most 256 pixels wide
++      // gets the highest priority.
++      if (priority >= pipeline_util::kPriorityVisibleRT) {
++        const auto& regs = register_file_;
++        const uint32_t pitch = regs.Get<reg::RB_SURFACE_INFO>().surface_pitch;
++        if ((pitch >= 1 && pitch <= 256) ||
++            regs.Get<reg::VGT_DRAW_INITIATOR>().num_indices <= 6) {
++          priority = pipeline_util::kPriorityWaited;
++        }
++      }
+ 
+       {
+         std::lock_guard<std::mutex> lock(creation_request_lock_);
