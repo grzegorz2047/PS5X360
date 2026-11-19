@@ -76,7 +76,7 @@ inline std::mutex& Lock() {
 inline std::string Unescape(const std::string& in) {
   std::string out;
   for (size_t i = 0; i < in.size(); ++i) {
-    if (in[i] == '\' && i + 1 < in.size()) {
+    if (in[i] == 0x5c && i + 1 < in.size()) {  // backslash
       const char c = in[++i];
       out += c == 's' ? ' ' : c == 'n' ? '\n' : c == 't' ? '\t' : c;
     } else {

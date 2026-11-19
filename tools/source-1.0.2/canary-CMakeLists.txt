@@ -85,6 +85,9 @@ target_include_directories(xbox360ps5-title-objects PRIVATE
   "${XENIA_CANARY}/third_party/Vulkan-Headers/include"
   "${XENIA_CANARY}/third_party/libcurl/include"
   "${ROOT}/mbedtls/include")
+# Canary's own global definitions (its root CMakeLists.txt), which the core's objects have.
+target_compile_definitions(xbox360ps5-title-objects PRIVATE VULKAN_HPP_NO_TO_STRING
+  IMGUI_DISABLE_DEFAULT_FONT IMGUI_USE_STB_SPRINTF USE_CPP17 _LIB)
 target_compile_definitions(xbox360ps5-title-objects PRIVATE XBOX360PS5_CANARY=1 NDEBUG
   XBOX360PS5_VERSION="${XBOX360PS5_VERSION}"
   MBEDTLS_USER_CONFIG_FILE="mbedtls_ps5x360_config.h")

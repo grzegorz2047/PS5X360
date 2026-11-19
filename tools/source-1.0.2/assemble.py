@@ -150,6 +150,19 @@ EDITS = [
      '  if (language == 9) return key;\n  if (const char* loaded = LoadedUiText(key)) return loaded;\n'
      '  for (const auto& entry : entries) {',
      'Tr() reads /app0/assets/lang/<code>.txt first, as launcher.cpp\'s FramegenText does'),
+    ('include/xbox360ps5/canary_audio.hpp',
+     '  void DestroyDriver(xe::apu::AudioDriver* driver) override;',
+     '  void DestroyDriver(xe::apu::AudioDriver* driver);  // not virtual in the netplay core',
+     'netplay\'s AudioSystem::DestroyDriver is no longer virtual (it shuts down and deletes the '
+     'driver, as this one does); 1.0.x\'s adapted header is not published'),
+    ('include/xbox360ps5/virtual_depth_camera.hpp',
+     '  uint16_t const_shift=200;\n};',
+     '  uint16_t const_shift=200;\n'
+     '  // 1.0.x core (xboxkrnl_pscam.cc) asks whether the calibration is real; the virtual camera\'s\n'
+     '  // built-in calibration always is (the USB/helper camera of 1.0.x is not published).\n'
+     '  bool valid=true;\n};',
+     '1.0.0 core reads VirtualDepthCalibration::valid (physical-camera metadata); 1.0.x header '
+     'not published'),
 ]
 # The author's licence and notice files, kept with the tree.
 NOTICES = [

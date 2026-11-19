@@ -17,6 +17,10 @@ sdk="$reference/.deps/native/ps5-payload-sdk"
 native="$reference/tooling/native"
 jobs=${JOBS:-$(nproc)}
 mkdir -p "$build/obj" "$build/host" "$build/stubs"
+launcher=()
+if command -v ccache > /dev/null; then
+  launcher=(-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache)
+fi
 log() { printf '\n=== %s\n' "$*"; }
 
 log 'AGC import stubs'
@@ -28,12 +32,12 @@ for pair in 'libSceAgc:agc_canary_link_stub.c' 'libSceAgcDriver:agc_driver_canar
 done
 
 log 'Network libraries (1.0.0 net-libs/CMakeLists.txt)'
-cmake -S "$tree/online/net-libs" -B "$build/net-libs" -G Ninja -DCMAKE_BUILD_TYPE=Release \
+cmake -S "$tree/online/net-libs" -B "$build/net-libs" -G Ninja -DCMAKE_BUILD_TYPE=Release "${launcher[@]}" \
   -DCMAKE_TOOLCHAIN_FILE="$sdk/toolchain/prospero.cmake"
 ninja -C "$build/net-libs" -j"$jobs" wolfssl libcurl_static cacert libminiupnpc-static
 
 log 'Configure core and title'
-cmake -S "$tree/canary" -B "$build/canary" -G Ninja -DCMAKE_BUILD_TYPE=Release \
+cmake -S "$tree/canary" -B "$build/canary" -G Ninja -DCMAKE_BUILD_TYPE=Release "${launcher[@]}" \
   -DCMAKE_TOOLCHAIN_FILE="$sdk/toolchain/prospero.cmake"
 commit=$(git -C "$tree/.deps/xenia-canary" rev-parse HEAD)
 cat > "$build/canary/version.h" <<EOF
@@ -85,7 +89,7 @@ net_archives=("$build/net-libs/libcurl/lib/libcurl.a" "$build/net-libs/wolfssl/l
                "$build/net-libs/libcacert.a" "$build/net-libs/miniupnpc/libminiupnpc.a")
 for archive in "${net_archives[@]}"; do [[ -f $archive ]] || { echo "missing $archive" >&2; find "$build/net-libs" -name '*.a'; exit 1; }; done
 link_native() {
-  "$sdk/bin/prospero-lld" "${radv_linker_script[@]}" --eh-frame-hdr --gc-sections "$@" \
+  "$sdk/bin/prospero-lld" "${radv_linker_script[@]}" --eh-frame-hdr --gc-sections --error-limit=0 "$@" \
     "${radv_link_flags[@]}" --wrap=mmap --wrap=mprotect --wrap=munmap --wrap=ffs --wrap=stat --wrap=lstat \
     --wrap=timegm --wrap=getaddrinfo --wrap=freeaddrinfo --wrap=gai_strerror --wrap=getnameinfo \
     --wrap=fnmatch --wrap=curlx_nonblock \
