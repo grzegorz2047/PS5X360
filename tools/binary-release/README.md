@@ -26,6 +26,9 @@ python3 tools/binary-release/build_package.py --base-zip PPSA50011.zip
 bash tools/binary-release/make_images.sh dist/binary-release/stage/PPSA50011 dist/binary-release
 ```
 
+`tests/` checks the patches on the official executable (capstone and unicorn;
+see `tests/README.md`). They run on every push and before packaging.
+
 A change to the C++ reaches a release only when it can be written as a binary
 patch in `patches.py`; `.github/workflows/build-ps5.yml` only checks that the
 repository's C++ still compiles.

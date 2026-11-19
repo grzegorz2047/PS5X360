@@ -1,0 +1,71 @@
+name: Tests
+
+# Host tests that need no console, no PS5 SDK and no prepared Xenia tree.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  binary-patches:
+    name: Binary patches (official v1.0.2 eboot)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: tools/binary-release/tests/requirements.txt
+
+      - name: Official v1.0.2 PPSA50011.zip
+        id: base
+        uses: ./.github/actions/official-v102
+
+      - run: python -m pip install -r tools/binary-release/tests/requirements.txt
+
+      - name: pytest tools/binary-release/tests
+        env:
+          PS5X360_BASE_ZIP: ${{ steps.base.outputs.path }}
+        run: python -m pytest tools/binary-release/tests -v -ra
+
+  host-checks:
+    name: Host checks (autolog relay, content installer, tools)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: server/autolog/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: server/autolog (node --test)
+        working-directory: server/autolog
+        run: |
+          npm ci --no-audit --no-fund
+          node --test
+
+      - run: python -m pip install pytest pyftpdlib
+
+      - name: tools/content-installer
+        run: python tools/content-installer/test_content_installer.py
+
+      - name: tools/test_*.py
+        run: python -m pytest -v tools/test_deploy_verify.py tools/test_inspect_game.py tools/test_mesa_weaks.py
+
+      - name: tools/check-autolog.py and tools/check-log-export.py (mocked FTP, no console)
+        run: |
+          python tools/check-autolog.py
+          python tools/check-log-export.py

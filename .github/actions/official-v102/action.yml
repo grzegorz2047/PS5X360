@@ -1,0 +1,38 @@
+name: Official PS5X360 v1.0.2 package
+description: >
+  Puts the official v1.0.2 PPSA50011.zip at $RUNNER_TEMP/PPSA50011-v1.0.2.zip
+  (downloaded once, then cached) and checks its SHA-256. The binary patches in
+  tools/binary-release are written for it.
+outputs:
+  path:
+    description: Path of the verified zip
+    value: ${{ steps.where.outputs.path }}
+runs:
+  using: composite
+  steps:
+    - id: where
+      shell: bash
+      run: echo "path=$RUNNER_TEMP/PPSA50011-v1.0.2.zip" >> "$GITHUB_OUTPUT"
+
+    - name: Restore the cached zip
+      id: cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ steps.where.outputs.path }}
+        key: ppsa50011-v1.0.2-230359c2638f99add3972147e1690e62d8984a37c00181501680bdda7c1096c8
+
+    - name: Download the official v1.0.2 PPSA50011.zip
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        ZIP: ${{ steps.where.outputs.path }}
+      run: |
+        set -euo pipefail
+        curl -fsSL --retry 5 --retry-all-errors -o "$ZIP" \
+          https://github.com/BrinooTk/PS5X360/releases/download/v1.0.2/PPSA50011.zip
+
+    - name: Check its SHA-256
+      shell: bash
+      env:
+        ZIP: ${{ steps.where.outputs.path }}
+      run: echo "230359c2638f99add3972147e1690e62d8984a37c00181501680bdda7c1096c8  $ZIP" | sha256sum --check --strict

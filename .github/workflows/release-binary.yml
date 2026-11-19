@@ -17,6 +17,7 @@ on:
       - 'assets/**'
       - 'tools/binary-release/**'
       - '.github/workflows/release-binary.yml'
+      - '.github/actions/official-v102/**'
 
 permissions:
   contents: write
@@ -28,17 +29,26 @@ jobs:
       - name: Checkout PS5X360
         uses: actions/checkout@v4
 
+      - name: Setup Python for the patch tests
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
       - name: Setup .NET 8 for UFS2Tool (.ffpkg)
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
 
-      - name: Download the official v1.0.2 PPSA50011.zip
+      - name: Official v1.0.2 PPSA50011.zip ($RUNNER_TEMP/PPSA50011-v1.0.2.zip, SHA-256 checked)
+        uses: ./.github/actions/official-v102
+
+      - name: Test the binary patches before packaging
+        env:
+          PS5X360_BASE_ZIP: ${{ runner.temp }}/PPSA50011-v1.0.2.zip
         run: |
           set -euo pipefail
-          curl -fsSL --retry 5 --retry-all-errors -o "$RUNNER_TEMP/PPSA50011-v1.0.2.zip" \
-            https://github.com/BrinooTk/PS5X360/releases/download/v1.0.2/PPSA50011.zip
-          echo "230359c2638f99add3972147e1690e62d8984a37c00181501680bdda7c1096c8  $RUNNER_TEMP/PPSA50011-v1.0.2.zip" | sha256sum --check --strict
+          python -m pip install -r tools/binary-release/tests/requirements.txt
+          python -m pytest tools/binary-release/tests -q -ra
 
       - name: Patch eboot.bin and build PPSA50011.zip
         env:

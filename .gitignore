@@ -11,3 +11,4 @@ server/autolog/.env*
 # Backing files left by an interrupted host run (tools: --run-xex)
 /xenia_memory_*
 /xenia_code_cache_*
+.pytest_cache/
