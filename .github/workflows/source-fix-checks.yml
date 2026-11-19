@@ -24,6 +24,7 @@ on:
       - 'tools/check-xtl-locale.cpp'
       - 'tools/check-system-ui.cpp'
       - 'tools/check-fix26-tree.cpp'
+      - 'tools/check-wait-wakeups.cpp'
       - 'tools/check-assemble-skip.py'
       - 'tools/check-patch-syntax.py'
       - 'tools/check-bf3-preset.py'
