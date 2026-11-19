@@ -2,7 +2,8 @@ name: Host checks of the 1.0.2 source fixes
 
 # Assembles the v1.0.2 source tree (tools/source-1.0.2/assemble.py, with the fixes in
 # tools/source-1.0.2/fixes) and runs the host checks of those fixes
-# (tools/source-1.0.2/run-fix-checks.sh) with the runner's clang-18. No PS5 toolchain, RADV
+# (tools/source-1.0.2/run-fix-checks.sh: the tools/check-*.cpp with the runner's clang-18, and
+# tools/check-english-source.py for fix 25's English keys with python3). No PS5 toolchain, RADV
 # build or apt packages are needed. The source build (build-source-1.0.2.yml) runs the same
 # checks before it compiles.
 on:
@@ -14,6 +15,7 @@ on:
       - 'tools/check-guide-network.cpp'
       - 'tools/check-english-fallback.cpp'
       - 'tools/check-stall-dump.cpp'
+      - 'tools/check-english-source.py'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
