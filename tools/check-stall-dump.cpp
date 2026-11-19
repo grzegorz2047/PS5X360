@@ -119,7 +119,8 @@ void DataPointers() {
   assert(!sd::LooksLikeData(3) && !sd::LooksLikeData(0x33));
   assert(sd::LooksLikeData(0x7018D5A0));  // Battlefield 3's main thread spins on an object in its frame
   assert(sd::LooksLikeData(0x30083010) && sd::LooksLikeData(0x437F8D80) && sd::LooksLikeData(0x89014FA0));
-  assert(!sd::LooksLikeData(0xF8000090) && !sd::LooksLikeData(0xFFFFFFFF));
+  assert(!sd::LooksLikeData(0xF8000090) && !sd::LooksLikeData(0xFFFFFFFF) && !sd::LooksLikeData(0xFFFF0000));
+  assert(sd::LooksLikeData(0xFFC4A410));  // physical memory above the handles: Battlefield 3's job objects
   assert(sd::LooksLikeHandle(0xF8000090) && sd::LooksLikeHandle(0xF80001A8));
   assert(!sd::LooksLikeHandle(0xF8000000) && !sd::LooksLikeHandle(0xF8000091) && !sd::LooksLikeHandle(0x30083010));
   assert(!sd::LooksLikeHandle(0xFFC49088));
@@ -214,6 +215,12 @@ void PointersFollowed() {
   pointers = sd::Pointers(memory, 0x7018D5A0, 8, 4);
   assert(pointers.size() == 2 && pointers[1].value == 0x4021C120);
   assert(sd::IsStack(0x7018D5A0) && !sd::IsStack(0x40218A00));
+  // Its r29 object with readback full (candidate_10): the job memory at FFC4A410 is followed.
+  FakeMemory job;
+  const uint32_t r29[8] = {0x8401081C, 0xFFC4A410, 3, 0, 0x8401081C, 0xFFC4A780, 0x1E, 0};
+  for (uint32_t n = 0; n < 8; ++n) job.Put(0x7018E2F0 + n * 4, r29[n]);
+  pointers = sd::Pointers(job, 0x7018E2F0, 8, 2);
+  assert(pointers.size() == 2 && pointers[0].value == 0x8401081C && pointers[1].value == 0xFFC4A410);
   std::printf("  pointers followed: heap objects only (the device at 40218A00)\n");
 }
 

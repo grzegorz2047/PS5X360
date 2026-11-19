@@ -687,10 +687,10 @@ index 8b4b9b0..0e077d2 100644
    emulator()->processor()->OnThreadExit(thread_id_);
 diff --git a/port/stall_dump.hpp b/port/stall_dump.hpp
 new file mode 100644
-index 0000000..89969e2
+index 0000000..de969ee
 --- /dev/null
 +++ b/port/stall_dump.hpp
-@@ -0,0 +1,169 @@
+@@ -0,0 +1,170 @@
 +// SPDX-License-Identifier: MIT
 +// Fix 24 of the source rebuild (tools/source-1.0.2/fixes/24-stall-code-words.patch): what the
 +// STALL report reads from a guest thread that spins outside any wait, as templates over a
@@ -768,12 +768,13 @@ index 0000000..89969e2
 +}
 +
 +// A register value worth dumping memory at: a guest address (not a small number, not a handle,
-+// not the address space's top). Stack addresses count: Battlefield 3's main thread spins on an
-+// object in its own frame (7018D5A0).
++// not the address space's last page). Stack addresses count: Battlefield 3's main thread spins
++// on an object in its own frame (7018D5A0). So does physical memory above the handles: its job
++// objects are at FFC4xxxx.
 +inline bool LooksLikeData(uint32_t value) {
 +  if (value < 0x10000) return false;
-+  if (value >= 0xF8000000) return false;  // handles, and the top of the address space
-+  return true;
++  if (value >= 0xF8000000 && value < 0xF9000000) return false;  // handles
++  return value < 0xFFFF0000;
 +}
 +
 +// A stack address (the guest threads' stacks are at 0x70000000).
@@ -861,7 +862,7 @@ index 0000000..89969e2
 +}  // namespace stall_dump
 +}  // namespace xbox360ps5
 diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
-index 5c3db7d..99510b7 100644
+index 5c3db7d..15e5d76 100644
 --- a/src/canary_game_main.cpp
 +++ b/src/canary_game_main.cpp
 @@ -76,6 +76,13 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
@@ -878,7 +879,7 @@ index 5c3db7d..99510b7 100644
  #include "xbox360ps5/session_log.hpp"
  #include "xbox360ps5/crash_report.hpp"
  #include "xbox360ps5/ui_sounds.hpp"
-@@ -727,18 +734,214 @@ std::string CallersText(xe::Memory* memory, uint32_t stack) {
+@@ -727,18 +734,234 @@ std::string CallersText(xe::Memory* memory, uint32_t stack) {
    }
    return text.empty() ? " none read" : text;
  }
@@ -943,7 +944,7 @@ index 5c3db7d..99510b7 100644
 +    uint32_t address, words;
 +    sd::ChangeLog log;
 +  };
-+  std::vector<Watched> watched;  // memory at r3 and r31 of threads in no wait, sampled below
++  std::vector<Watched> watched;  // memory at r3, r29 and r31 of threads in no wait, sampled below
    for (const auto& thread : threads) {
      if (!thread->thread_state()) continue;
      const auto* context = thread->thread_state()->context();
@@ -986,12 +987,32 @@ index 5c3db7d..99510b7 100644
 +      if (!calls.empty()) XELOGW("STALL thread {:08X} calls near {:08X}:{}", thread->handle(), at, calls);
 +    }
 +    int depth = 0;
-+    for (const auto& frame : sd::StackFrames(reader, uint32_t(context->r[1]))) {
++    const auto frames = sd::StackFrames(reader, uint32_t(context->r[1]));
++    for (const auto& frame : frames) {
 +      XELOGW("STALL thread {:08X} frame {} at {:08X} back {:08X} lr {}:{}", thread->handle(), depth++,
 +             frame.address, frame.back, frame.lr_read ? fmt::format("{:08X}", frame.saved_lr) : std::string("?"),
 +             frame.words);
 +    }
 +    const auto note = thread->wait_note();
++    // Fix 24: for a thread in no wait, the code its first two callers return to and the start of
++    // the guest functions they call there (not imports): Battlefield 3's main thread loops at
++    // 83007BA4 on a call to 8346C1E8, whose code tells what it polls.
++    if (!note.count) {
++      for (size_t n = 0; n < std::min<size_t>(frames.size(), 2); ++n) {
++        if (!frames[n].lr_read) continue;
++        const uint32_t back_to = frames[n].saved_lr;
++        XELOGW("STALL thread {:08X} code at {:08X}-32 (caller {}):{}", thread->handle(), back_to, n,
++               sd::CodeWindow(reader, back_to));
++        int callees = 0;
++        for (const auto& call : sd::Calls(reader, (back_to & ~3u) >= 32 ? (back_to & ~3u) - 32 : 0, 16)) {
++          if (callees >= 2) break;
++          if (!ImportAt(thunks, call.target).empty()) continue;
++          ++callees;
++          XELOGW("STALL thread {:08X} callee {:08X} (called at {:08X}):{}", thread->handle(), call.target, call.site,
++                 sd::Words(reader, call.target, 24));
++        }
++      }
++    }
 +    for (uint32_t n = 0; n < std::min<uint32_t>(note.count, 4); ++n) handles_seen.insert(note.handles[n]);
 +    for (int n = 3; n < 32; ++n)
 +      if (sd::LooksLikeHandle(uint32_t(context->r[n]))) handles_seen.insert(uint32_t(context->r[n]));
@@ -1000,7 +1021,7 @@ index 5c3db7d..99510b7 100644
 +        const uint32_t value = uint32_t(context->r[n]);
 +        if (!sd::LooksLikeData(value)) continue;
 +        XELOGW("STALL thread {:08X} r{} {:08X}:{}", thread->handle(), n, value, sd::Words(reader, value, 8));
-+        if (n != 3 && n != 31) continue;
++        if (n != 3 && n != 29 && n != 31) continue;
 +        watched.push_back({thread->handle(), fmt::format("r{}", n), value, 8, {}});
 +        // What that object points at (64 bytes each, the first two pointers).
 +        for (const auto& pointer : sd::Pointers(reader, value, 8, 2))
@@ -1027,7 +1048,7 @@ index 5c3db7d..99510b7 100644
 +           type < std::size(kTypeNames) ? kTypeNames[type] : "?", guest, signal, object->history().total(),
 +           oh::Format(object->history().Entries(), now));
 +  }
-+  // Fix 24: what the memory at r3 and r31 of the threads in no wait does over 0.8 s (only the
++  // Fix 24: what the memory at r3, r29 and r31 of the threads in no wait does over 0.8 s (only the
 +  // changes are logged): a counter or flag the thread spins on moves, or does not.
 +  if (!watched.empty()) {
 +    for (int sample = 0; sample < 8; ++sample) {
