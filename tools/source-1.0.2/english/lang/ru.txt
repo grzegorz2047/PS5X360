@@ -12,6 +12,7 @@
 \sof\s = \sиз\s
 \sout\sof\s5 = \sиз\s5
 \swithout\sa\scover\son\sXboxUnity = \sбез\sобложки\sна\sXboxUnity
+\swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \sбез\sобложки\sна\sXboxUnity\sи\sна\sсервере\sMicrosoft
 %d\schanged\s\s> = Изменено:\s%d\s\s>
 %d\sof\s%d = %d\sиз\s%d
 %d\sof\s%d\spatches\senabled = Включено\sпатчей:\s%d\sиз\s%d

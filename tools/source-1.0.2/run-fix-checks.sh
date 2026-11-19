@@ -26,10 +26,12 @@ checks=(
   check-system-ui.cpp              # fix 26
   check-fix26-tree.cpp             # fix 26
   check-save-devices.cpp           # fix 27
+  check-cover-fallback.cpp         # fix 41
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-save-devices.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-cover-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
 )
 mkdir -p "$tree/tools" "$tree/build/fix-checks"
 status=0
