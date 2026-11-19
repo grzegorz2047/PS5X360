@@ -18,6 +18,7 @@ on:
       - 'tools/check-label-owner.cpp'
       - 'tools/check-memexport-merge.cpp'
       - 'tools/check-notify-first-poll.cpp'
+      - 'tools/check-net-conf.cpp'
       - 'tools/check-assemble-skip.py'
       - 'tools/check-english-source.py'
       - '.github/workflows/source-fix-checks.yml'
