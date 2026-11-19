@@ -126,6 +126,31 @@ TITLE_LAYERS = [
     ('port/ps5_resolver.cpp', 'v1.0.2/port/port-src/ps5_resolver.cpp'),
     ('port/phone_camera_tls.cpp', 'v1.0.2/port/phone-folder/phone_camera_tls.cpp'),
 ]
+# Not taken from the layers: kinect-update-20261008/native/include/xenia is a frozen copy of the
+# older Canary core's headers (for that overlay's isolated compiles); on the include path it
+# would hide the netplay core's own headers.
+EXCLUDED = ('include/xenia/',)
+EXCLUDED_SEEN = []
+# Edits to drop files, each with its reason. Every `old` must occur exactly once.
+EDITS = [
+    ('include/xbox360ps5/i18n.hpp',
+     'inline int SupportedUiLanguage(int id) { return id == 9 || id == 5 ? id : 1; }',
+     '// 1.0.x interface languages (reconstructed/xbox360ps5/i18n_ui.hpp; 0.5.9 had pt, en, es).\n'
+     'inline int SupportedUiLanguage(int id) {\n'
+     '  switch (id) { case 1: case 2: case 3: case 4: case 5: case 6: case 7: case 8: case 9: case 11:\n'
+     '    case 12: case 14: case 16: case 17: case 18: case 19: return id; default: return 1; }\n'
+     '}',
+     '1.0.0 launcher.cpp offers 17 interface languages; 0.5.9 accepted only pt, en and es'),
+    ('include/xbox360ps5/i18n.hpp',
+     '#include <cstring>\n',
+     '#include <cstring>\n#include "xbox360ps5/i18n_ui.hpp"  // reconstructed: 1.0.x language files\n',
+     'the 1.0.x language functions launcher.cpp calls (not in any drop)'),
+    ('include/xbox360ps5/i18n.hpp',
+     '  if (language == 9) return key;\n  for (const auto& entry : entries) {',
+     '  if (language == 9) return key;\n  if (const char* loaded = LoadedUiText(key)) return loaded;\n'
+     '  for (const auto& entry : entries) {',
+     'Tr() reads /app0/assets/lang/<code>.txt first, as launcher.cpp\'s FramegenText does'),
+]
 # The author's licence and notice files, kept with the tree.
 NOTICES = [
     ('licenses/drop-1.0.0', 'v1.0.0/licenses'),
@@ -244,9 +269,12 @@ def copy_entry(src, dest, origin, manifest, out):
                 copy_entry(item, dest / item.relative_to(src), f'{origin}/{item.relative_to(src).as_posix()}',
                            manifest, out)
         return
+    rel = dest.relative_to(out).as_posix()
+    if rel.startswith(EXCLUDED):
+        EXCLUDED_SEEN.append(origin)
+        return
     dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(src, dest)
-    rel = dest.relative_to(out).as_posix()
     entry = {'from': origin, 'sha256': sha256(dest)}
     if rel in manifest:
         entry['replaces'] = manifest[rel]['from']
@@ -262,6 +290,13 @@ def build_title(out, drops, report):
     copy_entry(HERE / 'reconstructed', out / 'reconstructed', 'reconstructed (this repository)', manifest, out)
     copy_entry(HERE / 'canary-CMakeLists.txt', out / 'canary/CMakeLists.txt',
                'repo:tools/source-1.0.2/canary-CMakeLists.txt', manifest, out)
+    for rel, old, new, why in EDITS:
+        path = out / rel
+        text = path.read_text(encoding='utf-8')
+        assert text.count(old) == 1, (rel, old[:60], text.count(old))
+        path.write_text(text.replace(old, new), encoding='utf-8', newline='\n')
+        manifest[rel].setdefault('edits', []).append(why)
+        manifest[rel]['sha256'] = sha256(path)
     (out / 'VERSION').write_text('1.0.2\n')
 
 
@@ -307,6 +342,7 @@ def main():
         core = build_core(out, drops, report)
         build_online(out, core, cache, report)
     build_title(out, drops, report)
+    report['excluded'] = {'paths': list(EXCLUDED), 'files': len(EXCLUDED_SEEN)}
     (out / 'SOURCES.json').write_text(json.dumps(report, indent=1, sort_keys=True) + '\n')
     counts = {}
     for info in report['files'].values():

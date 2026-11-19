@@ -8,3 +8,15 @@
 namespace xbox360ps5 {
 inline std::map<std::string, std::string> GameInfoFor(const std::string&) { return {}; }
 }  // namespace xbox360ps5
+
+namespace xbox360ps5 {
+// The Portuguese text (translated by Tr) of a Xenia Canary compatibility state, as the
+// official package's assets/lang files list them.
+inline const char* CompatStateText(const std::string& state) {
+  if (state == "Playable") return "Jogável do começo ao fim";
+  if (state == "Gameplay") return "Dá para jogar, com problemas";
+  if (state == "Loads" || state == "Intro" || state == "Menus") return "Só carrega, não chega a jogar";
+  if (state == "Unplayable" || state == "Nothing") return "Não funciona";
+  return "Sem avaliação";
+}
+}  // namespace xbox360ps5

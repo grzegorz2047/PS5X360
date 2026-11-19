@@ -81,6 +81,7 @@ add_library(xbox360ps5-title-objects OBJECT
 target_include_directories(xbox360ps5-title-objects PRIVATE
   "${ROOT}/port/shared" "${XENIA_CANARY}" "${XENIA_CANARY}/src" "${XENIA_CANARY}/src/xenia/vfs"
   "${XENIA_CANARY}/third_party" "${XENIA_CANARY}/third_party/fmt/include"
+  "${XENIA_CANARY}/third_party/glslang"
   "${XENIA_CANARY}/third_party/Vulkan-Headers/include"
   "${XENIA_CANARY}/third_party/libcurl/include"
   "${ROOT}/mbedtls/include")
@@ -91,3 +92,9 @@ if(PS5X360_OPENGL_GAME_RENDERER)
   target_compile_definitions(xbox360ps5-title-objects PRIVATE PS5X360_OPENGL_GAME_RENDERER=1)
 endif()
 target_compile_options(xbox360ps5-title-objects PRIVATE -O2 -mavx)
+# ps5-framegen (Swordpdf, GPL-3.0-or-later) as 0.5.9-framegen.3-local-SOURCE/build.py compiles it:
+# its Vulkan entry points are function pointers bound at run time (sword_dispatch.hpp).
+set_source_files_properties("${ROOT}/port/vendor/ps5_framegen.cpp" PROPERTIES
+  COMPILE_DEFINITIONS "PS5_FRAMEGEN_VULKAN_HEADER=\"sword_dispatch.hpp\""
+  INCLUDE_DIRECTORIES "${ROOT}/port/vendor"
+  COMPILE_OPTIONS "-Wno-missing-field-initializers")
