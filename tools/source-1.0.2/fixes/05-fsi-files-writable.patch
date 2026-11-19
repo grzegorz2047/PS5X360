@@ -1,0 +1,42 @@
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+index cd7be8d..b32c1d0 100644
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -120,10 +120,18 @@ const char* const kHeadingFont = "/app0/assets/fonts/NotoSans-SemiBold.ttf";
+ // Accurate render targets: Xenia's Vulkan "fsi" path. Kept outside Settings to
+ // preserve the shipped title and launcher ABI; read once per process, before
+ // the GPU is set up (the render target cache takes the path at that point).
+-const char* const kFsiFile = "/app0/render-target-fsi.conf";
++// Binary release patch group 5: the files live in the title's writable storage;
++// /app0 is read-only on a .ffpkg installation, so the choice was never kept.
++// The names are the binary release's (they had to fit the old strings), so an
++// installation keeps its choice when it changes between the two builds. The
++// choice of an official 1.0.2 on a writable /app0 is still read if there is
++// no new file yet.
++const char* const kFsiFile = "/download0/xbox360ps5/fsi.c";
++const char* const kFsiOldFile = "/app0/render-target-fsi.conf";
+ bool& FsiChoice() {
+   static bool requested = [] {
+     std::ifstream input(kFsiFile);
++    if (!input) input.open(kFsiOldFile);
+     std::string line;
+     if (!std::getline(input, line)) return false;
+     if (!line.empty() && line.back() == '\r') line.pop_back();
+@@ -131,7 +139,7 @@ bool& FsiChoice() {
+   }();
+   return requested;
+ }
+-const char* const kFsiOnceFile = "/app0/render-target-fsi.once";
++const char* const kFsiOnceFile = "/download0/xbox360ps5/fsi.1";
+ bool fsi_general_at_start = false;
+ bool FsiAtStart() {
+   static const bool at_start = [] {
+@@ -148,7 +156,7 @@ bool FsiAtStart() {
+ }
+ bool SetFsiRequested(bool enabled) {
+   FsiAtStart();
+-  const char* temporary = "/app0/render-target-fsi.conf.new";
++  const char* temporary = "/download0/xbox360ps5/fsi.c.new";
+   std::ofstream output(temporary, std::ios::trunc);
+   output << "render_target_path_vulkan=" << (enabled ? "fsi" : "fbo") << "\n";
+   output.close();
