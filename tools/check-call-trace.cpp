@@ -42,10 +42,12 @@ int main() {
   CHECK(When(1000, 3000) == "(+0 ms after the storage prompt)");
 
   // The input answer names START and what blanked the buttons.
-  CHECK(InputAnswer(0, 0x0010, false, false) == "result 00000000 buttons 0010 START");
-  CHECK(InputAnswer(0x48F, 0, false, false) == "result 0000048F buttons 0000");
-  CHECK(Has(InputAnswer(0, 0x1010, true, false), "START, system UI active (state discarded)"));
-  CHECK(Has(InputAnswer(0, 0, false, true), "controller keyboard suppressing"));
+  CHECK(InputAnswer(0, 0x0010, 0, false) == "result 00000000 buttons 0010 START");
+  CHECK(InputAnswer(0x48F, 0, 0, false) == "result 0000048F buttons 0000");
+  CHECK(Has(InputAnswer(0, 0x1010, 1, false), "START, system UI active (XAM dialog) (state discarded)"));
+  CHECK(Has(InputAnswer(0, 0, 2, false), "system UI active (guide) (state discarded)"));
+  CHECK(Has(InputAnswer(0, 0, 3, false), "system UI active (XAM dialog and guide)"));
+  CHECK(Has(InputAnswer(0, 0, 0, true), "controller keyboard suppressing"));
 
   // Change log: first answer, then only changes, per call and key.
   Changes changes;
@@ -55,7 +57,20 @@ int main() {
   CHECK(changes.Note("XamInputGetState", 0x100, "result 00000000 buttons 0000", 20).empty());
   CHECK(!changes.Note("XamInputGetState", 0x101, "result 00000000 buttons 0000", 20).empty());
   CHECK(!changes.Note("XamUserGetSigninState", 0x100, "result 00000000 buttons 0000", 20).empty());
+  CHECK(!InWindow(500));  // no prompt yet
+  CHECK(&For(500) == &Changes::Get());
   MarkPrompt(1000);
+  // The minute after the prompt has its own, larger log (candidate_20).
+  CHECK(InWindow(1000) && InWindow(60999) && !InWindow(61000) && !InWindow(999));
+  CHECK(&For(30000) == &AfterPrompt());
+  CHECK(&For(70000) == &Changes::Get());
+  {
+    int presses = 0;
+    for (int i = 0; i < 300; ++i) {
+      presses += !AfterPrompt().Note("XamInputGetState", 0, (i & 1) ? "buttons 0010 START" : "buttons 0000", 2000).empty();
+    }
+    CHECK(presses == 300);  // 150 START presses and releases, all logged
+  }
   const std::string start = changes.Note("XamInputGetState", 0x100, "result 00000000 buttons 0010 START", 4500);
   std::cout << start << "\n";
   CHECK(Has(start, "buttons 0010 START (+3500 ms after the storage prompt)"));
@@ -112,6 +127,10 @@ int main() {
   CHECK(Has(ui, "call_trace::MarkPrompt();"));
   CHECK(Has(game, "ReportStall(emulator, 10 + dumps);"));
   CHECK(Has(game, "since >= (dumps ? 45000u : 20000u)"));
+  // candidate_20: the minute after the prompt, every open and the system interface's owners.
+  CHECK(Has(Read((k + "xboxkrnl/xboxkrnl_io.cc").c_str()), "Files: NtCreateFile"));
+  CHECK(Has(input, "call_trace::For().Note("));
+  CHECK(Has(Read((k + "xam/xam_state.cc").c_str()), "System UI: {} -> {}"));
 
   if (failures) {
     std::cout << failures << " check(s) failed\n";

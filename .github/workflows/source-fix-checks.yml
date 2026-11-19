@@ -19,6 +19,7 @@ on:
       - 'tools/check-gdfx-names.*'
       - 'tools/check-xtl-locale.cpp'
       - 'tools/check-call-trace.cpp'
+      - 'tools/check-system-ui.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

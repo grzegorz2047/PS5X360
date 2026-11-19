@@ -18,6 +18,7 @@ checks=(
   check-stall-dump.cpp             # fix 24
   check-xtl-locale.cpp             # fix 26
   check-call-trace.cpp             # fix 26 (diagnostic)
+  check-system-ui.cpp              # fix 26
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"

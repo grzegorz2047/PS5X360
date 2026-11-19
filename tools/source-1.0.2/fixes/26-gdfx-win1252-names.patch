@@ -394,10 +394,10 @@ index de4b758..f34dec2 100644
  inline std::string_view TranslateAnsiStringAddress(const Memory* memory,
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/call_trace.h b/.deps/xenia-canary/src/xenia/kernel/xam/call_trace.h
 new file mode 100644
-index 0000000..653cf48
+index 0000000..3991631
 --- /dev/null
 +++ b/.deps/xenia-canary/src/xenia/kernel/xam/call_trace.h
-@@ -0,0 +1,117 @@
+@@ -0,0 +1,144 @@
 +/**
 + ******************************************************************************
 + * Xenia : Xbox 360 Emulator Research Project                                 *
@@ -458,6 +458,9 @@ index 0000000..653cf48
 +  static constexpr uint32_t kPerKey = 24;   // lines for one call and key
 +  static constexpr uint32_t kTotal = 600;   // lines in all
 +
++  explicit Changes(uint32_t per_key = kPerKey, uint32_t total = kTotal)
++      : per_key_(per_key), total_cap_(total) {}
++
 +  static Changes& Get() {
 +    static Changes changes;
 +    return changes;
@@ -472,8 +475,8 @@ index 0000000..653cf48
 +    if (entry.seen && entry.answer == answer) return {};
 +    entry.seen = true;
 +    entry.answer = std::string(answer);
-+    if (total_ >= kTotal) return {};
-+    if (entry.lines >= kPerKey) return {};
++    if (total_ >= total_cap_) return {};
++    if (entry.lines >= per_key_) return {};
 +    ++total_;
 +    ++entry.lines;
 +    char head[96];
@@ -482,12 +485,13 @@ index 0000000..653cf48
 +    line += answer;
 +    line += ' ';
 +    line += When(now, PromptMs().load());
-+    if (entry.lines == kPerKey) line += "; no more changes of this one are logged";
-+    if (total_ == kTotal) line += "; the trace has used its lines";
++    if (entry.lines == per_key_) line += "; no more changes of this one are logged";
++    if (total_ == total_cap_) line += "; the trace has used its lines";
 +    return line;
 +  }
 +
 + private:
++  const uint32_t per_key_, total_cap_;
 +  struct Entry {
 +    bool seen = false;
 +    std::string answer;
@@ -498,13 +502,36 @@ index 0000000..653cf48
 +  uint32_t total_ = 0;
 +};
 +
++// The minute after the storage prompt (candidate_20): the input and file calls are logged with
++// far more room there, so the presses after the prompt are not lost to the caps above.
++constexpr uint64_t kWindowMs = 60000;
++inline bool InWindow(uint64_t now = NowMs()) {
++  const uint64_t prompt = PromptMs().load();
++  return prompt && now >= prompt && now - prompt < kWindowMs;
++}
++inline Changes& AfterPrompt() {
++  static Changes changes(400, 3000);
++  return changes;
++}
++// The change log for a call made now: AfterPrompt() in the window, else Get().
++inline Changes& For(uint64_t now = NowMs()) {
++  return InWindow(now) ? AfterPrompt() : Changes::Get();
++}
++
 +// The answer to XInputGetState as text: result, buttons (START 0010, BACK 0020, A 1000, ...),
-+// and what could have blanked them (a system dialog, the controller keyboard).
-+inline std::string InputAnswer(uint32_t result, uint16_t buttons, bool ui_active,
++// and what could have blanked them: who held the system interface up (SystemUiFlag owners: 1 a
++// XAM dialog, 2 the guide), the controller keyboard.
++inline std::string InputAnswer(uint32_t result, uint16_t buttons, uint32_t ui_owners,
 +                               bool keyboard_suppressed) {
-+  char text[128];
++  static const char* const owners_text[] = {"", "XAM dialog", "guide", "XAM dialog and guide"};
++  char text[160];
++  char ui[96] = "";
++  if (ui_owners) {
++    std::snprintf(ui, sizeof(ui), ", system UI active (%s) (state discarded)",
++                  owners_text[ui_owners & 3u][0] ? owners_text[ui_owners & 3u] : "?");
++  }
 +  std::snprintf(text, sizeof(text), "result %08X buttons %04X%s%s%s", result, buttons,
-+                (buttons & 0x0010) ? " START" : "", ui_active ? ", system UI active (state discarded)" : "",
++                (buttons & 0x0010) ? " START" : "", ui,
 +                keyboard_suppressed ? ", controller keyboard suppressing" : "");
 +  return text;
 +}
@@ -515,6 +542,86 @@ index 0000000..653cf48
 +}  // namespace xe
 +
 +#endif  // XENIA_KERNEL_XAM_CALL_TRACE_H_
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/system_ui.h b/.deps/xenia-canary/src/xenia/kernel/xam/system_ui.h
+new file mode 100644
+index 0000000..80c414a
+--- /dev/null
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/system_ui.h
+@@ -0,0 +1,74 @@
++/**
++ ******************************************************************************
++ * Xenia : Xbox 360 Emulator Research Project                                 *
++ ******************************************************************************
++ * Released under the BSD license - see LICENSE in the root for more details. *
++ ******************************************************************************
++ */
++
++#ifndef XENIA_KERNEL_XAM_SYSTEM_UI_H_
++#define XENIA_KERNEL_XAM_SYSTEM_UI_H_
++
++// Xbox360PS5 (fix 26): who has the system interface up. XamInputGetState gives the game a pad
++// at rest while it is (XamState::IsUIActive). In 1.0.2 one bool held it, written by the XAM
++// dialogs (true when shown, false when closed) and by the PS5X360 guide (true when opened,
++// false when closed): the guide closing cleared a dialog's state and the other way round, and a
++// dialog the UI thread could not show (xeXamDispatchDialog's failure path) left it set, so the
++// game got no buttons from then on. Here each owner has its own bit, the interface is up while
++// any is set, and every change goes to a hook (logged by XamState). store()/load() keep the
++// 1.0.2 calls working: store() is the XAM dialog's.
++
++#include <atomic>
++#include <cstdint>
++
++namespace xe {
++namespace kernel {
++namespace xam {
++
++class SystemUiFlag {
++ public:
++  enum Owner : uint32_t {
++    kXamDialog = 1u,  // a XAM dialog (message box, device selector, sign-in, keyboard, ...)
++    kGuide = 2u,      // the PS5X360 guide or the library over the game
++  };
++  using Hook = void (*)(uint32_t before, uint32_t after);
++
++  SystemUiFlag() = default;
++  SystemUiFlag(const SystemUiFlag&) = delete;
++  SystemUiFlag& operator=(const SystemUiFlag&) = delete;
++
++  // 1.0.2's interface: the system interface is up; a XAM dialog is shown or closed.
++  bool load() const { return owners_.load() != 0; }
++  void store(bool open) { Set(kXamDialog, open); }
++
++  uint32_t owners() const { return owners_.load(); }
++  void Set(Owner owner, bool open) {
++    const uint32_t bit = uint32_t(owner);
++    const uint32_t before = open ? owners_.fetch_or(bit) : owners_.fetch_and(~bit);
++    const uint32_t after = open ? (before | bit) : (before & ~bit);
++    if (before != after) {
++      if (Hook hook = hook_.load()) hook(before, after);
++    }
++  }
++  void set_hook(Hook hook) { hook_.store(hook); }
++
++  // "XAM dialog", "guide", "XAM dialog and guide" or "none".
++  static const char* OwnersText(uint32_t owners) {
++    switch (owners & 3u) {
++      case 1u: return "XAM dialog";
++      case 2u: return "guide";
++      case 3u: return "XAM dialog and guide";
++      default: return "none";
++    }
++  }
++
++ private:
++  std::atomic<uint32_t> owners_{0};
++  std::atomic<Hook> hook_{nullptr};
++};
++
++}  // namespace xam
++}  // namespace kernel
++}  // namespace xe
++
++#endif  // XENIA_KERNEL_XAM_SYSTEM_UI_H_
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_content.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_content.cc
 index 0585f80..03a14e3 100644
 --- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_content.cc
@@ -605,19 +712,20 @@ index 550be0a..045e9ea 100644
  
  typedef struct {
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_input.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_input.cc
-index 023942e..037b310 100644
+index 023942e..800ec7b 100644
 --- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_input.cc
 +++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_input.cc
-@@ -14,6 +14,8 @@
+@@ -14,6 +14,9 @@
  #include "xenia/kernel/kernel_state.h"
  #include "xenia/kernel/util/shim_utils.h"
  #include "xenia/kernel/xam/xam_private.h"
++#include <algorithm>
 +#include "xenia/kernel/xam/call_trace.h"
 +#include "xenia/ui/controller_keyboard.h"
  #include "xenia/xbox.h"
  
  DECLARE_bool(allow_mic_initialization);
-@@ -52,7 +54,7 @@ dword_result_t XamEnableInactivityProcessing_entry(dword_t inactivity_index,
+@@ -52,7 +55,7 @@ dword_result_t XamEnableInactivityProcessing_entry(dword_t inactivity_index,
  }
  DECLARE_XAM_EXPORT1(XamEnableInactivityProcessing, kInput, kStub);
  
@@ -626,7 +734,7 @@ index 023942e..037b310 100644
      dword_t unk, dword_t user_index, dword_t flags,
      pointer_t<X_INPUT_CAPABILITIES_EX> caps) {
    if (unk > 1) {
-@@ -91,6 +93,23 @@ dword_result_t XamInputGetCapabilitiesEx_entry(
+@@ -91,6 +94,23 @@ dword_result_t XamInputGetCapabilitiesEx_entry(
    auto lock = input_system->lock();
    return input_system->GetCapabilities(actual_user_index, actual_flags, caps);
  }
@@ -650,7 +758,7 @@ index 023942e..037b310 100644
  DECLARE_XAM_EXPORT1(XamInputGetCapabilitiesEx, kInput, kSketchy);
  
  // https://learn.microsoft.com/en-gb/windows/win32/api/xinput/nf-xinput-xinputgetcapabilities
-@@ -122,9 +141,17 @@ dword_result_t XamInputGetState_entry(dword_t user_index, dword_t flags,
+@@ -122,9 +142,18 @@ dword_result_t XamInputGetState_entry(dword_t user_index, dword_t flags,
      X_INPUT_STATE discarded_state = {};
      auto input_system = kernel_state()->emulator()->input_system();
      auto lock = input_system->lock();
@@ -659,31 +767,32 @@ index 023942e..037b310 100644
          user_index, !flags ? X_INPUT_FLAG::X_INPUT_FLAG_GAMEPAD : flags,
          &discarded_state);
 +    // Xbox360PS5 (fix 26, diagnostic): the buttons the game did not get.
-+    const auto line = call_trace::Changes::Get().Note(
++    const auto line = call_trace::For().Note(
 +        "XamInputGetState", (uint32_t(user_index) & 0xFF) | (uint32_t(flags) << 8),
-+        call_trace::InputAnswer(discarded_result,
-+                                uint16_t(discarded_state.gamepad.buttons), true,
-+                                xe::ui::controller_keyboard::Suppressed(user_index)));
++        call_trace::InputAnswer(
++            discarded_result, uint16_t(discarded_state.gamepad.buttons),
++            std::max(kernel_state()->xam_state()->is_xam_dialog_present_.owners(), 1u),
++            xe::ui::controller_keyboard::Suppressed(user_index)));
 +    if (!line.empty()) XELOGW("{}", line);
 +    return discarded_result;
    }
  
    // Games call this with a NULL state ptr, probably as a query.
-@@ -152,6 +179,13 @@ dword_result_t XamInputGetState_entry(dword_t user_index, dword_t flags,
+@@ -152,6 +181,13 @@ dword_result_t XamInputGetState_entry(dword_t user_index, dword_t flags,
      }
    }
  
 +  // Xbox360PS5 (fix 26, diagnostic): what the game got, as it changes.
-+  const auto line = call_trace::Changes::Get().Note(
++  const auto line = call_trace::For().Note(
 +      "XamInputGetState", (uint32_t(user_index) & 0xFF) | (uint32_t(flags) << 8),
 +      call_trace::InputAnswer(
-+          result, input_state ? uint16_t(input_state->gamepad.buttons) : 0, false,
++          result, input_state ? uint16_t(input_state->gamepad.buttons) : 0, 0,
 +          xe::ui::controller_keyboard::Suppressed(user_index)));
 +  if (!line.empty()) XELOGW("{}", line);
    return result;
  }
  DECLARE_XAM_EXPORT2(XamInputGetState, kInput, kImplemented, kHighFrequency);
-@@ -176,7 +210,7 @@ DECLARE_XAM_EXPORT1(XamInputSetState, kInput, kImplemented);
+@@ -176,7 +212,7 @@ DECLARE_XAM_EXPORT1(XamInputSetState, kInput, kImplemented);
  
  // https://learn.microsoft.com/en-gb/windows/win32/api/xinput/nf-xinput-xinputgetkeystroke
  // Same as non-ex, just takes a pointer to user index.
@@ -692,7 +801,7 @@ index 023942e..037b310 100644
      lpdword_t user_index_ptr, dword_t flags,
      pointer_t<X_INPUT_KEYSTROKE> keystroke) {
    // user index = index or XUSER_INDEX_ANY
-@@ -231,6 +265,24 @@ dword_result_t XamInputGetKeystrokeEx_entry(
+@@ -231,6 +267,24 @@ dword_result_t XamInputGetKeystrokeEx_entry(
    }
    return result;
  }
@@ -709,7 +818,7 @@ index 023942e..037b310 100644
 +                keystroke ? uint32_t(keystroke->flags) : 0u,
 +                keystroke ? uint32_t(keystroke->user_index) : 0u,
 +                kernel_state()->xam_state()->IsUIActive() ? ", system UI active" : "");
-+  const auto line = call_trace::Changes::Get().Note(
++  const auto line = call_trace::For().Note(
 +      "XamInputGetKeystroke", (asked & 0xFF) | (uint32_t(flags) << 8), answer);
 +  if (!line.empty()) XELOGW("{}", line);
 +  return result;
@@ -952,8 +1061,59 @@ index 349379b..189032c 100644
    // param_ptr may be null - 555307F0 Demo explicitly passes nullptr in the
    // code.
    // https://github.com/xenia-project/xenia/pull/1577
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_state.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_state.cc
+index d336bce..68445e2 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_state.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_state.cc
+@@ -12,6 +12,7 @@
+ #include "xenia/emulator.h"
+ #include "xenia/kernel/util/friends_util.h"
+ #include "xenia/kernel/xam/online_schema.h"
++#include "xenia/kernel/xam/call_trace.h"
+ 
+ namespace xe {
+ namespace kernel {
+@@ -19,6 +20,16 @@ namespace xam {
+ 
+ XamState::XamState(Emulator* emulator, KernelState* kernel_state)
+     : kernel_state_(kernel_state) {
++  // Xbox360PS5 (fix 26): every change of who holds the system interface up (while anyone
++  // does, XamInputGetState gives the game a pad at rest).
++  is_xam_dialog_present_.set_hook([](uint32_t before, uint32_t after) {
++    static std::atomic<uint32_t> lines{0};
++    if (lines.fetch_add(1) >= 400) return;
++    const uint64_t now = call_trace::NowMs();
++    XELOGW("System UI: {} -> {}; the game's input is {} {}", SystemUiFlag::OwnersText(before),
++           SystemUiFlag::OwnersText(after), after ? "discarded" : "passed on",
++           call_trace::When(now, call_trace::PromptMs().load()));
++  });
+   app_manager_ = std::make_unique<AppManager>();
+ 
+   auto content_root = emulator->content_root();
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_state.h b/.deps/xenia-canary/src/xenia/kernel/xam/xam_state.h
+index 40aed40..674eb5c 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_state.h
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_state.h
+@@ -17,6 +17,7 @@
+ #include "xenia/kernel/xam/content_manager.h"
+ #include "xenia/kernel/xam/friends_manager.h"
+ #include "xenia/kernel/xam/presence_manager.h"
++#include "xenia/kernel/xam/system_ui.h"
+ #include "xenia/kernel/xam/profile_manager.h"
+ #include "xenia/kernel/xam/user_tracker.h"
+ #include "xenia/kernel/xam/xam.h"
+@@ -86,7 +87,8 @@ class XamState {
+   X_DASH_BACKSTACK_DATA dash_backstack_data_[2] = {};
+   uint32_t content_register_callback = 0;
+ 
+-  std::atomic<bool> is_xam_dialog_present_ = false;
++  // Xbox360PS5 (fix 26): owners of the system interface (system_ui.h), not one bool.
++  SystemUiFlag is_xam_dialog_present_;
+ 
+  private:
+   void LoadOnlineSchema();
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
-index bf19396..d0585ad 100644
+index bf19396..314aa03 100644
 --- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
 +++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
 @@ -28,6 +28,7 @@
@@ -964,7 +1124,29 @@ index bf19396..d0585ad 100644
  #include "xenia/ui/file_picker.h"
  #include "xenia/ui/imgui_dialog.h"
  #include "xenia/ui/imgui_drawer.h"
-@@ -723,6 +724,7 @@ dword_result_t XamShowDeviceSelectorUI_entry(
+@@ -101,6 +102,10 @@ X_RESULT xeXamDispatchDialog(T* dialog,
+       fence.Wait();
+       kernel_state()->xam_state()->is_xam_dialog_present_.store(false);
+     } else {
++      // Xbox360PS5 (fix 26): the dialog was not shown; it holds the system interface no
++      // longer (1.0.2 left the flag set, and the game got no buttons from then on).
++      XELOGW("System UI: a dialog could not be shown on the UI thread; released");
++      kernel_state()->xam_state()->is_xam_dialog_present_.store(false);
+       delete dialog;
+     }
+     // dialog should be deleted at this point!
+@@ -145,6 +150,10 @@ X_RESULT xeXamDispatchDialogEx(
+       fence.Wait();
+       kernel_state()->xam_state()->is_xam_dialog_present_.store(false);
+     } else {
++      // Xbox360PS5 (fix 26): the dialog was not shown; it holds the system interface no
++      // longer (1.0.2 left the flag set, and the game got no buttons from then on).
++      XELOGW("System UI: a dialog could not be shown on the UI thread; released");
++      kernel_state()->xam_state()->is_xam_dialog_present_.store(false);
+       delete dialog;
+     }
+     // dialog should be deleted at this point!
+@@ -723,6 +732,7 @@ dword_result_t XamShowDeviceSelectorUI_entry(
      if (button >= devices.size()) {
        XELOGW("Storage: the game asked where to save (user {}); cancelled",
               user);
@@ -972,7 +1154,7 @@ index bf19396..d0585ad 100644
        return X_ERROR_CANCELLED;
      }
  
-@@ -730,6 +732,7 @@ dword_result_t XamShowDeviceSelectorUI_entry(
+@@ -730,6 +740,7 @@ dword_result_t XamShowDeviceSelectorUI_entry(
      *device_id_ptr = static_cast<uint32_t>(device_info->device_id);
      XELOGW("Storage: the game asked where to save (user {}); {} chosen", user,
             to_utf8(device_info->name));
@@ -1042,10 +1224,18 @@ index c215940..3399546 100644
  
  dword_result_t XamUserGetName_entry(dword_t user_index, dword_t buffer,
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io.cc
-index 48119ec..d01746d 100644
+index 48119ec..4f370a0 100644
 --- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io.cc
 +++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io.cc
-@@ -33,6 +33,34 @@ namespace xe {
+@@ -20,6 +20,7 @@
+ #include "xenia/kernel/info/file.h"
+ #include "xenia/kernel/kernel_state.h"
+ #include "xenia/kernel/util/shim_utils.h"
++#include "xenia/kernel/xam/call_trace.h"
+ #include "xenia/kernel/xboxkrnl/xboxkrnl_private.h"
+ #include "xenia/kernel/xevent.h"
+ #include "xenia/kernel/xfile.h"
+@@ -33,6 +34,34 @@ namespace xe {
  namespace kernel {
  namespace xboxkrnl {
  
@@ -1080,7 +1270,7 @@ index 48119ec..d01746d 100644
  struct CreateOptions {
    // https://processhacker.sourceforge.io/doc/ntioapi_8h.html
    static constexpr uint32_t FILE_DIRECTORY_FILE = 0x00000001;
-@@ -72,8 +100,10 @@ dword_result_t NtCreateFile_entry(lpdword_t handle_out, dword_t desired_access,
+@@ -72,8 +101,10 @@ dword_result_t NtCreateFile_entry(lpdword_t handle_out, dword_t desired_access,
    // Compute path, possibly attrs relative.
    auto target_path = util::TranslateAnsiPath(kernel_memory(), object_name);
  
@@ -1092,16 +1282,33 @@ index 48119ec..d01746d 100644
      return X_STATUS_OBJECT_NAME_INVALID;
    }
  
-@@ -97,6 +127,8 @@ dword_result_t NtCreateFile_entry(lpdword_t handle_out, dword_t desired_access,
+@@ -96,7 +127,25 @@ dword_result_t NtCreateFile_entry(lpdword_t handle_out, dword_t desired_access,
+       (create_options & CreateOptions::FILE_DIRECTORY_FILE) != 0,
        (create_options & CreateOptions::FILE_NON_DIRECTORY_FILE) != 0, &vfs_file,
        &file_action);
++  // Xbox360PS5 (fix 26, diagnostic): every open in the minute after the storage prompt,
++  // found or not (the Guest path lines name each failing path only once).
++  {
++    const uint64_t now = xam::call_trace::NowMs();
++    if (xam::call_trace::InWindow(now)) {
++      static std::atomic<uint32_t> files{0};
++      if (files.fetch_add(1) < 400) {
++        XELOGW("Files: NtCreateFile '{}' root {:08X} access {:08X} disposition {} options "
++               "{:08X} -> {:08X} action {} {}",
++               target_path, uint32_t(object_attrs->root_directory), uint32_t(desired_access),
++               uint32_t(creation_disposition), uint32_t(create_options), uint32_t(result),
++               XSUCCEEDED(result) ? uint32_t(file_action) : 0u,
++               xam::call_trace::When(now, xam::call_trace::PromptMs().load()));
++      }
++    }
++  }
    if (XFAILED(result)) {
 +    ReportGuestPath("NtCreateFile", result, object_attrs->root_directory,
 +                    object_name, target_path);
      static std::atomic<uint32_t> recorded{0};
      if (recorded.fetch_add(1, std::memory_order_relaxed) < 64) {
        char text[1024];
-@@ -518,8 +550,10 @@ dword_result_t NtQueryFullAttributesFile_entry(
+@@ -518,8 +567,10 @@ dword_result_t NtQueryFullAttributesFile_entry(
  
    auto target_path = util::TranslateAnsiPath(kernel_memory(), object_name);
  
@@ -1113,7 +1320,7 @@ index 48119ec..d01746d 100644
      return X_STATUS_OBJECT_NAME_INVALID;
    }
  
-@@ -538,6 +572,8 @@ dword_result_t NtQueryFullAttributesFile_entry(
+@@ -538,6 +589,8 @@ dword_result_t NtQueryFullAttributesFile_entry(
      return X_STATUS_SUCCESS;
    }
  
@@ -1122,7 +1329,7 @@ index 48119ec..d01746d 100644
    return X_STATUS_NO_SUCH_FILE;
  }
  DECLARE_XBOXKRNL_EXPORT1(NtQueryFullAttributesFile, kFileSystem, kImplemented);
-@@ -557,8 +593,10 @@ dword_result_t NtQueryDirectoryFile_entry(
+@@ -557,8 +610,10 @@ dword_result_t NtQueryDirectoryFile_entry(
    auto file = kernel_state()->object_table()->LookupObject<XFile>(file_handle);
    auto name = util::TranslateAnsiPath(kernel_memory(), file_name);
  
@@ -1134,7 +1341,7 @@ index 48119ec..d01746d 100644
      return X_STATUS_INVALID_PARAMETER;
    }
  
-@@ -614,8 +652,10 @@ dword_result_t NtOpenSymbolicLinkObject_entry(
+@@ -614,8 +669,10 @@ dword_result_t NtOpenSymbolicLinkObject_entry(
  
    auto target_path = util::TranslateAnsiPath(kernel_memory(), object_name);
  
@@ -1326,7 +1533,7 @@ index ef83058..213d7d2 100644
    typedef struct {
      size_t size;         // Size (bytes) of total image.
 diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
-index bec0d5f..33e0cda 100644
+index bec0d5f..fafe06e 100644
 --- a/src/canary_game_main.cpp
 +++ b/src/canary_game_main.cpp
 @@ -75,6 +75,7 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
@@ -1337,7 +1544,19 @@ index bec0d5f..33e0cda 100644
  #include "xenia/kernel/user_module.h"
  #include "xenia/base/memory.h"
  #include "xbox360ps5/session_log.hpp"
-@@ -2559,6 +2560,26 @@ int main(int argc, char** argv) {
+@@ -2337,7 +2338,10 @@ int main(int argc, char** argv) {
+             if (ui_now != system_ui) {
+               system_ui = ui_now;
+               emulator.kernel_state()->BroadcastNotification(xe::kXNotificationSystemUI, ui_now ? 1 : 0);
+-              emulator.kernel_state()->xam_state()->is_xam_dialog_present_.store(ui_now);
++              // Fix 26: the guide's own owner bit, so its closing no longer clears a XAM
++              // dialog's (and a dialog's closing no longer clears the guide's).
++              emulator.kernel_state()->xam_state()->is_xam_dialog_present_.Set(
++                  xe::kernel::xam::SystemUiFlag::kGuide, ui_now);
+             }
+           }
+           if (guide.open) {
+@@ -2559,6 +2563,26 @@ int main(int argc, char** argv) {
              swaps_sum += float(swaps - sampled_swaps) / elapsed;
              sampled_swaps = swaps;
              sample_at = at; sampled_frames = frames;
