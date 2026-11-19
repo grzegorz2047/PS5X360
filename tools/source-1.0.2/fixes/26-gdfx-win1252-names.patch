@@ -1,0 +1,1076 @@
+diff --git a/.deps/xenia-canary/src/xenia/base/string.cc b/.deps/xenia-canary/src/xenia/base/string.cc
+index dbd6b5f..147ce92 100644
+--- a/.deps/xenia-canary/src/xenia/base/string.cc
++++ b/.deps/xenia-canary/src/xenia/base/string.cc
+@@ -62,6 +62,77 @@ std::u16string to_utf16(const std::string_view source) {
+   return utfcpp::utf8to16(source);
+ }
+ 
++#if !XE_PLATFORM_WIN32
++namespace {
++// Xbox360PS5 (fix 26): Windows-1252 without the Windows API. 0x80-0x9F as below, 0xA0-0xFF
++// are U+00A0-U+00FF. The five bytes the code page leaves undefined (81, 8D, 8F, 90, 9D) are
++// the C1 controls of the same value, as MultiByteToWideChar(1252) gives them. Up to 1.0.2
++// these functions copied the bytes, so a disc name such as "caf\xE9" reached the UTF-8 path
++// code unconverted and utfcpp threw not_enough_room ("Not enough space"): Handball 16.
++constexpr char16_t kWin1252High[32] = {
++    0x20AC, 0x0081, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021,
++    0x02C6, 0x2030, 0x0160, 0x2039, 0x0152, 0x008D, 0x017D, 0x008F,
++    0x0090, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014,
++    0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, 0x009D, 0x017E, 0x0178};
++
++void AppendUtf8(std::string& out, uint32_t cp) {
++  if (cp < 0x80) {
++    out += char(cp);
++  } else if (cp < 0x800) {
++    out += char(0xC0 | (cp >> 6));
++    out += char(0x80 | (cp & 0x3F));
++  } else {
++    out += char(0xE0 | (cp >> 12));
++    out += char(0x80 | ((cp >> 6) & 0x3F));
++    out += char(0x80 | (cp & 0x3F));
++  }
++}
++
++// The next code point of `s` at `i` (advanced past it), or -1 for a byte that does not start
++// a complete, shortest-form UTF-8 sequence (then `i` moves one byte). Never throws.
++int32_t NextUtf8(const std::string_view s, size_t& i) {
++  const uint8_t lead = uint8_t(s[i]);
++  size_t length;
++  uint32_t cp;
++  if (lead < 0x80) {
++    ++i;
++    return lead;
++  } else if (lead >= 0xC2 && lead <= 0xDF) {
++    length = 2;
++    cp = lead & 0x1F;
++  } else if (lead >= 0xE0 && lead <= 0xEF) {
++    length = 3;
++    cp = lead & 0x0F;
++  } else if (lead >= 0xF0 && lead <= 0xF4) {
++    length = 4;
++    cp = lead & 0x07;
++  } else {
++    ++i;
++    return -1;
++  }
++  if (s.size() - i < length) {
++    ++i;
++    return -1;
++  }
++  for (size_t k = 1; k < length; ++k) {
++    const uint8_t trail = uint8_t(s[i + k]);
++    if ((trail & 0xC0) != 0x80) {
++      ++i;
++      return -1;
++    }
++    cp = (cp << 6) | (trail & 0x3F);
++  }
++  if ((length == 3 && (cp < 0x800 || (cp >= 0xD800 && cp <= 0xDFFF))) ||
++      (length == 4 && (cp < 0x10000 || cp > 0x10FFFF))) {
++    ++i;
++    return -1;
++  }
++  i += length;
++  return int32_t(cp);
++}
++}  // namespace
++#endif
++
+ std::string utf8_to_win1252(const std::string_view source) {
+ #if XE_PLATFORM_WIN32
+   std::string input_str(source);
+@@ -93,8 +164,25 @@ std::string utf8_to_win1252(const std::string_view source) {
+   std::string output_str(buf.begin(), buf.end());
+   return output_str;
+ #else
+-  // TODO: Use iconv on POSIX.
+-  std::string output_str(source);
++  // Xbox360PS5 (fix 26): what Windows-1252 cannot hold, and bytes that are not UTF-8, become
++  // '_' (WideCharToMultiByte's default character above).
++  std::string output_str;
++  output_str.reserve(source.size());
++  for (size_t i = 0; i < source.size();) {
++    const int32_t cp = NextUtf8(source, i);
++    if (cp >= 0 && (cp < 0x80 || (cp >= 0xA0 && cp <= 0xFF))) {
++      output_str += char(cp);
++      continue;
++    }
++    char byte = '_';
++    for (size_t k = 0; cp >= 0 && k < 32; ++k) {
++      if (kWin1252High[k] == uint32_t(cp)) {
++        byte = char(0x80 + k);
++        break;
++      }
++    }
++    output_str += byte;
++  }
+   return output_str;
+ #endif
+ }
+@@ -130,8 +218,15 @@ std::string win1252_to_utf8(const std::string_view source) {
+   std::string output_str(buf.begin(), buf.end());
+   return output_str;
+ #else
+-  // TODO: Use iconv on POSIX.
+-  std::string output_str(source);
++  // Xbox360PS5 (fix 26): always valid UTF-8, never empty for a non-empty name.
++  std::string output_str;
++  output_str.reserve(source.size() + source.size() / 2);
++  for (const char c : source) {
++    const uint8_t byte = uint8_t(c);
++    AppendUtf8(output_str, byte < 0x80    ? byte
++                           : byte < 0xA0 ? uint32_t(kWin1252High[byte - 0x80])
++                                         : byte);
++  }
+   return output_str;
+ #endif
+ }
+diff --git a/.deps/xenia-canary/src/xenia/kernel/util/guest_path.h b/.deps/xenia-canary/src/xenia/kernel/util/guest_path.h
+new file mode 100644
+index 0000000..e4af849
+--- /dev/null
++++ b/.deps/xenia-canary/src/xenia/kernel/util/guest_path.h
+@@ -0,0 +1,213 @@
++/**
++ ******************************************************************************
++ * Xenia : Xbox 360 Emulator Research Project                                 *
++ ******************************************************************************
++ * Released under the BSD license - see LICENSE in the root for more details. *
++ ******************************************************************************
++ */
++
++#ifndef XENIA_KERNEL_UTIL_GUEST_PATH_H_
++#define XENIA_KERNEL_UTIL_GUEST_PATH_H_
++
++// Xbox360PS5 (fix 26): guest paths. A game names files in Windows-1252, the code page of the
++// names on its disc; the devices hold those names as UTF-8 (xe::win1252_to_utf8), so a guest
++// path is converted the same way before it is resolved. Up to 1.0.2 a path was kept as its
++// raw bytes, and IsValidPath (a signed char compared with 31 and 127) refused any byte from
++// 0x80 up with OBJECT_NAME_INVALID before anything was logged. Here a converted path may hold
++// UTF-8, and every failed path is reported once with its raw bytes (Handball 16, 573607E4).
++
++#include <cstdint>
++#include <cstdio>
++#include <mutex>
++#include <string>
++#include <string_view>
++#include <unordered_set>
++
++#include "xenia/base/string.h"
++
++namespace xe {
++namespace kernel {
++namespace util {
++
++// The guest's Windows-1252 path as UTF-8, without the ASCII white space around it (as
++// string_util::trim removed it). Empty only when the guest's name is empty or white space.
++inline std::string GuestAnsiPathToUtf8(std::string_view raw) {
++  auto space = [](char c) {
++    return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' ||
++           c == '\v';
++  };
++  size_t begin = 0, end = raw.size();
++  while (begin < end && space(raw[begin])) ++begin;
++  while (end > begin && space(raw[end - 1])) --end;
++  return xe::win1252_to_utf8(raw.substr(begin, end - begin));
++}
++
++// True when `s` is complete, shortest-form UTF-8 (what the UTF-8 path code needs not to throw).
++inline bool IsUtf8(std::string_view s) {
++  for (size_t i = 0; i < s.size();) {
++    const uint8_t lead = uint8_t(s[i]);
++    size_t length;
++    uint32_t cp;
++    if (lead < 0x80) {
++      ++i;
++      continue;
++    } else if (lead >= 0xC2 && lead <= 0xDF) {
++      length = 2, cp = lead & 0x1F;
++    } else if (lead >= 0xE0 && lead <= 0xEF) {
++      length = 3, cp = lead & 0x0F;
++    } else if (lead >= 0xF0 && lead <= 0xF4) {
++      length = 4, cp = lead & 0x07;
++    } else {
++      return false;
++    }
++    if (s.size() - i < length) return false;
++    for (size_t k = 1; k < length; ++k) {
++      const uint8_t trail = uint8_t(s[i + k]);
++      if ((trail & 0xC0) != 0x80) return false;
++      cp = (cp << 6) | (trail & 0x3F);
++    }
++    if ((length == 3 && (cp < 0x800 || (cp >= 0xD800 && cp <= 0xDFFF))) ||
++        (length == 4 && (cp < 0x10000 || cp > 0x10FFFF))) {
++      return false;
++    }
++    i += length;
++  }
++  return true;
++}
++
++// xfile.h IsValidPath: a converted guest path. Control characters (below 32, and 127) and
++// "+,<>|" are refused, '*' and '?' only in a pattern, '*' only before '.'. Characters from
++// U+0080 up are accepted as UTF-8 (1.0.2 refused every byte from 0x80 up).
++inline bool IsValidGuestPath(std::string_view s, bool is_pattern) {
++  if (!IsUtf8(s)) return false;
++  bool got_asterisk = false;
++  for (const char ch : s) {
++    const uint8_t c = uint8_t(ch);
++    if (c <= 31 || c == 127) return false;
++    if (got_asterisk) {
++      // * must be followed by a . (*.)
++      // 4D530819 has a bug in its game code where it attempts to FindFirstFile() with filters
++      // of "Game:\\*_X3.rkv", "Game:\\m*_X3.rkv", and "Game:\\w*_X3.rkv" and will infinite
++      // loop if the path filter is allowed.
++      if (c != '.') return false;
++      got_asterisk = false;
++    }
++    switch (c) {
++      case '"':
++      case '+':
++      case ',':
++      case '<':
++      case '>':
++      case '|':
++        return false;
++      case '*':
++        if (!is_pattern) return false;
++        got_asterisk = true;
++        break;
++      case '?':
++        if (!is_pattern) return false;
++        break;
++      default:
++        break;
++    }
++  }
++  return true;
++}
++
++// Xbox360PS5 (fix 26): an empty name under the DOS devices root (root handle 0 or
++// FFFFFFFD), as XAPI's DeleteFile("") opens it. Handball 16's file streams call that on every
++// close. It names nothing and fails on the console in microseconds. Here it fails at once, with
++// no device lookup and no log line: going through the VFS and its error log took about 11 ms.
++// The game's save manager clears its "busy" flag before that call and marks its job idle
++// after it, and the title screen polls once a frame. Inside an 11 ms window its next request
++// found the job not yet idle, was dropped, and left "saving" set for good, so the title screen
++// waited forever and ignored START (research/handball16/ANALYSIS.md sections 10-11). A name
++// under a real directory handle is not this case: it opens that directory.
++inline bool IsQuietEmptyOpen(std::string_view path, uint32_t root) {
++  return path.empty() && (root == 0 || root == 0xFFFFFFFDu);
++}
++
++// Failed guest paths, each distinct one (call, root, raw bytes) reported once and at most
++// kMaxReports in all: what the game passed, byte for byte, what it became, and where from.
++class GuestPathFailures {
++ public:
++  static constexpr size_t kMaxReports = 256;
++
++  static GuestPathFailures& Get() {
++    static GuestPathFailures failures;
++    return failures;
++  }
++
++  // The line to log, or empty when this one was reported already or the cap is reached.
++  // `callers`: the game's return address, then up to two callers above it (0 = unknown).
++  std::string Report(std::string_view call, uint32_t status, uint32_t root,
++                     const uint32_t (&callers)[3], std::string_view raw,
++                     std::string_view path) {
++    std::string key(call);
++    key += '\0';
++    key += std::to_string(root);
++    key += '\0';
++    key += raw;
++    {
++      std::lock_guard<std::mutex> lock(mutex_);
++      if (seen_.size() >= kMaxReports || !seen_.insert(key).second) {
++        return {};
++      }
++    }
++    return Describe(call, status, root, callers, raw, path);
++  }
++
++  static std::string Describe(std::string_view call, uint32_t status,
++                              uint32_t root, const uint32_t (&callers)[3],
++                              std::string_view raw, std::string_view path) {
++    char head[160];
++    std::snprintf(head, sizeof(head),
++                  "Guest path: %.*s %08X, root %08X, caller %08X < %08X < %08X, %zu bytes ",
++                  int(call.size()), call.data(), status, root, callers[0],
++                  callers[1], callers[2], raw.size());
++    std::string line = head;
++    line += '"';
++    bool high = false;
++    for (const char ch : raw) {
++      const uint8_t c = uint8_t(ch);
++      if (c >= 0x20 && c < 0x7F && c != '"' && c != '\\') {
++        line += char(c);
++      } else if (c == '\\') {
++        line += "\\\\";
++      } else {
++        char escaped[8];
++        std::snprintf(escaped, sizeof(escaped), "\\x%02X", c);
++        line += escaped;
++        high = high || c >= 0x80;
++      }
++    }
++    line += '"';
++    if (raw.empty()) {
++      line += " (empty name)";
++    } else if (high) {
++      line += " [";
++      for (size_t i = 0; i < raw.size() && i < 64; ++i) {
++        char hex[4];
++        std::snprintf(hex, sizeof(hex), i ? " %02X" : "%02X", uint8_t(raw[i]));
++        line += hex;
++      }
++      if (raw.size() > 64) line += " ...";
++      line += ']';
++    }
++    line += " -> \"";
++    line += path;
++    line += '"';
++    if (path.empty() && !raw.empty()) line += " (empty after conversion)";
++    return line;
++  }
++
++ private:
++  std::mutex mutex_;
++  std::unordered_set<std::string> seen_;
++};
++
++}  // namespace util
++}  // namespace kernel
++}  // namespace xe
++
++#endif  // XENIA_KERNEL_UTIL_GUEST_PATH_H_
+diff --git a/.deps/xenia-canary/src/xenia/kernel/util/shim_utils.h b/.deps/xenia-canary/src/xenia/kernel/util/shim_utils.h
+index de4b758..f34dec2 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/util/shim_utils.h
++++ b/.deps/xenia-canary/src/xenia/kernel/util/shim_utils.h
+@@ -17,11 +17,13 @@
+ #include "xenia/base/byte_order.h"
+ #include "xenia/base/logging.h"
+ #include "xenia/base/memory.h"
++#include "xenia/base/string.h"
+ #include "xenia/base/string_buffer.h"
+ #include "xenia/cpu/export_resolver.h"
+ #include "xenia/cpu/ppc/ppc_context.h"
+ #include "xenia/kernel/kernel_flags.h"
+ #include "xenia/kernel/kernel_state.h"
++#include "xenia/kernel/util/guest_path.h"
+ 
+ namespace xe {
+ namespace kernel {
+@@ -79,10 +81,13 @@ inline std::string_view TranslateAnsiString(const Memory* memory,
+       ansi_string->length);
+ }
+ 
++// Xbox360PS5 (fix 26): a guest path is Windows-1252, like the names on a disc, which the
++// devices convert to UTF-8 (win1252_to_utf8); converted the same way (guest_path.h), a path
++// with an accented name finds its entry, and the UTF-8 path code never sees bytes that are
++// not UTF-8. The white space around it goes as before (without a regex per path).
+ inline std::string TranslateAnsiPath(const Memory* memory,
+                                      const X_ANSI_STRING* ansi_string) {
+-  return string_util::trim(
+-      std::string(TranslateAnsiString(memory, ansi_string)));
++  return GuestAnsiPathToUtf8(TranslateAnsiString(memory, ansi_string));
+ }
+ 
+ inline std::string_view TranslateAnsiStringAddress(const Memory* memory,
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/system_ui.h b/.deps/xenia-canary/src/xenia/kernel/xam/system_ui.h
+new file mode 100644
+index 0000000..80c414a
+--- /dev/null
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/system_ui.h
+@@ -0,0 +1,74 @@
++/**
++ ******************************************************************************
++ * Xenia : Xbox 360 Emulator Research Project                                 *
++ ******************************************************************************
++ * Released under the BSD license - see LICENSE in the root for more details. *
++ ******************************************************************************
++ */
++
++#ifndef XENIA_KERNEL_XAM_SYSTEM_UI_H_
++#define XENIA_KERNEL_XAM_SYSTEM_UI_H_
++
++// Xbox360PS5 (fix 26): who has the system interface up. XamInputGetState gives the game a pad
++// at rest while it is (XamState::IsUIActive). In 1.0.2 one bool held it, written by the XAM
++// dialogs (true when shown, false when closed) and by the PS5X360 guide (true when opened,
++// false when closed): the guide closing cleared a dialog's state and the other way round, and a
++// dialog the UI thread could not show (xeXamDispatchDialog's failure path) left it set, so the
++// game got no buttons from then on. Here each owner has its own bit, the interface is up while
++// any is set, and every change goes to a hook (logged by XamState). store()/load() keep the
++// 1.0.2 calls working: store() is the XAM dialog's.
++
++#include <atomic>
++#include <cstdint>
++
++namespace xe {
++namespace kernel {
++namespace xam {
++
++class SystemUiFlag {
++ public:
++  enum Owner : uint32_t {
++    kXamDialog = 1u,  // a XAM dialog (message box, device selector, sign-in, keyboard, ...)
++    kGuide = 2u,      // the PS5X360 guide or the library over the game
++  };
++  using Hook = void (*)(uint32_t before, uint32_t after);
++
++  SystemUiFlag() = default;
++  SystemUiFlag(const SystemUiFlag&) = delete;
++  SystemUiFlag& operator=(const SystemUiFlag&) = delete;
++
++  // 1.0.2's interface: the system interface is up; a XAM dialog is shown or closed.
++  bool load() const { return owners_.load() != 0; }
++  void store(bool open) { Set(kXamDialog, open); }
++
++  uint32_t owners() const { return owners_.load(); }
++  void Set(Owner owner, bool open) {
++    const uint32_t bit = uint32_t(owner);
++    const uint32_t before = open ? owners_.fetch_or(bit) : owners_.fetch_and(~bit);
++    const uint32_t after = open ? (before | bit) : (before & ~bit);
++    if (before != after) {
++      if (Hook hook = hook_.load()) hook(before, after);
++    }
++  }
++  void set_hook(Hook hook) { hook_.store(hook); }
++
++  // "XAM dialog", "guide", "XAM dialog and guide" or "none".
++  static const char* OwnersText(uint32_t owners) {
++    switch (owners & 3u) {
++      case 1u: return "XAM dialog";
++      case 2u: return "guide";
++      case 3u: return "XAM dialog and guide";
++      default: return "none";
++    }
++  }
++
++ private:
++  std::atomic<uint32_t> owners_{0};
++  std::atomic<Hook> hook_{nullptr};
++};
++
++}  // namespace xam
++}  // namespace kernel
++}  // namespace xe
++
++#endif  // XENIA_KERNEL_XAM_SYSTEM_UI_H_
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_locale.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_locale.cc
+index 540fab6..6ebd226 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_locale.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_locale.cc
+@@ -14,6 +14,7 @@
+ #include "xenia/kernel/util/shim_utils.h"
+ #include "xenia/kernel/util/xfiletime.h"
+ #include "xenia/kernel/xam/xam_private.h"
++#include "xenia/kernel/xam/xam_locale_v1.h"
+ #include "xenia/kernel/xenumerator.h"
+ #include "xenia/kernel/xthread.h"
+ #include "xenia/xbox.h"
+@@ -187,38 +188,17 @@ uint8_t xeXamGetCountryFromOnlineCountry(uint8_t id) {
+   return id < xe::countof(table) ? table[id] : 0;
+ }
+ 
+-uint8_t xeXamGetLocaleFromCountry(uint8_t id) {
+-  static uint8_t constexpr table[] = {
+-      0,  43, 0, 0, 40, 2,  1,  0,  3,  0, 0, 0, 0,  4,  0,  0,  5,  0,  33,
+-      6,  7,  8, 0, 9,  13, 10, 0,  0,  0, 0, 0, 31, 11, 0,  12, 35, 0,  14,
+-      0,  15, 0, 0, 16, 0,  18, 42, 17, 0, 0, 0, 19, 0,  0,  20, 0,  0,  21,
+-      0,  0,  0, 0, 0,  0,  0,  0,  0,  0, 0, 0, 0,  0,  22, 0,  0,  23, 25,
+-      24, 0,  0, 0, 0,  0,  26, 0,  27, 0, 0, 0, 37, 41, 32, 28, 0,  29, 0,
+-      0,  0,  0, 0, 39, 0,  34, 0,  36, 0, 0, 0, 0,  0,  30, 0,  38,
+-  };
+-#pragma warning(suppress : 6385)
+-  return id < xe::countof(table) ? table[id] : 0;
+-}
++// Xbox360PS5 (fix 26): the table is in xam_locale_v1.h (LocaleFromCountry).
++uint8_t xeXamGetLocaleFromCountry(uint8_t id) { return LocaleFromCountry(id); }
+ 
+ // Helpers.
+ 
++// Xbox360PS5 (fix 26): the choice is in xam_locale_v1.h (ChooseLocale).
+ uint8_t xeXamGetLocaleEx(uint8_t max_country_id, uint8_t max_locale_id) {
+-  uint8_t country_id = kernel_state()->xconfig()->ReadSetting<uint8_t>(
++  const uint8_t country_id = kernel_state()->xconfig()->ReadSetting<uint8_t>(
+       XCONFIG_USER_CATEGORY, XCONFIG_USER_COUNTRY);
+-  if (country_id <= max_country_id) {
+-    uint8_t locale_id = xeXamGetLocaleFromCountry(country_id);
+-    if (locale_id <= max_locale_id) {
+-      return locale_id;
+-    }
+-  }
+-
+-  // couldn't find locale, fallback from game region.
+-  auto game_region = xeXGetGameRegion();
+-  auto region = static_cast<uint8_t>((game_region & 0xFF00u) >> 8);
+-  if (region == 1) {
+-    return game_region == 0x101 ? 20 /* JP */ : 21 /* KR */;
+-  }
+-  return region == 2 ? 35 /* GB */ : 36 /* US */;
++  return ChooseLocale(country_id, GameRegionFromCountry(country_id),
++                      max_country_id, max_locale_id);
+ }
+ 
+ uint8_t xeXamGetLocale() { return xeXamGetLocaleEx(111, 43); }
+@@ -574,26 +554,11 @@ void XamFormatTimeString_entry(dword_t user_index, qword_t filetime,
+ }
+ DECLARE_XAM_EXPORT1(XamFormatTimeString, kNone, kImplemented);
+ 
++// Xbox360PS5 (fix 26): the table is in xam_locale_v1.h (GameRegionFromCountry).
+ uint32_t xeXGetGameRegion() {
+-  static uint32_t constexpr table[] = {
+-      0xFFFFu, 0x03FFu, 0x02FEu, 0x02FEu, 0x03FFu, 0x02FEu, 0x0201u, 0x03FFu,
+-      0x02FEu, 0x02FEu, 0x03FFu, 0x03FFu, 0x03FFu, 0x03FFu, 0x02FEu, 0x03FFu,
+-      0x00FFu, 0xFFFFu, 0x02FEu, 0x03FFu, 0x0102u, 0x03FFu, 0x03FFu, 0x02FEu,
+-      0x02FEu, 0x02FEu, 0x03FFu, 0x03FFu, 0x03FFu, 0x02FEu, 0x03FFu, 0x02FEu,
+-      0x02FEu, 0x02FEu, 0x02FEu, 0x02FEu, 0x02FEu, 0x02FEu, 0x03FFu, 0x03FFu,
+-      0x03FFu, 0x02FEu, 0x02FEu, 0x03FFu, 0x02FEu, 0x02FEu, 0x03FFu, 0x03FFu,
+-      0x03FFu, 0x02FEu, 0x02FEu, 0x03FFu, 0x03FFu, 0x0101u, 0x03FFu, 0x03FFu,
+-      0x03FFu, 0x03FFu, 0x03FFu, 0x03FFu, 0x02FEu, 0x02FEu, 0x02FEu, 0x02FEu,
+-      0x03FFu, 0x03FFu, 0x02FEu, 0x02FEu, 0x03FFu, 0x0102u, 0x03FFu, 0x00FFu,
+-      0x03FFu, 0x03FFu, 0x02FEu, 0x02FEu, 0x0201u, 0x03FFu, 0x03FFu, 0x03FFu,
+-      0x03FFu, 0x03FFu, 0x02FEu, 0x03FFu, 0x02FEu, 0x03FFu, 0x03FFu, 0x02FEu,
+-      0x02FEu, 0x03FFu, 0x02FEu, 0x03FFu, 0x02FEu, 0x02FEu, 0xFFFFu, 0x03FFu,
+-      0x03FFu, 0x03FFu, 0x03FFu, 0x02FEu, 0x03FFu, 0x03FFu, 0x02FEu, 0x00FFu,
+-      0x03FFu, 0x03FFu, 0x03FFu, 0x03FFu, 0x03FFu, 0x03FFu, 0x03FFu};
+-  auto country = kernel_state()->xconfig()->ReadSetting<uint8_t>(
++  return GameRegionFromCountry(kernel_state()->xconfig()->ReadSetting<uint8_t>(
+       XCONFIG_USER_CATEGORY,
+-      XCONFIG_USER_CATEGORY_ENTRIES::XCONFIG_USER_COUNTRY);
+-  return country < xe::countof(table) ? table[country] : 0xFFFFu;
++      XCONFIG_USER_CATEGORY_ENTRIES::XCONFIG_USER_COUNTRY));
+ }
+ 
+ dword_result_t XGetGameRegion_entry() { return xeXGetGameRegion(); }
+@@ -657,6 +622,26 @@ dword_result_t XTLGetLanguageV2_entry() {
+ }
+ DECLARE_XAM_EXPORT1(XTLGetLanguageV2, kNone, kImplemented);
+ 
++// Xbox360PS5 (fix 26): XGetLocale() of a title, XC_LOCALE_* from the console's country
++// (xam_locale_v1.h XtlLocaleV1). Unimplemented up to 1.0.2: the undefined import returned
++// nothing and left r3 as it was, and Handball 16 (573607E4) used that value as its locale. Its
++// localized paths came out as "pD\xF1\xD0" and "" (the Guest path lines), and its
++// commentary as "/Sentences/...". The game then did not react to START after the storage
++// prompt.
++dword_result_t XTLGetLocaleV1_entry() {
++  const uint8_t country_id = kernel_state()->xconfig()->ReadSetting<uint8_t>(
++      XCONFIG_USER_CATEGORY, XCONFIG_USER_COUNTRY);
++  const uint8_t locale_id = XtlLocaleV1(country_id);
++  static bool logged = false;
++  if (!logged) {
++    logged = true;
++    XELOGW("Locale: XGetLocale (XTLGetLocaleV1) gives {} for country {}", locale_id,
++           country_id);
++  }
++  return locale_id;
++}
++DECLARE_XAM_EXPORT1(XTLGetLocaleV1, kLocale, kImplemented);
++
+ pointer_result_t XamGetLanguageLocaleFallbackString_entry(dword_t language) {
+   assert_false(language >= static_cast<uint32_t>(XLanguage::kMaxLanguages));
+   return kernel_state()->xam_state()->GetLanguageFallbackAddress(language);
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_locale_v1.h b/.deps/xenia-canary/src/xenia/kernel/xam/xam_locale_v1.h
+new file mode 100644
+index 0000000..72d2311
+--- /dev/null
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_locale_v1.h
+@@ -0,0 +1,89 @@
++/**
++ ******************************************************************************
++ * Xenia : Xbox 360 Emulator Research Project                                 *
++ ******************************************************************************
++ * Released under the BSD license - see LICENSE in the root for more details. *
++ ******************************************************************************
++ */
++
++#ifndef XENIA_KERNEL_XAM_XAM_LOCALE_V1_H_
++#define XENIA_KERNEL_XAM_XAM_LOCALE_V1_H_
++
++// Xbox360PS5 (fix 26): the console's locale without the kernel, so XTLGetLocaleV1 and its host
++// check use the same code. The two country tables and XamGetLocaleEx's choice moved here from
++// xam_locale.cc unchanged; xam_locale.cc reads the country from XConfig and calls these.
++
++#include <cstdint>
++
++namespace xe {
++namespace kernel {
++namespace xam {
++
++// XC_LOCALE_* for an XOnlineCountry id (0 = none).
++inline uint8_t LocaleFromCountry(uint8_t id) {
++  static constexpr uint8_t table[] = {
++      0,  43, 0, 0, 40, 2,  1,  0,  3,  0, 0, 0, 0,  4,  0,  0,  5,  0,  33,
++      6,  7,  8, 0, 9,  13, 10, 0,  0,  0, 0, 0, 31, 11, 0,  12, 35, 0,  14,
++      0,  15, 0, 0, 16, 0,  18, 42, 17, 0, 0, 0, 19, 0,  0,  20, 0,  0,  21,
++      0,  0,  0, 0, 0,  0,  0,  0,  0,  0, 0, 0, 0,  0,  22, 0,  0,  23, 25,
++      24, 0,  0, 0, 0,  0,  26, 0,  27, 0, 0, 0, 37, 41, 32, 28, 0,  29, 0,
++      0,  0,  0, 0, 39, 0,  34, 0,  36, 0, 0, 0, 0,  0,  30, 0,  38,
++  };
++  return id < sizeof(table) ? table[id] : 0;
++}
++
++// The game region (XGetGameRegion) for an XOnlineCountry id: 0x00FF North America,
++// 0x01xx Asia (0x0101 Japan, 0x0102 China), 0x02xx PAL (0x0201 Australia/New Zealand),
++// 0x03FF and 0xFFFF elsewhere.
++inline uint32_t GameRegionFromCountry(uint8_t country) {
++  static constexpr uint16_t table[] = {
++      0xFFFFu, 0x03FFu, 0x02FEu, 0x02FEu, 0x03FFu, 0x02FEu, 0x0201u, 0x03FFu,
++      0x02FEu, 0x02FEu, 0x03FFu, 0x03FFu, 0x03FFu, 0x03FFu, 0x02FEu, 0x03FFu,
++      0x00FFu, 0xFFFFu, 0x02FEu, 0x03FFu, 0x0102u, 0x03FFu, 0x03FFu, 0x02FEu,
++      0x02FEu, 0x02FEu, 0x03FFu, 0x03FFu, 0x03FFu, 0x02FEu, 0x03FFu, 0x02FEu,
++      0x02FEu, 0x02FEu, 0x02FEu, 0x02FEu, 0x02FEu, 0x02FEu, 0x03FFu, 0x03FFu,
++      0x03FFu, 0x02FEu, 0x02FEu, 0x03FFu, 0x02FEu, 0x02FEu, 0x03FFu, 0x03FFu,
++      0x03FFu, 0x02FEu, 0x02FEu, 0x03FFu, 0x03FFu, 0x0101u, 0x03FFu, 0x03FFu,
++      0x03FFu, 0x03FFu, 0x03FFu, 0x03FFu, 0x02FEu, 0x02FEu, 0x02FEu, 0x02FEu,
++      0x03FFu, 0x03FFu, 0x02FEu, 0x02FEu, 0x03FFu, 0x0102u, 0x03FFu, 0x00FFu,
++      0x03FFu, 0x03FFu, 0x02FEu, 0x02FEu, 0x0201u, 0x03FFu, 0x03FFu, 0x03FFu,
++      0x03FFu, 0x03FFu, 0x02FEu, 0x03FFu, 0x02FEu, 0x03FFu, 0x03FFu, 0x02FEu,
++      0x02FEu, 0x03FFu, 0x02FEu, 0x03FFu, 0x02FEu, 0x02FEu, 0xFFFFu, 0x03FFu,
++      0x03FFu, 0x03FFu, 0x03FFu, 0x02FEu, 0x03FFu, 0x03FFu, 0x02FEu, 0x00FFu,
++      0x03FFu, 0x03FFu, 0x03FFu, 0x03FFu, 0x03FFu, 0x03FFu, 0x03FFu};
++  return country < sizeof(table) / sizeof(table[0]) ? table[country] : 0xFFFFu;
++}
++
++// XamGetLocaleEx: the country's locale when the country id and its locale are within the
++// limits, else the game region's: Japan or Korea for 0x01xx, Great Britain for 0x02xx, and the
++// United States otherwise.
++inline uint8_t ChooseLocale(uint8_t country_id, uint32_t game_region,
++                            uint8_t max_country_id, uint8_t max_locale_id) {
++  if (country_id <= max_country_id) {
++    const uint8_t locale_id = LocaleFromCountry(country_id);
++    if (locale_id <= max_locale_id) {
++      return locale_id;
++    }
++  }
++  const auto region = static_cast<uint8_t>((game_region & 0xFF00u) >> 8);
++  if (region == 1) {
++    return game_region == 0x101 ? 20 /* JP */ : 21 /* KR */;
++  }
++  return region == 2 ? 35 /* GB */ : 36 /* US */;
++}
++
++// XTLGetLocaleV1 (xam 0x5DB), XGetLocale() in a title: the console's locale from the locales
++// of the first XDK list, XC_LOCALE_AUSTRALIA (1) to XC_LOCALE_UNITED_STATES (36). A country
++// with a later locale (Russia 37 and up) gets its region's, as XTLGetLanguageV2 keeps to the
++// first languages. Country ids run to 111 (XamGetLocale's limit).
++constexpr uint8_t kXtlLocaleV1Max = 36;
++inline uint8_t XtlLocaleV1(uint8_t country_id) {
++  return ChooseLocale(country_id, GameRegionFromCountry(country_id), 111,
++                      kXtlLocaleV1Max);
++}
++
++}  // namespace xam
++}  // namespace kernel
++}  // namespace xe
++
++#endif  // XENIA_KERNEL_XAM_XAM_LOCALE_V1_H_
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_state.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_state.cc
+index d336bce..a388f2b 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_state.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_state.cc
+@@ -19,6 +19,14 @@ namespace xam {
+ 
+ XamState::XamState(Emulator* emulator, KernelState* kernel_state)
+     : kernel_state_(kernel_state) {
++  // Xbox360PS5 (fix 26): every change of who holds the system interface up (while anyone
++  // does, XamInputGetState gives the game a pad at rest). Rare: a dialog or the guide.
++  is_xam_dialog_present_.set_hook([](uint32_t before, uint32_t after) {
++    static std::atomic<uint32_t> lines{0};
++    if (lines.fetch_add(1) >= 400) return;
++    XELOGW("System UI: {} -> {}; the game's input is {}", SystemUiFlag::OwnersText(before),
++           SystemUiFlag::OwnersText(after), after ? "discarded" : "passed on");
++  });
+   app_manager_ = std::make_unique<AppManager>();
+ 
+   auto content_root = emulator->content_root();
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_state.h b/.deps/xenia-canary/src/xenia/kernel/xam/xam_state.h
+index 40aed40..674eb5c 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_state.h
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_state.h
+@@ -17,6 +17,7 @@
+ #include "xenia/kernel/xam/content_manager.h"
+ #include "xenia/kernel/xam/friends_manager.h"
+ #include "xenia/kernel/xam/presence_manager.h"
++#include "xenia/kernel/xam/system_ui.h"
+ #include "xenia/kernel/xam/profile_manager.h"
+ #include "xenia/kernel/xam/user_tracker.h"
+ #include "xenia/kernel/xam/xam.h"
+@@ -86,7 +87,8 @@ class XamState {
+   X_DASH_BACKSTACK_DATA dash_backstack_data_[2] = {};
+   uint32_t content_register_callback = 0;
+ 
+-  std::atomic<bool> is_xam_dialog_present_ = false;
++  // Xbox360PS5 (fix 26): owners of the system interface (system_ui.h), not one bool.
++  SystemUiFlag is_xam_dialog_present_;
+ 
+  private:
+   void LoadOnlineSchema();
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
+index bf19396..481f8b0 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
+@@ -100,7 +100,14 @@ X_RESULT xeXamDispatchDialog(T* dialog,
+             [&dialog, &fence]() { dialog->Then(&fence); })) {
+       fence.Wait();
+       kernel_state()->xam_state()->is_xam_dialog_present_.store(false);
++      XELOGW("System UI: dialog closed, result {:08X}", uint32_t(result));  // fix 26
+     } else {
++      // Xbox360PS5 (fix 26): the dialog was not shown; it holds the system interface no
++      // longer (1.0.2 left the flag set, and the game got no buttons from then on), and the
++      // game gets a failure (1.0.2 returned the uninitialized result).
++      XELOGW("System UI: a dialog could not be shown on the UI thread; released");
++      kernel_state()->xam_state()->is_xam_dialog_present_.store(false);
++      result = X_ERROR_FUNCTION_FAILED;
+       delete dialog;
+     }
+     // dialog should be deleted at this point!
+@@ -144,7 +151,14 @@ X_RESULT xeXamDispatchDialogEx(
+             [&dialog, &fence]() { dialog->Then(&fence); })) {
+       fence.Wait();
+       kernel_state()->xam_state()->is_xam_dialog_present_.store(false);
++      XELOGW("System UI: dialog closed, result {:08X}", uint32_t(result));  // fix 26
+     } else {
++      // Xbox360PS5 (fix 26): the dialog was not shown; it holds the system interface no
++      // longer (1.0.2 left the flag set, and the game got no buttons from then on), and the
++      // game gets a failure (1.0.2 returned the uninitialized result).
++      XELOGW("System UI: a dialog could not be shown on the UI thread; released");
++      kernel_state()->xam_state()->is_xam_dialog_present_.store(false);
++      result = X_ERROR_FUNCTION_FAILED;
+       delete dialog;
+     }
+     // dialog should be deleted at this point!
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io.cc
+index 48119ec..d7f31f4 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io.cc
+@@ -33,6 +33,34 @@ namespace xe {
+ namespace kernel {
+ namespace xboxkrnl {
+ 
++// Xbox360PS5 (fix 26): a guest path that failed, reported once per distinct name
++// (util::GuestPathFailures): the raw bytes the game passed, what they became, and the game's
++// return address with two callers above it (saved LR words along the stack's back chain).
++static void ReportGuestPath(const char* call, X_STATUS status, uint32_t root,
++                            const X_ANSI_STRING* name,
++                            const std::string& path) {
++  const std::string_view raw = util::TranslateAnsiString(kernel_memory(), name);
++  uint32_t callers[3] = {};
++  if (auto* thread_state = cpu::ThreadState::Get()) {
++    const auto* context = thread_state->context();
++    callers[0] = uint32_t(context->lr);
++    uint32_t sp = uint32_t(context->r[1]);
++    for (int i = 1; i < 3 && sp; ++i) {
++      const uint32_t back = xe::load_and_swap<uint32_t>(
++          kernel_memory()->TranslateVirtual(sp));
++      if (back <= sp || back - sp > 0x100000) break;
++      callers[i] = xe::load_and_swap<uint32_t>(
++          kernel_memory()->TranslateVirtual(back - 8));
++      sp = back;
++    }
++  }
++  const std::string line = util::GuestPathFailures::Get().Report(
++      call, uint32_t(status), root, callers, raw, path);
++  if (!line.empty()) {
++    XELOGW("{}", line);
++  }
++}
++
+ struct CreateOptions {
+   // https://processhacker.sourceforge.io/doc/ntioapi_8h.html
+   static constexpr uint32_t FILE_DIRECTORY_FILE = 0x00000001;
+@@ -72,11 +100,26 @@ dword_result_t NtCreateFile_entry(lpdword_t handle_out, dword_t desired_access,
+   // Compute path, possibly attrs relative.
+   auto target_path = util::TranslateAnsiPath(kernel_memory(), object_name);
+ 
+-  // Enforce that the path is ASCII.
++  // A valid path (fix 26: UTF-8 from the guest's Windows-1252 allowed).
+   if (!IsValidPath(target_path, false)) {
++    ReportGuestPath("NtCreateFile", X_STATUS_OBJECT_NAME_INVALID,
++                    object_attrs->root_directory, object_name, target_path);
+     return X_STATUS_OBJECT_NAME_INVALID;
+   }
+ 
++  // Xbox360PS5 (fix 26): DeleteFile("") and the like fail at once and quietly, as fast as on
++  // the console (guest_path.h IsQuietEmptyOpen; Handball 16's save manager races it).
++  if (util::IsQuietEmptyOpen(target_path, object_attrs->root_directory)) {
++    ReportGuestPath("NtCreateFile", X_STATUS_OBJECT_NAME_NOT_FOUND,
++                    object_attrs->root_directory, object_name, target_path);
++    if (io_status_block) {
++      io_status_block->status = X_STATUS_OBJECT_NAME_NOT_FOUND;
++      io_status_block->information = 0;
++    }
++    *handle_out = X_INVALID_HANDLE_VALUE;
++    return X_STATUS_OBJECT_NAME_NOT_FOUND;
++  }
++
+   if (object_attrs->root_directory != 0xFFFFFFFD &&  // ObDosDevices
+       object_attrs->root_directory != 0) {
+     auto root_file = kernel_state()->object_table()->LookupObject<XFile>(
+@@ -97,6 +140,8 @@ dword_result_t NtCreateFile_entry(lpdword_t handle_out, dword_t desired_access,
+       (create_options & CreateOptions::FILE_NON_DIRECTORY_FILE) != 0, &vfs_file,
+       &file_action);
+   if (XFAILED(result)) {
++    ReportGuestPath("NtCreateFile", result, object_attrs->root_directory,
++                    object_name, target_path);
+     static std::atomic<uint32_t> recorded{0};
+     if (recorded.fetch_add(1, std::memory_order_relaxed) < 64) {
+       char text[1024];
+@@ -518,8 +563,10 @@ dword_result_t NtQueryFullAttributesFile_entry(
+ 
+   auto target_path = util::TranslateAnsiPath(kernel_memory(), object_name);
+ 
+-  // Enforce that the path is ASCII.
++  // A valid path (fix 26: UTF-8 from the guest's Windows-1252 allowed).
+   if (!IsValidPath(target_path, false)) {
++    ReportGuestPath("NtQueryFullAttributesFile", X_STATUS_OBJECT_NAME_INVALID,
++                    obj_attribs->root_directory, object_name, target_path);
+     return X_STATUS_OBJECT_NAME_INVALID;
+   }
+ 
+@@ -538,6 +585,8 @@ dword_result_t NtQueryFullAttributesFile_entry(
+     return X_STATUS_SUCCESS;
+   }
+ 
++  ReportGuestPath("NtQueryFullAttributesFile", X_STATUS_NO_SUCH_FILE,
++                  obj_attribs->root_directory, object_name, target_path);
+   return X_STATUS_NO_SUCH_FILE;
+ }
+ DECLARE_XBOXKRNL_EXPORT1(NtQueryFullAttributesFile, kFileSystem, kImplemented);
+@@ -557,8 +606,10 @@ dword_result_t NtQueryDirectoryFile_entry(
+   auto file = kernel_state()->object_table()->LookupObject<XFile>(file_handle);
+   auto name = util::TranslateAnsiPath(kernel_memory(), file_name);
+ 
+-  // Enforce that the path is ASCII.
++  // A valid pattern (fix 26: UTF-8 from the guest's Windows-1252 allowed).
+   if (!IsValidPath(name, true)) {
++    ReportGuestPath("NtQueryDirectoryFile", X_STATUS_INVALID_PARAMETER,
++                    file_handle, file_name, name);
+     return X_STATUS_INVALID_PARAMETER;
+   }
+ 
+@@ -614,8 +665,10 @@ dword_result_t NtOpenSymbolicLinkObject_entry(
+ 
+   auto target_path = util::TranslateAnsiPath(kernel_memory(), object_name);
+ 
+-  // Enforce that the path is ASCII.
++  // A valid path (fix 26: UTF-8 from the guest's Windows-1252 allowed).
+   if (!IsValidPath(target_path, false)) {
++    ReportGuestPath("NtOpenSymbolicLinkObject", X_STATUS_OBJECT_NAME_INVALID,
++                    object_attrs->root_directory, object_name, target_path);
+     return X_STATUS_OBJECT_NAME_INVALID;
+   }
+ 
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xfile.cc b/.deps/xenia-canary/src/xenia/kernel/xfile.cc
+index fe5f117..0c18043 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xfile.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xfile.cc
+@@ -11,6 +11,7 @@
+ #include "xenia/vfs/virtual_file_system.h"
+ 
+ #include "xenia/base/byte_stream.h"
++#include "xenia/base/string.h"
+ #include "xenia/kernel/kernel_state.h"
+ 
+ namespace xe {
+@@ -79,7 +80,9 @@ X_STATUS XFile::QueryDirectory(X_FILE_DIRECTORY_INFORMATION* out_info,
+   }
+ 
+   auto end = reinterpret_cast<uint8_t*>(out_info) + length;
+-  const auto& entry_name = entry->name();
++  // Xbox360PS5 (fix 26): entry names are UTF-8 (a disc's Windows-1252 names converted); the
++  // guest gets the Windows-1252 bytes of its disc back.
++  const std::string entry_name = xe::utf8_to_win1252(entry->name());
+   if (reinterpret_cast<uint8_t*>(&out_info->file_name[0]) + entry_name.size() >
+       end) {
+     assert_always("Buffer overflow?");
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xfile.h b/.deps/xenia-canary/src/xenia/kernel/xfile.h
+index 896178f..8c0f6bd 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xfile.h
++++ b/.deps/xenia-canary/src/xenia/kernel/xfile.h
+@@ -14,6 +14,7 @@
+ #include <string>
+ 
+ #include "xenia/kernel/xiocompletion.h"
++#include "xenia/kernel/util/guest_path.h"
+ #include "xenia/vfs/device.h"
+ #include "xenia/vfs/entry.h"
+ #include "xenia/vfs/file.h"
+@@ -72,60 +73,11 @@ class X_FILE_DIRECTORY_INFORMATION {
+   }
+ };
+ 
++// Xbox360PS5 (fix 26): util::IsValidGuestPath (guest_path.h). The 1.0.2 check compared a
++// signed char with 31 and 127, so it refused every byte from 0x80 up; a converted guest path
++// may now hold UTF-8 (accented names on a European disc).
+ static bool IsValidPath(const std::string_view s, bool is_pattern) {
+-  // TODO(gibbed): validate path components individually
+-  bool got_asterisk = false;
+-  for (const auto& c : s) {
+-    if (c <= 31 || c >= 127) {
+-      return false;
+-    }
+-    if (got_asterisk) {
+-      // * must be followed by a . (*.)
+-      //
+-      // 4D530819 has a bug in its game code where it attempts to
+-      // FindFirstFile() with filters of "Game:\\*_X3.rkv", "Game:\\m*_X3.rkv",
+-      // and "Game:\\w*_X3.rkv" and will infinite loop if the path filter is
+-      // allowed.
+-      if (c != '.') {
+-        return false;
+-      }
+-      got_asterisk = false;
+-    }
+-    switch (c) {
+-      case '"':
+-      // case '*':
+-      case '+':
+-      case ',':
+-      // case ':':
+-      // case ';':
+-      case '<':
+-      // case '=':
+-      case '>':
+-      // case '?':
+-      case '|': {
+-        return false;
+-      }
+-      case '*': {
+-        // Pattern-specific (for NtQueryDirectoryFile)
+-        if (!is_pattern) {
+-          return false;
+-        }
+-        got_asterisk = true;
+-        break;
+-      }
+-      case '?': {
+-        // Pattern-specific (for NtQueryDirectoryFile)
+-        if (!is_pattern) {
+-          return false;
+-        }
+-        break;
+-      }
+-      default: {
+-        break;
+-      }
+-    }
+-  }
+-  return true;
++  return util::IsValidGuestPath(s, is_pattern);
+ }
+ 
+ class XFile : public XObject {
+diff --git a/.deps/xenia-canary/src/xenia/vfs/devices/disc_image_device.cc b/.deps/xenia-canary/src/xenia/vfs/devices/disc_image_device.cc
+index f0b9bce..40f34bf 100644
+--- a/.deps/xenia-canary/src/xenia/vfs/devices/disc_image_device.cc
++++ b/.deps/xenia-canary/src/xenia/vfs/devices/disc_image_device.cc
+@@ -9,10 +9,13 @@
+ 
+ #include "xenia/vfs/devices/disc_image_device.h"
+ 
++#include <exception>
++
+ #include "xenia/base/literals.h"
+ #include "xenia/base/filesystem.h"
+ #include "xenia/base/logging.h"
+ #include "xenia/base/math.h"
++#include "xenia/base/string.h"
+ #include "xenia/vfs/devices/disc_image_entry.h"
+ 
+ namespace xe {
+@@ -66,13 +69,28 @@ bool DiscImageDevice::Initialize() {
+     return false;
+   }
+ 
+-  result = ReadAllEntries(&state);
++  // Xbox360PS5 (fix 26): an exception while the entries are read (1.0.2: utfcpp's
++  // not_enough_room, "Not enough space", for a Windows-1252 name) fails the mount here, with
++  // the name it was reading, instead of ending the launch with only its message.
++  try {
++    result = ReadAllEntries(&state);
++  } catch (const std::exception& error) {
++    std::string bytes;
++    for (const char c : last_name_) {
++      bytes += fmt::format("{:02X}", uint8_t(c));
++    }
++    XELOGE(
++        "Disc mount: reading GDFX entries stopped after {} entries, at name {} [{}]: {}",
++        entry_count_, xe::win1252_to_utf8(last_name_), bytes, error.what());
++    return false;
++  }
+   if (result != Error::kSuccess) {
+     XELOGE("Failed to read all GDFX entries: {}", static_cast<int32_t>(result));
+     return false;
+   }
+ 
+-  XELOGI("Disc mount: directory ready for {}", host_path_);
++  XELOGI("Disc mount: directory ready for {} ({} entries, {} names from Windows-1252)",
++         host_path_, entry_count_, win1252_names_);
+   return true;
+ }
+ 
+@@ -179,6 +197,14 @@ bool DiscImageDevice::ReadEntry(ParseState* state, const uint8_t* buffer,
+ 
+   // Filename is stored as Windows-1252, convert it to UTF-8.
+   auto ansi_name = std::string(name_buffer, name_length);
++  last_name_ = ansi_name;
++  ++entry_count_;
++  for (const char c : ansi_name) {
++    if (uint8_t(c) >= 0x80) {
++      ++win1252_names_;
++      break;
++    }
++  }
+   auto name = xe::win1252_to_utf8(ansi_name);
+   // Fallback to normal name if for whatever reason conversion from 1252 code
+   // page failed.
+diff --git a/.deps/xenia-canary/src/xenia/vfs/devices/disc_image_device.h b/.deps/xenia-canary/src/xenia/vfs/devices/disc_image_device.h
+index ef83058..213d7d2 100644
+--- a/.deps/xenia-canary/src/xenia/vfs/devices/disc_image_device.h
++++ b/.deps/xenia-canary/src/xenia/vfs/devices/disc_image_device.h
+@@ -63,6 +63,10 @@ class DiscImageDevice : public Device {
+   std::filesystem::path host_path_;
+   std::unique_ptr<Entry> root_entry_;
+   std::unique_ptr<MappedMemory> mmap_;
++  // Xbox360PS5 (fix 26): counted while the entries are read, for the mount log.
++  size_t entry_count_ = 0;
++  size_t win1252_names_ = 0;
++  std::string last_name_;
+ 
+   typedef struct {
+     size_t size;         // Size (bytes) of total image.
+diff --git a/.deps/xenia-canary/src/xenia/vfs/virtual_file_system.cc b/.deps/xenia-canary/src/xenia/vfs/virtual_file_system.cc
+index b808b92..63c7316 100644
+--- a/.deps/xenia-canary/src/xenia/vfs/virtual_file_system.cc
++++ b/.deps/xenia-canary/src/xenia/vfs/virtual_file_system.cc
+@@ -170,7 +170,9 @@ Entry* VirtualFileSystem::ResolvePath(const std::string_view path) {
+   if (it == devices_.cend()) {
+     // Supress logging the error for ShaderDumpxe:\CompareBackEnds as this is
+     // not an actual problem nor something we care about.
+-    if (path != "ShaderDumpxe:\\CompareBackEnds") {
++    // Xbox360PS5 (fix 26): nor for an empty path, which names no device (DeleteFile(""));
++    // the log line alone made that call take milliseconds.
++    if (path != "ShaderDumpxe:\\CompareBackEnds" && !path.empty()) {
+       XELOGE("ResolvePath({}) failed - device not found", path);
+     }
+     return nullptr;
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+index 3f917db..432ea0e 100644
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -2491,7 +2491,10 @@ int main(int argc, char** argv) {
+             if (ui_now != system_ui) {
+               system_ui = ui_now;
+               emulator.kernel_state()->BroadcastNotification(xe::kXNotificationSystemUI, ui_now ? 1 : 0);
+-              emulator.kernel_state()->xam_state()->is_xam_dialog_present_.store(ui_now);
++              // Fix 26: the guide's own owner bit, so its closing no longer clears a XAM
++              // dialog's (and a dialog's closing no longer clears the guide's).
++              emulator.kernel_state()->xam_state()->is_xam_dialog_present_.Set(
++                  xe::kernel::xam::SystemUiFlag::kGuide, ui_now);
+             }
+           }
+           if (guide.open) {
