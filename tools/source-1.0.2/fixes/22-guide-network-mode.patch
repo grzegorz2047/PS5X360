@@ -1,9 +1,34 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/user_profile.cc b/.deps/xenia-canary/src/xenia/kernel/xam/user_profile.cc
+index efd8268..e677f91 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/user_profile.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/user_profile.cc
+@@ -17,6 +17,9 @@
+ #include "xenia/kernel/util/shim_utils.h"
+ #include "xenia/kernel/util/xlast.h"
+ #include "xenia/kernel/xam/xdbf/gpd_info.h"
++// Xbox360PS5 (fix 22): the sign-in rule, shared with the guide's network switch and checked on
++// the host (tools/check-guide-network.cpp).
++#include "network_switch.hpp"
+ 
+ namespace xe {
+ namespace kernel {
+@@ -57,7 +60,9 @@ bool UserProfile::IsSignedInToLive() const {
+ }
+ 
+ X_USER_SIGNIN_STATE UserProfile::signin_state() const {
+-  return IsLiveEnabled() && cvars::network_mode == NETWORK_MODE::XBOXLIVE
++  // Read each time: the guide can change the mode while a game runs (fix 22).
++  return xbox360ps5::network_switch::SignedInToLive(IsLiveEnabled(),
++                                                    cvars::network_mode)
+              ? X_USER_SIGNIN_STATE::SignedInToLive
+              : X_USER_SIGNIN_STATE::SignedInLocally;
+ }
 diff --git a/port/guide_network.hpp b/port/guide_network.hpp
 new file mode 100644
-index 0000000..e6598da
+index 0000000..e9726d9
 --- /dev/null
 +++ b/port/guide_network.hpp
-@@ -0,0 +1,127 @@
+@@ -0,0 +1,129 @@
 +// SPDX-License-Identifier: MIT
 +// Fix 22 of the source rebuild (tools/source-1.0.2/fixes): the network mode changed from the
 +// guide while a game runs, so a game that asks for an Xbox Live sign-in (Black Ops III) can
@@ -30,6 +55,7 @@ index 0000000..e6598da
 +#include <mutex>
 +#include <string>
 +#include <thread>
++#include <vector>
 +#include "third_party/libcurl/include/curl/curl.h"
 +#include "xenia/base/cvar.h"
 +#include "xenia/base/logging.h"
@@ -40,6 +66,7 @@ index 0000000..e6598da
 +#include "xenia/kernel/xam/user_profile.h"
 +#include "xenia/kernel/xam/xam_state.h"
 +#include "xenia/xbox.h"
++#include "network_switch.hpp"
 +
 +DECLARE_int32(network_mode);
 +DECLARE_string(api_address);
@@ -51,7 +78,7 @@ index 0000000..e6598da
 +
 +namespace guide_network {
 +// The modes in the guide's order, as cvars::network_mode counts them.
-+inline const char* const kModeNames[] = {"offline", "systemlink", "online"};
++using network_switch::kModeNames;
 +inline const char* const kModeLabels[] = {"Desligada", "System Link", "Online"};  // Tr() keys.
 +
 +// The mode being switched to, or -1 when no switch is running.
@@ -64,7 +91,7 @@ index 0000000..e6598da
 +inline int Shown() {
 +  const int pending = Pending().load();
 +  if (pending >= 0) return pending;
-+  return std::clamp(int(cvars::network_mode), 0, 2);
++  return network_switch::ClampMode(int(cvars::network_mode));
 +}
 +
 +// network.conf's server, as ApplyNetworkConf reads it (the public server when left out).
@@ -85,51 +112,144 @@ index 0000000..e6598da
 +    std::this_thread::sleep_for(std::chrono::milliseconds(20));
 +}
 +
++// The emulator's side of network_switch::Run.
++struct EmulatorBackend {
++  xe::Emulator* emulator;
++  xe::kernel::KernelState* kernel() { return emulator->kernel_state(); }
++  xe::kernel::xam::ProfileManager* profiles() { return kernel()->xam_state()->profile_manager(); }
++
++  int Mode() { return int(cvars::network_mode); }
++  void PrepareOnline() {
++    cvars::api_address = ConfiguredServer();
++    // Reference-counted: only the first call does the set-up (done at start when online).
++    curl_global_init(CURL_GLOBAL_DEFAULT);
++  }
++  bool Select(int mode) { return emulator->GetXboxLiveAPI()->SelectNetworkMode(uint32_t(mode)); }
++  std::vector<network_switch::Player> Players() {
++    std::vector<network_switch::Player> players;
++    for (uint8_t slot = 0; slot < 4; ++slot) {
++      auto* profile = kernel()->xam_state()->GetUserProfile(uint32_t(slot));
++      if (profile) players.push_back({slot, profile->xuid(), profile->IsLiveEnabled(), profile->name()});
++    }
++    return players;
++  }
++  bool Convert(uint64_t xuid) { return profiles()->ConvertToXboxLiveEnabledProfile(xuid); }
++  bool Connected() { return emulator->GetXboxLiveAPI()->IsConnectedToServer(); }
++  void Register(uint64_t xuid) { emulator->GetXboxLiveAPI()->RegisterPlayer(xuid); }
++  uint32_t UsedSlots() { return uint32_t(profiles()->GetUsedUserSlots().to_ulong()); }
++  void Broadcast(uint32_t id, uint32_t data) { kernel()->BroadcastNotification(id, data); }
++  bool Save(const char* mode) { return LauncherSetNetworkMode(mode); }
++};
++
 +// Starts a switch to `mode` (0 offline, 1 System Link, 2 online). False while one is running.
 +inline bool Switch(xe::Emulator* emulator, int mode, const std::string& title) {
 +  int idle = -1;
 +  if (mode < 0 || mode > 2 || !Pending().compare_exchange_strong(idle, mode)) return false;
-+  const int from = std::clamp(int(cvars::network_mode), 0, 2);
-+  std::thread([emulator, mode, from, title] {
-+    auto* kernel = emulator->kernel_state();
-+    auto* live = emulator->GetXboxLiveAPI();
-+    if (mode == 2) {
-+      cvars::api_address = ConfiguredServer();
-+      // Reference-counted: only the first call does the set-up (done at start when online).
-+      curl_global_init(CURL_GLOBAL_DEFAULT);
-+    }
-+    const bool selected = live->SelectNetworkMode(uint32_t(mode));
-+    const int now = std::clamp(int(cvars::network_mode), 0, 2);
-+    std::string profiles;
-+    if (now == 2) {
-+      auto* manager = kernel->xam_state()->profile_manager();
-+      bool slot0_converted = false;
-+      for (uint8_t slot = 0; slot < 4; ++slot) {
-+        auto* profile = kernel->xam_state()->GetUserProfile(uint32_t(slot));
-+        if (!profile || profile->IsLiveEnabled()) continue;
-+        const uint64_t xuid = profile->xuid();
-+        const std::string name = profile->name();
-+        // Signs the profile out and in again (the profile object is replaced).
-+        const bool converted = manager->ConvertToXboxLiveEnabledProfile(xuid);
-+        slot0_converted = slot0_converted || slot == 0;
-+        profiles += (profiles.empty() ? "" : ", ") + name + (converted ? " now uses Xbox Live" : " not converted");
-+      }
-+      // A converted profile registered itself as it signed in again.
-+      if (!slot0_converted && live->IsConnectedToServer()) {
-+        if (auto* first = kernel->xam_state()->GetUserProfile(uint32_t(0))) live->RegisterPlayer(first->xuid());
-+      }
-+    }
-+    kernel->BroadcastNotification(xe::kXNotificationSystemSignInChanged,
-+                                  uint32_t(kernel->xam_state()->profile_manager()->GetUsedUserSlots().to_ulong()));
-+    const bool saved = LauncherSetNetworkMode(kModeNames[now]);
-+    XELOGW("Network: switched to {} while running {} (asked for {}, was {}{}{}{}){}", kModeNames[now], title,
-+           kModeNames[mode], kModeNames[from], selected ? "" : "; the Xenia server was not reached",
-+           profiles.empty() ? "" : "; ", profiles, saved ? "" : "; network.conf not written");
++  std::thread([emulator, mode, title] {
++    EmulatorBackend backend{emulator};
++    const network_switch::Result result = network_switch::Run(backend, mode);
++    XELOGW("Network: switched to {} while running {} (asked for {}, was {}{}{}{}){}", kModeNames[result.now], title,
++           kModeNames[result.asked], kModeNames[result.from],
++           result.selected ? "" : "; the Xenia server was not reached", result.profiles.empty() ? "" : "; ",
++           result.profiles, result.saved ? "" : "; network.conf not written");
 +    Pending().store(-1);
 +  }).detach();
 +  return true;
 +}
 +}  // namespace guide_network
++}  // namespace xbox360ps5
+diff --git a/port/network_switch.hpp b/port/network_switch.hpp
+new file mode 100644
+index 0000000..49f1180
+--- /dev/null
++++ b/port/network_switch.hpp
+@@ -0,0 +1,87 @@
++// SPDX-License-Identifier: MIT
++// Fix 22 of the source rebuild (tools/source-1.0.2/fixes/22-guide-network-mode.patch): the
++// network mode changed while a game runs, as a template over the emulator operations it
++// needs, so the host check tools/check-guide-network.cpp drives the same code with a fake
++// emulator (guide_network.hpp is the emulator's side). No Xenia headers here.
++#pragma once
++#include <algorithm>
++#include <cstdint>
++#include <string>
++#include <vector>
++
++namespace xbox360ps5 {
++namespace network_switch {
++// cvars::network_mode: 0 offline, 1 System Link, 2 Xbox Live (online).
++inline const char* const kModeNames[] = {"offline", "systemlink", "online"};
++// Notification ids (xenia/xbox.h).
++constexpr uint32_t kSignInChanged = 0x0000000A;          // XN_SYS_SIGNINCHANGED
++constexpr uint32_t kLiveConnectionChanged = 0x02000001;  // XN_LIVE_CONNECTIONCHANGED
++constexpr uint32_t kLiveLinkStateChanged = 0x02000003;   // XN_LIVE_LINK_STATE_CHANGED
++
++// A signed-in player is signed in to Xbox Live only with a Live-enabled profile in the online
++// mode (UserProfile::signin_state uses this).
++inline bool SignedInToLive(bool live_enabled, int network_mode) {
++  return live_enabled && network_mode == 2;
++}
++
++inline int ClampMode(int mode) { return std::clamp(mode, 0, 2); }
++
++struct Player {
++  uint8_t slot = 0;
++  uint64_t xuid = 0;
++  bool live_enabled = false;
++  std::string name;
++};
++
++struct Result {
++  int asked = 0, from = 0, now = 0;
++  bool selected = false;   // the core reached the mode asked for
++  bool saved = false;      // network.conf written
++  std::string profiles;    // what the conversion did, for the log line
++};
++
++// Backend:
++//   int Mode();                        cvars::network_mode
++//   void PrepareOnline();              the server from network.conf, libcurl's set-up
++//   bool Select(int mode);             XLiveAPI::SelectNetworkMode: the mode, the server, the
++//                                      Live connection and link-state notifications
++//   std::vector<Player> Players();     the signed-in profiles
++//   bool Convert(uint64_t xuid);       ProfileManager::ConvertToXboxLiveEnabledProfile (signs
++//                                      the profile out and in again, with notifications)
++//   bool Connected();                  XLiveAPI::IsConnectedToServer
++//   void Register(uint64_t xuid);      XLiveAPI::RegisterPlayer
++//   uint32_t UsedSlots();              ProfileManager::GetUsedUserSlots
++//   void Broadcast(uint32_t id, uint32_t data);
++//   bool Save(const char* mode);       network.conf's mode, read again by the home's channel
++template <typename B>
++Result Run(B& backend, int mode) {
++  Result result;
++  result.asked = ClampMode(mode);
++  result.from = ClampMode(backend.Mode());
++  if (result.asked == 2) backend.PrepareOnline();
++  result.selected = backend.Select(result.asked);
++  result.now = ClampMode(backend.Mode());
++  if (result.now == 2) {
++    // Each signed-in profile that is not Live-enabled converted as at sign-in.
++    bool first_converted = false;
++    for (const Player& player : backend.Players()) {
++      if (player.live_enabled) continue;
++      const bool converted = backend.Convert(player.xuid);
++      first_converted = first_converted || player.slot == 0;
++      result.profiles += (result.profiles.empty() ? "" : ", ") + player.name +
++                         (converted ? " now uses Xbox Live" : " not converted");
++    }
++    // A converted profile registered itself as it signed in again; the first player is
++    // registered as XLiveAPI::Init does at start.
++    if (!first_converted && backend.Connected()) {
++      for (const Player& player : backend.Players())
++        if (player.slot == 0) backend.Register(player.xuid);
++    }
++  }
++  // The game reads its players' sign-in state again (it follows the mode).
++  backend.Broadcast(kSignInChanged, backend.UsedSlots());
++  result.saved = backend.Save(kModeNames[result.now]);
++  return result;
++}
++}  // namespace network_switch
 +}  // namespace xbox360ps5
 diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
 index 975203f..cad0b6b 100644
@@ -190,10 +310,10 @@ index 975203f..cad0b6b 100644
            // As the desktop build does on exit: this console's sessions off the Xenia server
            // (others would find a game that is gone) and the router's ports closed. At most
 diff --git a/src/launcher.cpp b/src/launcher.cpp
-index 83c652d..7c50d67 100644
+index e308499..9613e5d 100644
 --- a/src/launcher.cpp
 +++ b/src/launcher.cpp
-@@ -2025,6 +2025,13 @@ std::atomic<bool> shelf_focused{false};
+@@ -2033,6 +2033,13 @@ std::atomic<bool> shelf_focused{false};
  // Whether the pad is on the shelf itself (no sheet or settings page open): the program that
  // feeds the pad asks, for what only makes sense there (five games at a time, leaving).
  bool LauncherShelfFocused() { return shelf_focused.load(); }
