@@ -130,7 +130,7 @@ void CheckPolicy() {
   assert(d.upload && !d.watch_again && changed == 1000);
   // The frame counter wrapping around.
   changed = 0xFFFFFFF0u;
-  d = up::OnRequest(true, 1, 1, changed, 0x10u);
+  d = up::OnRequest(true, 1, 1, changed, 0x0Au);  // 26 frames later
   assert(!d.upload && !d.watch_again);
   d = up::OnRequest(true, 1, 1, changed, 0xFFFFFFF0u + up::kFramesUnchangedToWatch);
   assert(d.watch_again);
