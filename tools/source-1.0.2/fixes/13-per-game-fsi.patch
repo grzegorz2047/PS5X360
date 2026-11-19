@@ -1,0 +1,46 @@
+diff --git a/include/xbox360ps5/launcher.hpp b/include/xbox360ps5/launcher.hpp
+index 1db87b1..7f4fc80 100644
+--- a/include/xbox360ps5/launcher.hpp
++++ b/include/xbox360ps5/launcher.hpp
+@@ -75,6 +75,9 @@ struct Settings {
+   int no_promotion = 0;         // The recompiler's context promotion is off.
+   int fast_dot = 0;             // Less exact dot products.
+   int zero_page = 0;            // Guest address zero can be read and written.
++  // Accurate render targets (FSI) for a game: 0 off, 1 the game's preset or else the general
++  // FSI switch (the Performance page's FSI row), 2 on. Binary release patch group 13.
++  int fsi = 1;
+   // Sound.
+   int volume = 3;               // 25%, 50%, 75%, 100%.
+   int ui_sounds = 1;
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+index 0fd3f5a..975203f 100644
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -1953,7 +1953,10 @@ int main(int argc, char** argv) {
+         settings_title = log_id;
+         overrides = xbox360ps5::LoadGameOverrides(settings_title);
+         settings = xbox360ps5::ForGame(global, settings_title, overrides);
+-        if (const bool fsi_wanted = xbox360ps5::FsiWantedFor(settings_title);
++        // Binary release patch group 13: the game's own "fsi" option (1, Padrão: its preset,
++        // else the general choice; 0 and 2 force it).
++        if (const bool fsi_wanted =
++                settings.fsi == 1 ? xbox360ps5::FsiWantedFor(settings_title) : settings.fsi == 2;
+             !switched && fsi_wanted != xbox360ps5::FsiInEffect()) {
+           XELOGW("Settings: {} uses {} render targets; restarting into it", chosen.name,
+                  fsi_wanted ? "accurate (FSI)" : "fast");
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+index 69f84ea..83c652d 100644
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -414,6 +414,11 @@ const std::vector<Option>& Options() {
+       {"detailed_logs", &S::detailed_logs, 4, W::live, 0, false, "Registros detalhados",
+        "Grava cada chamada do jogo ao sistema no log. Deixa os jogos mais lentos; use só para investigar um problema.",
+        {"Desligados", "Ligados"}},
++      // Binary release patch group 13: FSI per game. Padrão keeps the preset's accurate_targets,
++      // else the general FSI row; the others force it for the game, through the restart into
++      // FSI at launch (canary_game_main.cpp). Translations in the language files.
++      {"fsi", &S::fsi, 1, W::launch, 1, true, "FSI por jogo",
++       "Padrão: preset do jogo ou FSI geral. As outras forçam.", {"Desligada", "Padrão", "Ligada"}},
+   };
+   return options;
+ }
