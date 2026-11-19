@@ -1,0 +1,23 @@
+diff --git a/platform/ps5/memory_ps5.cpp b/platform/ps5/memory_ps5.cpp
+index e22abc3..588ecd6 100644
+--- a/platform/ps5/memory_ps5.cpp
++++ b/platform/ps5/memory_ps5.cpp
+@@ -161,11 +161,16 @@ bool Apply(uintptr_t base, View& view, size_t first_guest, size_t guest_count) {
+     } else {
+       while (end <= last && view.host[end] != bits && wanted(end) == bits) ++end;
+     }
++    // Binary release patch group 2: the two clock_gettime calls around every
++    // mprotect were system calls of their own, as many as the protections. They
++    // are made only while GPU diagnostics are on; otherwise the reports' "ms/s"
++    // figures for protections stay 0 (the call and page counts still count).
++    const bool timed = xbox360ps5::gpu_diag::enabled.load(std::memory_order_relaxed);
+     timespec before{}, after{};
+-    clock_gettime(CLOCK_MONOTONIC, &before);
++    if (timed) clock_gettime(CLOCK_MONOTONIC, &before);
+     const int32_t result = sceKernelMprotect(reinterpret_cast<void*>(base + page * kPage),
+                                              (end - page) * kPage, bits);
+-    clock_gettime(CLOCK_MONOTONIC, &after);
++    if (timed) clock_gettime(CLOCK_MONOTONIC, &after);
+     const long long taken = (after.tv_sec - before.tv_sec) * 1000000000ll + (after.tv_nsec - before.tv_nsec);
+     ++xbox360ps5::protect_syscalls;
+     xbox360ps5::protect_nanoseconds += taken;
