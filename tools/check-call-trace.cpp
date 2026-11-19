@@ -131,6 +131,11 @@ int main() {
   CHECK(Has(Read((k + "xboxkrnl/xboxkrnl_io.cc").c_str()), "Files: NtCreateFile"));
   CHECK(Has(input, "call_trace::For().Note("));
   CHECK(Has(Read((k + "xam/xam_state.cc").c_str()), "System UI: {} -> {}"));
+  // candidate_22: Handball 16's save and title screen state at +5, +20 and +45 s.
+  CHECK(Has(game, "void WatchHandball(xe::Emulator& emulator, const char* when)"));
+  CHECK(Has(game, "emulator.title_id() != 0x573607E4u"));
+  CHECK(Has(game, "== 0x820261C0u"));
+  CHECK(Has(game, "WatchHandball(emulator, \"+5 s after the storage prompt\")"));
 
   if (failures) {
     std::cout << failures << " check(s) failed\n";
