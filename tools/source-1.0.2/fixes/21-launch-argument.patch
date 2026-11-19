@@ -1,9 +1,9 @@
 diff --git a/include/xbox360ps5/forward.hpp b/include/xbox360ps5/forward.hpp
 new file mode 100644
-index 0000000..bfed132
+index 0000000..b1128f3
 --- /dev/null
 +++ b/include/xbox360ps5/forward.hpp
-@@ -0,0 +1,279 @@
+@@ -0,0 +1,341 @@
 +// SPDX-License-Identifier: MIT
 +// Starting one game straight from a home screen forwarder (docs/FORWARDER.md).
 +// Ported from upstream BrinooTk/PS5X360#62 (MartinPham) to the 1.0.2 source
@@ -64,7 +64,9 @@ index 0000000..bfed132
 +    if (arg == "--exit-after-game") {
 +      result.exit_after_game = true;
 +    } else if (arg == rom_flag) {
-+      if (i + 1 < argc && argv[i + 1] != nullptr) result.rom = Trim(argv[++i]);
++      // "--rom" with no value, or another option after it: no game.
++      if (i + 1 < argc && argv[i + 1] != nullptr && std::string_view(argv[i + 1]).substr(0, 2) != "--")
++        result.rom = Trim(argv[++i]);
 +    } else if (arg.substr(0, rom_prefix.size()) == rom_prefix) {
 +      result.rom = Trim(arg.substr(rom_prefix.size()));
 +    } else if (arg.substr(0, 2) == "--" || !bare.empty()) {
@@ -282,6 +284,66 @@ index 0000000..bfed132
 +  return OnceForwarded(flags) && flags.find("exit-after-game") != std::string_view::npos;
 +}
 +
++// launch-once.txt: a start straight into one game, read once at the next
++// start. Line 1 the game, line 2 its title ID (its own options), line 3 the
++// forwarder flags, only for a forwarded game (other writers leave it out).
++struct Once {
++  std::string game, title, flags;
++};
++inline std::string OnceText(const std::string& game, const std::string& title, bool forwarded, bool exit_after_game) {
++  return game + "\n" + title + "\n" + (forwarded ? OnceFlags(exit_after_game) + "\n" : std::string());
++}
++inline Once ParseOnce(std::string_view text) {
++  Once once;
++  std::string* lines[] = {&once.game, &once.title, &once.flags};
++  for (std::string* line : lines) {
++    if (text.empty()) break;
++    const size_t end = text.find('\n');
++    *line = std::string(text.substr(0, end));
++    if (!line->empty() && line->back() == '\r') line->pop_back();
++    text.remove_prefix(end == std::string_view::npos ? text.size() : end + 1);
++  }
++  if (once.game.empty()) once = {};
++  return once;
++}
++
++// What this start runs, before the library is scanned (canary_game_main.cpp):
++//  - a forwarder's request (--rom or a bare path): looked for later with Pick;
++//    game.txt and launch-once.txt are not used;
++//  - else game.txt's game (game_txt), as before;
++//  - else launch-once.txt's game, still forwarded when its flags say so (a
++//    restart into the forwarder's game for its start options or FSI mode);
++//  - else, when all are empty, /app0/assets/game.txt, then the library.
++struct Start {
++  std::string request;  // the forwarder's game, to find with Pick
++  std::string game;     // a game to start as it is
++  bool forwarded = false, exit_after_game = false, from_once = false;
++  bool read_packaged_game_txt() const { return request.empty() && game.empty(); }
++};
++inline Start Decide(const Args& args, const std::string& game_txt, const Once& once) {
++  Start start;
++  if (!args.rom.empty()) {
++    start.request = args.rom;
++    start.forwarded = true;
++    start.exit_after_game = args.exit_after_game;
++    return start;
++  }
++  start.game = game_txt;
++  if (start.game.empty() && !once.game.empty()) {
++    start.game = once.game;
++    start.from_once = true;
++    start.forwarded = OnceForwarded(once.flags);
++    start.exit_after_game = OnceExitAfterGame(once.flags);
++  }
++  return start;
++}
++
++// A forwarded game that the core refused to start (no library dialog on the
++// screen): restart into the library with the reason, rather than close.
++inline bool RestartIntoLibraryOnFailure(bool library_shown, bool forwarded) { return !library_shown && forwarded; }
++// "Close the game" in the guide: with --exit-after-game it closes the title.
++inline bool CloseTitleOnShelf(bool exit_after_game) { return exit_after_game; }
++
 +}  // namespace xbox360ps5::forward
 diff --git a/include/xbox360ps5/launcher.hpp b/include/xbox360ps5/launcher.hpp
 index 7f4fc80..29b8b8d 100644
@@ -298,7 +360,7 @@ index 7f4fc80..29b8b8d 100644
    void SetPadConnected(bool connected) { pad_connected_ = connected; }
    void Draw(ImGuiIO& io);
 diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
-index 975203f..44ff7b0 100644
+index 975203f..9c33edc 100644
 --- a/src/canary_game_main.cpp
 +++ b/src/canary_game_main.cpp
 @@ -84,6 +84,7 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
@@ -309,7 +371,7 @@ index 975203f..44ff7b0 100644
  #include "xbox360ps5/achievement_hook.hpp"
  #include "xbox360ps5/notify.hpp"
  #include "xbox360ps5/web_settings.hpp"
-@@ -1259,13 +1260,14 @@ int main(int argc, char** argv) {
+@@ -1259,14 +1260,15 @@ int main(int argc, char** argv) {
    // A start the launcher asked for, straight into one game: the game has
    // options of its own that are only read as the emulator starts.
    std::filesystem::path once_game;
@@ -317,15 +379,21 @@ index 975203f..44ff7b0 100644
 +  std::string once_title, once_flags;
    {
      std::ifstream once(storage / "launch-once.txt");
-     std::string line;
-     if (std::getline(once, line) && !line.empty()) {
-       once_game = line;
-       std::getline(once, once_title);
-+      std::getline(once, once_flags);  // A forwarder's game (forward.hpp OnceFlags), when it was one.
-     }
+-    std::string line;
+-    if (std::getline(once, line) && !line.empty()) {
+-      once_game = line;
+-      std::getline(once, once_title);
+-    }
++    // Game, title ID and, for a forwarder's game, its flags (fix 21, forward.hpp OnceText).
++    const auto parsed = xbox360ps5::forward::ParseOnce(
++        std::string((std::istreambuf_iterator<char>(once)), std::istreambuf_iterator<char>()));
++    once_game = parsed.game;
++    once_title = parsed.title;
++    once_flags = parsed.flags;
      once.close();
      std::error_code once_error;
-@@ -1392,14 +1394,34 @@ int main(int argc, char** argv) {
+     std::filesystem::remove(storage / "launch-once.txt", once_error);
+@@ -1392,14 +1394,30 @@ int main(int argc, char** argv) {
    if (log_ready && log_root == storage / "LOGS")
      XELOGW("Installation folder is not writable; desktop log downloader exports sessions to /data/homebrew/PPSA50011/logs");
    std::filesystem::path game;
@@ -339,32 +407,29 @@ index 975203f..44ff7b0 100644
 +  // into the same game keeps it forwarded through launch-once.txt.
 +  for (int i = 0; i < argc && i < 16 && argv && argv[i]; ++i) XELOGW("Start argument {}: {}", i, argv[i]);
 +  const auto forward = xbox360ps5::forward::Parse(argc, argv);
-+  const std::string forward_request = forward.rom;
-+  bool forwarded = !forward_request.empty();
-+  bool exit_after_game = forwarded && forward.exit_after_game;
-+  xbox360ps5::GameEntry forward_entry;
-+  bool forward_listed = false;
-+  if (forwarded) {
-+    XELOGW("Forwarder: asked for {}{}", forward_request, exit_after_game ? " (--exit-after-game)" : "");
-+  } else {
++  std::string game_txt;
++  if (forward.rom.empty()) {
      std::ifstream input(storage / "game.txt");
      std::string line;
-     if (std::getline(input, line)) { if (!line.empty() && line.back() == '\r') line.pop_back(); game = line; }
+-    if (std::getline(input, line)) { if (!line.empty() && line.back() == '\r') line.pop_back(); game = line; }
++    if (std::getline(input, line)) { if (!line.empty() && line.back() == '\r') line.pop_back(); game_txt = line; }
    }
 -  if (game.empty() && !once_game.empty()) game = once_game;
 -  if (game.empty()) {
-+  if (game.empty() && !forwarded && !once_game.empty()) {
-+    game = once_game;
-+    // Restarted into its own start options: still the forwarder's game.
-+    forwarded = xbox360ps5::forward::OnceForwarded(once_flags);
-+    exit_after_game = xbox360ps5::forward::OnceExitAfterGame(once_flags);
-+    if (forwarded) XELOGW("Forwarder: {} again after a restart{}", game.string(), exit_after_game ? " (--exit-after-game)" : "");
-+  }
-+  if (game.empty() && forward_request.empty()) {
++  const auto start = xbox360ps5::forward::Decide(forward, game_txt, {once_game.string(), once_title, once_flags});
++  game = start.game;
++  const std::string forward_request = start.request;
++  bool forwarded = start.forwarded, exit_after_game = start.exit_after_game;
++  xbox360ps5::GameEntry forward_entry;
++  bool forward_listed = false;
++  if (forwarded)
++    XELOGW("Forwarder: {} {}{}", start.from_once ? "again after a restart:" : "asked for",
++           start.from_once ? game.string() : forward_request, exit_after_game ? " (--exit-after-game)" : "");
++  if (start.read_packaged_game_txt()) {
      std::ifstream input("/app0/assets/game.txt");
      std::string line;
      if (std::getline(input, line)) { if (!line.empty() && line.back() == '\r') line.pop_back(); game = line; }
-@@ -1827,6 +1849,29 @@ int main(int argc, char** argv) {
+@@ -1827,6 +1845,29 @@ int main(int argc, char** argv) {
          XELOGE("Title switch: restart refused {:08X}", unsigned(refused));
        };
        xam->LoadLoaderData();
@@ -394,7 +459,7 @@ index 975203f..44ff7b0 100644
        const bool switched = game.empty() && !xam->loader_data().host_path.empty();
        if (switched) {
          game = xam->loader_data().host_path;
-@@ -1869,6 +1914,7 @@ int main(int argc, char** argv) {
+@@ -1869,6 +1910,7 @@ int main(int argc, char** argv) {
                                    game, "XEX", game.parent_path().string()};
        if (dashboard) chosen.name = "Xbox 360 Dashboard";
        if (!once_game.empty() && game == once_game) chosen.title_id = once_title;
@@ -402,13 +467,13 @@ index 975203f..44ff7b0 100644
        const auto start_reached = [&storage] {
          std::error_code reached_error;
          std::filesystem::remove(storage / "start-check.txt", reached_error);
-@@ -1961,14 +2007,16 @@ int main(int argc, char** argv) {
+@@ -1961,14 +2003,16 @@ int main(int argc, char** argv) {
            XELOGW("Settings: {} uses {} render targets; restarting into it", chosen.name,
                   fsi_wanted ? "accurate (FSI)" : "fast");
            xbox360ps5::FsiForNextStart(fsi_wanted);
 -          std::ofstream(storage / "launch-once.txt", std::ios::trunc) << game.string() << "\n" << settings_title << "\n";
-+          std::ofstream(storage / "launch-once.txt", std::ios::trunc) << game.string() << "\n" << settings_title << "\n"
-+              << (forwarded ? xbox360ps5::forward::OnceFlags(exit_after_game) + "\n" : std::string());
++          std::ofstream(storage / "launch-once.txt", std::ios::trunc)
++              << xbox360ps5::forward::OnceText(game.string(), settings_title, forwarded, exit_after_game);
            restart = true;
            break;
          }
@@ -416,16 +481,16 @@ index 975203f..44ff7b0 100644
            // Some are only read as the emulator starts: start again, straight into this game.
            XELOGW("Settings: {} has start options of its own; restarting into it", chosen.name);
 -          std::ofstream(storage / "launch-once.txt", std::ios::trunc) << game.string() << "\n" << settings_title << "\n";
-+          std::ofstream(storage / "launch-once.txt", std::ios::trunc) << game.string() << "\n" << settings_title << "\n"
-+              << (forwarded ? xbox360ps5::forward::OnceFlags(exit_after_game) + "\n" : std::string());
++          std::ofstream(storage / "launch-once.txt", std::ios::trunc)
++              << xbox360ps5::forward::OnceText(game.string(), settings_title, forwarded, exit_after_game);
            restart = true;
            break;
          }
-@@ -2036,6 +2084,16 @@ int main(int argc, char** argv) {
+@@ -2036,6 +2080,16 @@ int main(int argc, char** argv) {
          launcher.SetLoading("");
          if (dialog) { dialog->Dismiss(); context.Tick(); window.Paint(); }
          if (!status) { launched = true; break; }
-+        if (!dialog && forwarded) {
++        if (xbox360ps5::forward::RestartIntoLibraryOnFailure(dialog != nullptr, forwarded)) {
 +          // A forwarder's game that did not start: the library, from a fresh
 +          // process, says why (notice.txt), as after a launch that threw.
 +          XELOGE("Forwarder: {} did not start ({:08X}); restarting into the library", game.string(), unsigned(status));
@@ -438,11 +503,11 @@ index 975203f..44ff7b0 100644
          if (!dialog) { result = 5; break; }
          char text[96];
          std::snprintf(text, sizeof(text), Tr("Não foi possível iniciar este jogo (erro %08X)."), unsigned(status));
-@@ -2232,6 +2290,13 @@ int main(int argc, char** argv) {
+@@ -2232,6 +2286,13 @@ int main(int argc, char** argv) {
                switch (items[size_t(guide.row)].action) {
                  case GuideAction::resume: guide.open = false; changed = false; break;
                  case GuideAction::shelf:
-+                  if (exit_after_game) {
++                  if (xbox360ps5::forward::CloseTitleOnShelf(exit_after_game)) {
 +                    // --exit-after-game: closing the forwarder's game closes the title.
 +                    XELOGW("Guide: closing the game and the title (--exit-after-game)");
 +                    quit = true;

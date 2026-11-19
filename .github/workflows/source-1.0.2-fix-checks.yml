@@ -1,0 +1,46 @@
+name: Source 1.0.2 fix checks (host)
+
+# Host unit tests for the source fixes (tools/source-1.0.2/checks/check-*.cpp), compiled
+# against the assembled 1.0.2 title tree (assemble.py --skip-core: drops + fixes, no core
+# clone), as the source checks on ci/binary-patch-tests do. No PS5 toolchain needed.
+# The full build (build-source-1.0.2.yml) runs check-forward.cpp too.
+on:
+  push:
+    paths:
+      - 'tools/source-1.0.2/**'
+      - '.github/workflows/source-1.0.2-fix-checks.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Host checks on the assembled title tree
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore the source drops
+        uses: actions/cache@v4
+        with:
+          path: .deps/src102-cache
+          key: src102-title-cache-${{ hashFiles('tools/source-1.0.2/assemble.py') }}
+          restore-keys: src102-title-cache-
+
+      - name: Assemble the 1.0.2 title tree (with fixes)
+        run: python3 -I tools/source-1.0.2/assemble.py --skip-core --out build/src102 --cache .deps/src102-cache
+
+      - name: Compile and run each check (clang-18, ASan + UBSan)
+        run: |
+          set -euo pipefail
+          clang++-18 --version | head -1
+          for check in tools/source-1.0.2/checks/check-*.cpp; do
+            name=$(basename "$check" .cpp)
+            echo "::group::$name"
+            clang++-18 -std=c++20 -Wall -Wextra -Werror -g -fsanitize=address,undefined \
+              -fno-sanitize-recover=all -I build/src102/include "$check" -o "build/$name"
+            "build/$name"
+            echo "::endgroup::"
+          done

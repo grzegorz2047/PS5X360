@@ -79,8 +79,59 @@ int main() {
     CHECK(ParseOf(only_exit).rom.empty() && ParseOf(only_exit).exit_after_game);
     const char* padded[] = {"/app0/eboot.bin", "--rom", "  Halo 3.iso\r\n"};
     CHECK(ParseOf(padded).rom == "Halo 3.iso");
+    // Malformed: an empty value, an option where the value should be, a gap in argv.
+    const char* empty_value[] = {"/app0/eboot.bin", "--rom="};
+    CHECK(ParseOf(empty_value).rom.empty());
+    const char* blank_value[] = {"/app0/eboot.bin", "--rom", "   "};
+    CHECK(ParseOf(blank_value).rom.empty());
+    const char* option_value[] = {"/app0/eboot.bin", "--rom", "--exit-after-game"};
+    CHECK(ParseOf(option_value).rom.empty() && ParseOf(option_value).exit_after_game);
+    const char* gap[] = {"/app0/eboot.bin", nullptr, "--rom", "Halo 3.iso"};
+    CHECK(ParseOf(gap).rom.empty());
+    const char* last_rom_wins[] = {"/app0/eboot.bin", "--rom", "a.iso", "--rom=b.iso"};
+    CHECK(ParseOf(last_rom_wins).rom == "b.iso");
+    // A title ID, given with --rom or bare.
+    const char* id_rom[] = {"/app0/eboot.bin", "--rom", "4D5307E6"};
+    CHECK(ParseOf(id_rom).rom == "4D5307E6");
+    const char* id_bare[] = {"/app0/eboot.bin", "4d5307e6", "--exit-after-game"};
+    CHECK(ParseOf(id_bare).rom == "4d5307e6" && ParseOf(id_bare).exit_after_game);
   }
   CHECK(Parse(0, nullptr).rom.empty());
+  CHECK(Parse(-1, nullptr).rom.empty());
+
+  // Library or direct boot: what a start runs before the library is scanned (Decide).
+  {
+    const char* none[] = {"/app0/eboot.bin"};
+    const Start library = Decide(ParseOf(none), "", Once{});
+    CHECK(library.request.empty() && library.game.empty() && !library.forwarded && library.read_packaged_game_txt());
+    const Start configured = Decide(ParseOf(none), "/data/xbox360/Halo 3.iso", Once{});
+    CHECK(configured.game == "/data/xbox360/Halo 3.iso" && !configured.forwarded && !configured.read_packaged_game_txt());
+    const char* rom[] = {"/app0/eboot.bin", "--rom", "Halo 3.iso"};
+    // A forwarder's request wins over game.txt and a left-over launch-once.txt.
+    const Start forwarded = Decide(ParseOf(rom), "/data/xbox360/Other.iso", ParseOnce("/x/Old.iso\n41560817\n"));
+    CHECK(forwarded.request == "Halo 3.iso" && forwarded.game.empty() && forwarded.forwarded &&
+          !forwarded.exit_after_game && !forwarded.from_once && !forwarded.read_packaged_game_txt());
+    // A library start that restarts into its own options: not forwarded.
+    const Start library_once = Decide(ParseOf(none), "", ParseOnce("/x/Old.iso\n41560817\n"));
+    CHECK(library_once.game == "/x/Old.iso" && library_once.from_once && !library_once.forwarded);
+    // game.txt comes before launch-once.txt, as before fix 21.
+    CHECK(Decide(ParseOf(none), "/g.iso", ParseOnce("/x/Old.iso\n\nforwarded\n")).game == "/g.iso");
+    // Malformed arguments fall back to the usual start.
+    const char* malformed[] = {"/app0/eboot.bin", "--rom", "--exit-after-game"};
+    CHECK(Decide(ParseOf(malformed), "", Once{}).read_packaged_game_txt());
+  }
+
+  // launch-once.txt: what the restarts write and the next start reads.
+  {
+    CHECK(OnceText("/g/a.iso", "4D5307E6", false, false) == "/g/a.iso\n4D5307E6\n");
+    CHECK(OnceText("/g/a.iso", "4D5307E6", true, false) == "/g/a.iso\n4D5307E6\nforwarded\n");
+    CHECK(OnceText("/g/a.iso", "", true, true) == "/g/a.iso\n\nforwarded exit-after-game\n");
+    const Once crlf = ParseOnce("/g/a.iso\r\n4D5307E6\r\nforwarded exit-after-game\r\n");
+    CHECK(crlf.game == "/g/a.iso" && crlf.title == "4D5307E6" && crlf.flags == "forwarded exit-after-game");
+    const Once no_newline = ParseOnce("/g/a.iso");
+    CHECK(no_newline.game == "/g/a.iso" && no_newline.title.empty() && no_newline.flags.empty());
+    CHECK(ParseOnce("").game.empty() && ParseOnce("\nforwarded\n").flags.empty());
+  }
 
   CHECK(IsTitleId("4D5307E6") && IsTitleId("4d5307e6"));
   CHECK(!IsTitleId("4D5307E") && !IsTitleId("4D5307EG") && !IsTitleId("Halo 3.iso"));
@@ -176,6 +227,46 @@ int main() {
   CHECK(pick("/nowhere/Gears.iso").error == "/nowhere/Gears.iso: not found");
   CHECK(pick("../Gears.iso").error.find("not a path inside") != std::string::npos);
   CHECK(pick("").error == "no game given");
+  // The restart paths keep the forwarder's game (canary_game_main.cpp): the
+  // first start finds it with Pick; the FSI restart and the start-option
+  // restart each write launch-once.txt with OnceText and run the title again
+  // with no arguments; the next start reads it back with ParseOnce/Decide.
+  {
+    const char* tile[] = {"/app0/eboot.bin", "--rom", "Halo Reach GOD", "--exit-after-game"};
+    const Start first = Decide(ParseOf(tile), "", Once{});
+    CHECK(first.forwarded && first.exit_after_game && !first.request.empty());
+    const Choice found = Pick(first.request, disk, library);
+    CHECK(found.entry == 5 && found.file == reach);
+    const std::string title = library[size_t(found.entry)].title_id;  // settings_title: the game's own options
+    const char* restarted[] = {"/app0/eboot.bin"};                     // LoadExec("/app0/eboot.bin", nullptr)
+    // FSI restart (patch 13's per-game option), then a start-option restart.
+    std::string once = OnceText(found.file.string(), title, first.forwarded, first.exit_after_game);
+    const Start after_fsi = Decide(ParseOf(restarted), "", ParseOnce(once));
+    CHECK(after_fsi.game == found.file.string() && after_fsi.from_once && after_fsi.forwarded && after_fsi.exit_after_game);
+    CHECK(ParseOnce(once).title == "4D53085B");
+    once = OnceText(after_fsi.game, ParseOnce(once).title, after_fsi.forwarded, after_fsi.exit_after_game);
+    const Start after_options = Decide(ParseOf(restarted), "", ParseOnce(once));
+    CHECK(after_options.game == found.file.string() && after_options.forwarded && after_options.exit_after_game);
+    CHECK(CloseTitleOnShelf(after_options.exit_after_game));
+    // Without --exit-after-game it stays forwarded, and "Close the game" opens the library.
+    const std::string plain_path = (games / "Fable 2").generic_string();
+    const char* plain[] = {"/app0/eboot.bin", plain_path.c_str()};
+    const Start bare = Decide(ParseOf(plain), "", Once{});
+    const Choice fable = Pick(bare.request, disk, library);
+    CHECK(fable.entry == 0);
+    const Start bare_again = Decide(ParseOf(restarted), "",
+                                    ParseOnce(OnceText(fable.file.string(), "4D5307E6", bare.forwarded, bare.exit_after_game)));
+    CHECK(bare_again.forwarded && !bare_again.exit_after_game && !CloseTitleOnShelf(bare_again.exit_after_game));
+    // Another game chosen in the library over the forwarded one (written without flags): a normal start.
+    const Start other = Decide(ParseOf(restarted), "", ParseOnce(OnceText("/g/b.iso", "41560817", false, false)));
+    CHECK(!other.forwarded && !other.exit_after_game);
+    // A forwarded game the core refuses restarts into the library; one picked in the library does not.
+    CHECK(RestartIntoLibraryOnFailure(false, true));
+    CHECK(!RestartIntoLibraryOnFailure(true, true) && !RestartIntoLibraryOnFailure(false, false));
+    // A start restarted into the library carries no arguments and no launch-once.txt: the library opens.
+    CHECK(Decide(ParseOf(restarted), "", Once{}).read_packaged_game_txt());
+  }
+
   CHECK(GamePackage(limbo));
   CHECK(!GamePackage(games / "Limbo/584109D1/000B0000/TU1"));
   CHECK(!GamePackage(games / "Halo 3.iso"));
