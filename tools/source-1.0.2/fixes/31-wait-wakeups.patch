@@ -575,7 +575,7 @@ index 0000000..05e72a4
 +
 +#endif  // XENIA_BASE_POSIX_CONDITIONS_H_
 diff --git a/.deps/xenia-canary/src/xenia/base/threading_posix.cc b/.deps/xenia-canary/src/xenia/base/threading_posix.cc
-index bb07c33..6d582a2 100644
+index bb07c33..fb8e101 100644
 --- a/.deps/xenia-canary/src/xenia/base/threading_posix.cc
 +++ b/.deps/xenia-canary/src/xenia/base/threading_posix.cc
 @@ -13,6 +13,7 @@
@@ -1006,7 +1006,15 @@ index bb07c33..6d582a2 100644
      return true;
    }
  
-@@ -1151,7 +773,8 @@ class PosixCondition<Thread> final : public PosixConditionBase {
+@@ -901,6 +523,7 @@ class PosixCondition<Thread> final : public PosixConditionBase {
+     std::unique_lock<std::mutex> lock(state_mutex_);
+     if (state_ != State::kUninitialized && state_ != State::kFinished) {
+       pthread_setname_np(thread_, std::string(name).c_str());
++      wait_stats::RememberName(thread_, name);  // fix 31
+ #if XE_PLATFORM_ANDROID
+       SetAndroidPreApi26Name(name);
+ #endif
+@@ -1151,7 +774,8 @@ class PosixCondition<Thread> final : public PosixConditionBase {
        exit_code_ = exit_code;
        signaled_ = true;
        cond_.notify_all();
@@ -1016,7 +1024,7 @@ index bb07c33..6d582a2 100644
      }
      if (is_current_thread) {
        // Xbox360PS5: cleanup may destroy this object. No member access after it.
-@@ -1596,7 +1219,8 @@ void* PosixCondition<Thread>::ThreadStartRoutine(void* parameter) {
+@@ -1596,7 +1220,8 @@ void* PosixCondition<Thread>::ThreadStartRoutine(void* parameter) {
      thread->handle_.exit_code_ = 0;
      thread->handle_.signaled_ = true;
      thread->handle_.cond_.notify_all();
@@ -1026,12 +1034,20 @@ index bb07c33..6d582a2 100644
    }
  
    current_thread_ = nullptr;
+@@ -1669,6 +1294,7 @@ void Thread::ExitWithCleanup(int exit_code, std::function<void()> cleanup) {
+ 
+ void set_name(const std::string_view name) {
+   pthread_setname_np(pthread_self(), std::string(name).c_str());
++  wait_stats::RememberName(pthread_self(), name);  // fix 31
+ #if XE_PLATFORM_ANDROID
+   if (!android_pthread_getname_np_ && current_thread_) {
+     current_thread_->condition().SetAndroidPreApi26Name(name);
 diff --git a/.deps/xenia-canary/src/xenia/base/wait_stats.h b/.deps/xenia-canary/src/xenia/base/wait_stats.h
 new file mode 100644
-index 0000000..a9cdb94
+index 0000000..e9b4ec1
 --- /dev/null
 +++ b/.deps/xenia-canary/src/xenia/base/wait_stats.h
-@@ -0,0 +1,440 @@
+@@ -0,0 +1,505 @@
 +/**
 + ******************************************************************************
 + * Xenia : Xbox 360 Emulator Research Project                                 *
@@ -1066,6 +1082,8 @@ index 0000000..a9cdb94
 +#include <cstdio>
 +#include <cstring>
 +#include <string>
++#include <string_view>
++#include <type_traits>
 +#include <vector>
 +
 +#if defined(__x86_64__) || defined(_M_X64)
@@ -1082,9 +1100,7 @@ index 0000000..a9cdb94
 +#include <pthread.h>
 +#define XE_WAIT_STATS_HAVE_PTHREAD 1
 +#endif
-+#if XE_PLATFORM_PS5
-+#include <pthread_np.h>  // pthread_get_name_np, the FreeBSD spelling
-+#endif
++
 +
 +namespace xe {
 +namespace wait_stats {
@@ -1159,6 +1175,64 @@ index 0000000..a9cdb94
 +  }
 +}
 +
++// Thread names as the emulator sets them (threading_posix.cc calls
++// RememberName where it calls pthread_setname_np): the PS5 has no call that
++// reads a thread's name back.
++struct NameEntry {
++  std::atomic<uint64_t> thread{0};
++  std::array<std::atomic<uint64_t>, 3> name{};  // 24 bytes, NUL-padded
++};
++inline constexpr size_t kNames = 512;
++inline std::array<NameEntry, kNames> names;
++
++template <typename T>
++inline uint64_t ThreadKey(T thread) {
++  if constexpr (std::is_pointer_v<T>) {
++    return uint64_t(reinterpret_cast<uintptr_t>(thread));
++  } else {
++    return uint64_t(thread);
++  }
++}
++
++inline NameEntry* FindName(uint64_t key, bool claim) {
++  if (!key) {
++    return nullptr;
++  }
++  const size_t start = size_t((key >> 4) * 0x9E3779B97F4A7C15ull >> 55) % kNames;
++  for (size_t probe = 0; probe < kNames; ++probe) {
++    NameEntry& entry = names[(start + probe) % kNames];
++    uint64_t seen = entry.thread.load(std::memory_order_acquire);
++    if (seen == key) {
++      return &entry;
++    }
++    if (seen == 0) {
++      if (!claim) {
++        return nullptr;
++      }
++      uint64_t expected = 0;
++      if (entry.thread.compare_exchange_strong(expected, key,
++                                               std::memory_order_acq_rel) ||
++          expected == key) {
++        return &entry;
++      }
++    }
++  }
++  return nullptr;
++}
++
++template <typename T>
++inline void RememberName(T thread, std::string_view name) {
++  if (NameEntry* entry = FindName(ThreadKey(thread), true)) {
++    char text[24] = {};
++    std::memcpy(text, name.data(), std::min(name.size(), sizeof(text) - 1));
++    for (size_t i = 0; i < 3; ++i) {
++      uint64_t word = 0;
++      std::memcpy(&word, text + i * 8, 8);
++      entry->name[i].store(word, std::memory_order_relaxed);
++    }
++  }
++}
++
 +// The thread's name, read by the thread itself once per report period.
 +inline void RefreshName(Slot& slot) {
 +  const uint32_t now = epoch.load(std::memory_order_relaxed);
@@ -1166,17 +1240,24 @@ index 0000000..a9cdb94
 +    return;
 +  }
 +  slot.name_epoch.store(now, std::memory_order_relaxed);
++#if XE_WAIT_STATS_HAVE_PTHREAD
++  if (const NameEntry* entry = FindName(ThreadKey(pthread_self()), false)) {
++    for (size_t i = 0; i < 3; ++i) {
++      slot.name[i].store(entry->name[i].load(std::memory_order_relaxed),
++                         std::memory_order_relaxed);
++    }
++    return;
++  }
++#if !XE_PLATFORM_PS5
 +  char name[24] = {};
-+#if XE_PLATFORM_PS5
-+  pthread_get_name_np(pthread_self(), name, sizeof(name) - 1);
-+#elif XE_WAIT_STATS_HAVE_PTHREAD
 +  pthread_getname_np(pthread_self(), name, sizeof(name) - 1);
-+#endif
 +  for (size_t i = 0; i < 3; ++i) {
 +    uint64_t word = 0;
 +    std::memcpy(&word, name + i * 8, 8);
 +    slot.name[i].store(word, std::memory_order_relaxed);
 +  }
++#endif
++#endif
 +}
 +
 +inline void Add(Counter counter, uint64_t ticks = 0, uint64_t extra = 0) {

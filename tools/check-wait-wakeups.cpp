@@ -601,6 +601,13 @@ void ReportText() {
     xe::wait_stats::CsBlocked(0x40001000, 1, 10);
   });
   worker.join();
+  // A thread named the way the emulator names threads on the PS5 (which
+  // cannot read a name back): through RememberName, not pthread_setname_np.
+  std::thread named([] {
+    xe::wait_stats::RememberName(pthread_self(), "Chunk update");
+    xe::wait_stats::Add(xe::wait_stats::kCsBlocked, 100000);
+  });
+  named.join();
   // 10 s and 10^7 ticks: one tick is a microsecond; 12 frames.
   auto lines =
       xe::wait_stats::Report(reporter, 12, t0 + 10s, ticks0 + 10000000ull);
@@ -610,7 +617,7 @@ void ReportText() {
     CHECK(lines[0].find("Waits: 12 frames in 10 s; per frame: 100 "
                         "critical-section entries") == 0,
           "totals");
-    CHECK(lines[0].find("1 blocked (500000 us each, 416.7 ms in all), 2 "
+    CHECK(lines[0].find("1 blocked (463636 us each, 425.0 ms in all), 2 "
                         "hand-offs (30 us to signal)") != std::string::npos,
           "blocked and hand-offs");
     CHECK(lines[1].find("40000618 (spin 0): 1 blocked/frame (500000 us each), "
@@ -618,7 +625,8 @@ void ReportText() {
           "section 40000618 first");
     CHECK(lines[1].find("40001000 (spin 256)") != std::string::npos,
           "section 40001000 second");
-    CHECK(lines[2].find("'Main XThread' 50% (50%)") != std::string::npos,
+    CHECK(lines[2].find("'Main XThread' 50% (50%), 'Chunk update' 1% (0%)") !=
+              std::string::npos,
           "thread share");
   }
   // Nothing new: no section or thread lines.
