@@ -9,7 +9,7 @@ The tile cannot start another app by itself, so it asks a small resident launche
 starts through `elfldr` when needed) to call `sceSystemServiceLaunchApp("PPSA50011", args)`.
 The arguments are the ones in the tile's `forwarder.json`.
 
-Supported from the source build `1.0.3_candidate_3` (fix 21,
+Supported from the source build `1.0.3_candidate_4` (fix 21,
 `tools/source-1.0.2/fixes/21-launch-argument.patch`). Older builds understand only a bare
 full path to a file.
 
