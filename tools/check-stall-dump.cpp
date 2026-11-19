@@ -191,7 +191,7 @@ void ObjectHistory() {
   entries = full.Entries();
   assert(entries.size() == oh::Ring::kSize && full.total() == 40);
   assert(entries.front().arg == 40 - int32_t(oh::Ring::kSize) && entries.back().arg == 39);
-  assert(oh::Format({}, 0).empty() && std::string(oh::OpName(oh::Op::kMutantRelease)) == "mutant-release");
+  assert(oh::Format({}, 0).empty() && std::string(oh::OperationName(oh::Op::kMutantRelease)) == "mutant-release");
   std::printf("  object history: repeats folded, releases kept, ring of %zu, text\n", oh::Ring::kSize);
 }
 }  // namespace
