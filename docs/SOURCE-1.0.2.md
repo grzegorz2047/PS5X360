@@ -8,6 +8,9 @@ is missing, and how close a rebuild gets.
 - Build: [`tools/source-1.0.2/build.sh`](../tools/source-1.0.2/build.sh), workflow
   [`build-source-1.0.2.yml`](../.github/workflows/build-source-1.0.2.yml)
 - Comparison: [`tools/source-1.0.2/compare.py`](../tools/source-1.0.2/compare.py)
+- The shipped release's binary patches as source changes:
+  [`tools/source-1.0.2/fixes`](../tools/source-1.0.2/fixes/README.md) (see
+  [Release fixes](#release-fixes-ported-from-the-binary-patches))
 
 ## Result
 
@@ -118,6 +121,36 @@ From this repository (build glue no drop contains): `platform/ps5/compat/`,
 | `__wrap_sceKernelDebugOutText` | 1.0.2 link (`--wrap`) | the wrap is left out | debug output goes to the system unchanged |
 | Other title sources changed between 0.6.0 and 1.0.0 (input diagnostics, network self-test, dark home skin `assets/skin-dark` / `ui-dark.on`, cover download log, …) | retained objects of `upstream-c28af11-20261020`, `kinect-home-20261021`, `dash-mode-20261020`, `input-fix-20261021`, … (`port.json`, `title-src/` there) | the newest published version is used | those features are missing (their strings are only in the official image, see below) |
 | Compiler commands of the retained objects | every object the author did not recompile | the flags of 0.5.9's `canary/CMakeLists.txt` (title `-O2 -mavx`, all `-march=znver2 -fno-stack-protector`) and Canary's Release `-O3` | code differs byte for byte even where sources match |
+
+## Release fixes ported from the binary patches
+
+The shipped release is the official 1.0.2 executable with binary patches
+(`tools/binary-release/patches.py` on branch `fix/mmio-gpr-and-ci`). Each group is ported to
+source as one patch in [`tools/source-1.0.2/fixes`](../tools/source-1.0.2/fixes/README.md),
+which `assemble.py` applies last. The intent is ported, not the machine code: where the binary
+patch had to borrow room (repurposed strings, an unused settings field, a diagnostic counter),
+the source does it properly. [Run 44507690116](https://github.com/grzegorz2047/PS5X360/actions/runs/44507690116)
+applied all 14 patches and built `eboot.bin` (37,570,981 bytes, SHA-256 `ff26258c…`; `eboot.elf`
+`5bd5b0e8…`); **not yet tested on a console**.
+
+| Group | What | Status | Differences from the binary patch |
+|---|---|---|---|
+| 1 | JIT: no `mfence` around `ldarx`/`lwarx`/`stdcx.`/`stwcx.`; `stwcx.` reserves a word | ported (`01`) | none |
+| 2 | no `clock_gettime` pair around every `mprotect` | ported (`02`) | the calls remain while GPU diagnostics are on, so their protection timings stay meaningful; off, those figures read 0 (the binary skipped them always) |
+| 3 | no 256-byte XMM copy for access violations | ported (`03`) | general registers always copied (as in the binary); a handler that changes an XMM register without its state copied is passed on rather than writing zeros (no handler does today) |
+| 4 | GPU command thread on its own core (CPU 2) | ported (`04`) | the dedicated core is on from the start instead of two forced branches |
+| 5 | FSI choice files in `/download0/xbox360ps5` | ported (`05`) | same file names as the binary release (`fsi.c`, `fsi.1`, `fsi.c.new`), so a choice survives switching builds; the official `/app0/render-target-fsi.conf` is still read when there is no `fsi.c` |
+| 6 | caches in `/data/homebrew/PPSA50011/cache` | ported (`06`) | `/app0/cache` stays as the second candidate (the binary replaced it) |
+| 7 | Vulkan cache exit checkpoint 30 s | ported (`07`) | none |
+| 8 | selective pipeline waits (RT0 overwritten, ≤ 6 indices or target ≤ 256 px) | ported (`08`) | none |
+| 8b | those pipelines compile first (priority 4) | ported (`08b`) | none |
+| 9 | "no new frames" notice after 2 s | ported (`09`) | none; the longer banner text is in the language files (below) |
+| 10 | VSync on: `VdSwap` paced on a 16.60 ms grid | ported (`10`) | the deadline has its own variable (the binary kept it in the protection-timing counter of group 2) |
+| 11 | `framegen.conf` read and written in `/download0/xbox360ps5` first | ported (`11`) | while there is no such file, the packaged `/app0/framegen.conf` is read (the binary went to `/data/homebrew/PPSA50011` directly; the packaged file says off either way) |
+| 12 | third `async_shaders` choice "Ligado (experimental)": invisible stand-ins, depth-tested quads do not wait | ported (`12`) | the flag is a core cvar, `async_shader_invisible_stand_ins` (the binary used a padding byte); the debug-level "Creating graphics pipeline state" log line stays (the binary removed it for room) |
+| 13 | per-game `fsi` option (Desligada / Padrão / Ligada) | ported (`13`) | a field of its own, `Settings::fsi` (the binary reused the unread `resolution_scale` and forced the draw resolution scale to 1) |
+| 14 | — | not applicable | reverted in the binary release |
+| lang overrides | English and Polish texts of the new and changed strings (`assets/lang-overrides`) | not applicable to the executable | they are package data: `tools/binary-release/build_package.py` merges them into the package's `assets/lang/*.txt`, which the reconstructed loader reads in the same format; the Portuguese keys in the source match them |
 
 ## Comparison with the official executable
 
