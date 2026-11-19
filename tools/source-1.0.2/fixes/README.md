@@ -34,6 +34,7 @@ Fixes made in source after the port (numbered from 20, not binary patch groups):
 | Patch | Fix |
 |---|---|
 | `20-stale-dispatch-header` | a guest dispatch header whose recorded handle now belongs to another object gets a new event, mutant or semaphore instead of none (Battlefield 3, 45410950, hung loading the campaign); `xobject.cc` `GetNativeObject` |
+| `21-launch-argument` | start one game straight from a home screen forwarder: `--rom <game>` (full path, path in the game folders, folder, or title ID), a bare full path, `--exit-after-game`; resolved against the library's scan, kept across the start-option and FSI restarts (`docs/FORWARDER.md`; port of upstream BrinooTk/PS5X360#62). New `include/xbox360ps5/forward.hpp`, `Launcher::Entries()`, `canary_game_main.cpp`; checked by `tools/source-1.0.2/checks/check-forward.cpp` |
 
 To change one: assemble a tree, commit it in a scratch repository (the title and the core
 separately), edit, and regenerate the patch with `git diff` (for the core with

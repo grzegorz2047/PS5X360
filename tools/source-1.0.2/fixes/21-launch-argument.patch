@@ -1,0 +1,454 @@
+diff --git a/include/xbox360ps5/forward.hpp b/include/xbox360ps5/forward.hpp
+new file mode 100644
+index 0000000..bfed132
+--- /dev/null
++++ b/include/xbox360ps5/forward.hpp
+@@ -0,0 +1,279 @@
++// SPDX-License-Identifier: MIT
++// Starting one game straight from a home screen forwarder (docs/FORWARDER.md).
++// Ported from upstream BrinooTk/PS5X360#62 (MartinPham) to the 1.0.2 source
++// build (tools/source-1.0.2/fixes/21-launch-argument.patch).
++//
++// A forwarder is a small app with its own home screen tile. Opened, it asks a
++// resident launcher to start PPSA50011 through sceSystemServiceLaunchApp with
++// the arguments in its forwarder.json (PS5 Forwarder Format,
++// heydemoura/ps5-forwarder-format). PS5X360 takes:
++//
++//   --rom <game>        the game: a full path, a path inside the library's game
++//                       folders, or a title ID (8 hex digits) of a game the
++//                       library lists; a folder stands for the game in it
++//   --exit-after-game   "Close the game" in the guide closes PS5X360 instead of
++//                       opening the library
++//   <path>              a bare full path (what Forwarder Manager's PS5X360
++//                       tiles pass, and what the title always took)
++//
++// Header only, no emulator types: tools/source-1.0.2/checks/check-forward.cpp
++// checks it on a PC.
++#pragma once
++#include <algorithm>
++#include <cctype>
++#include <cstdint>
++#include <cstdio>
++#include <cstring>
++#include <filesystem>
++#include <string>
++#include <string_view>
++#include <system_error>
++#include <vector>
++
++namespace xbox360ps5::forward {
++
++struct Args {
++  std::string rom;               // --rom <game> or --rom=<game>, else a bare path
++  bool exit_after_game = false;  // --exit-after-game
++};
++
++inline std::string Trim(std::string_view text) {
++  while (!text.empty() && std::isspace(static_cast<unsigned char>(text.front()))) text.remove_prefix(1);
++  while (!text.empty() && std::isspace(static_cast<unsigned char>(text.back()))) text.remove_suffix(1);
++  return std::string(text);
++}
++
++// argv[0] is normally the title's own executable; a launcher that passes the
++// arguments without it puts the game there, so argv[0] counts as a bare path
++// only when it is a full path that is not the title's own. Unknown options
++// are ignored.
++inline Args Parse(int argc, char** argv) {
++  Args result;
++  if (argc <= 0 || argv == nullptr) return result;
++  constexpr std::string_view rom_flag = "--rom", rom_prefix = "--rom=";
++  std::string bare;
++  for (int i = 0; i < argc; ++i) {
++    if (argv[i] == nullptr) break;
++    const std::string_view arg{argv[i]};
++    if (arg == "--exit-after-game") {
++      result.exit_after_game = true;
++    } else if (arg == rom_flag) {
++      if (i + 1 < argc && argv[i + 1] != nullptr) result.rom = Trim(argv[++i]);
++    } else if (arg.substr(0, rom_prefix.size()) == rom_prefix) {
++      result.rom = Trim(arg.substr(rom_prefix.size()));
++    } else if (arg.substr(0, 2) == "--" || !bare.empty()) {
++      continue;
++    } else if (i > 0) {
++      bare = Trim(arg);
++    } else if (!arg.empty() && arg.front() == '/' && arg.substr(0, 6) != "/app0/" &&
++               (arg.size() < 9 || arg.substr(arg.size() - 9) != "eboot.bin")) {
++      bare = Trim(arg);
++    }
++  }
++  if (result.rom.empty()) result.rom = bare;
++  return result;
++}
++
++// "4D5307E6": a title ID, as the library keeps them (upper case on compare).
++inline bool IsTitleId(std::string_view text) {
++  return text.size() == 8 && std::all_of(text.begin(), text.end(),
++                                         [](char c) { return std::isxdigit(static_cast<unsigned char>(c)) != 0; });
++}
++
++inline std::string Upper(std::string text) {
++  for (char& c : text) c = char(std::toupper(static_cast<unsigned char>(c)));
++  return text;
++}
++inline std::string Lower(std::string text) {
++  for (char& c : text) c = char(std::tolower(static_cast<unsigned char>(c)));
++  return text;
++}
++
++// A path as the library compares them: lexically normal, '/' separated, no
++// trailing '/'.
++inline std::string Key(const std::filesystem::path& path) {
++  std::string text = path.lexically_normal().generic_string();
++  while (text.size() > 1 && text.back() == '/') text.pop_back();
++  return text;
++}
++
++// Where to look for the game: a full path as it is; a relative one inside each
++// of the game folders, in their order, never above them (nothing for a path
++// with a ".." part).
++inline std::vector<std::filesystem::path> Candidates(std::string_view rom, const std::vector<std::string>& folders) {
++  std::string text = Trim(rom);
++  while (text.size() > 1 && text.back() == '/') text.pop_back();  // "Halo 3/"
++  if (text.empty()) return {};
++  if (text.front() == '/') return {std::filesystem::path(text)};
++  for (std::string_view rest = text; !rest.empty();) {
++    const size_t slash = rest.find('/');
++    if (rest.substr(0, slash) == "..") return {};
++    if (slash == std::string_view::npos) break;
++    rest.remove_prefix(slash + 1);
++  }
++  std::vector<std::filesystem::path> out;
++  for (const auto& folder : folders) {
++    if (folder.empty()) continue;
++    const auto path = std::filesystem::path(folder) / text;
++    if (std::find(out.begin(), out.end(), path) == out.end()) out.push_back(path);
++  }
++  return out;
++}
++
++// An STFS/SVOD package of a kind the library lists as a game (ReadPackage in
++// src/launcher.cpp): a LIVE, PIRS or "CON " header whose content type is
++// something to run. Saves, DLC and title updates are not.
++inline bool GamePackage(const std::filesystem::path& path) {
++  std::FILE* file = std::fopen(path.string().c_str(), "rb");
++  if (!file) return false;
++  unsigned char header[0x348];
++  const size_t got = std::fread(header, 1, sizeof(header), file);
++  std::fclose(file);
++  if (got < sizeof(header)) return false;
++  if (std::memcmp(header, "LIVE", 4) && std::memcmp(header, "PIRS", 4) && std::memcmp(header, "CON ", 4)) return false;
++  const uint32_t type = uint32_t(header[0x344]) << 24 | uint32_t(header[0x345]) << 16 | uint32_t(header[0x346]) << 8 | header[0x347];
++  for (const uint32_t game : {0x000D0000u, 0x00080000u, 0x00007000u, 0x00004000u, 0x00005000u, 0x02000000u, 0x00060000u, 0x000C0000u})
++    if (type == game) return true;
++  return false;
++}
++
++// The file the emulator starts for a path that is not in the library (outside
++// the game folders): the path itself when it is a file; for a folder, as the
++// library would list it: its default.xex, else its only .xex, else the one game
++// package below it (six levels down, not in a package's .data folder). Empty
++// when there is none or several; why says which.
++inline std::filesystem::path LaunchFile(const std::filesystem::path& path, std::string* why = nullptr) {
++  std::error_code error;
++  if (std::filesystem::is_regular_file(path, error)) return path;
++  if (!std::filesystem::is_directory(path, error)) {
++    if (why) *why = "not a file or folder";
++    return {};
++  }
++  std::filesystem::path executable;
++  int executables = 0;
++  for (std::filesystem::directory_iterator at(path, error), end; !error && at != end; at.increment(error)) {
++    std::error_code kind_error;
++    if (Lower(at->path().extension().string()) != ".xex" || at->is_directory(kind_error)) continue;
++    ++executables;
++    if (Lower(at->path().filename().string()) == "default.xex") return at->path();
++    executable = at->path();
++  }
++  if (executables == 1) return executable;
++  std::vector<std::filesystem::path> packages;
++  const auto walk = [&packages](const auto& self, const std::filesystem::path& folder, int depth) -> void {
++    std::error_code walk_error;
++    std::vector<std::filesystem::path> folders;
++    for (std::filesystem::directory_iterator at(folder, walk_error), end; !walk_error && at != end; at.increment(walk_error)) {
++      std::error_code kind_error;
++      const std::string extension = Lower(at->path().extension().string());
++      if (at->is_directory(kind_error)) {
++        if (depth < 6 && extension != ".data") folders.push_back(at->path());
++      } else if ((extension.empty() || extension == ".xbla" || extension == ".god") && GamePackage(at->path())) {
++        packages.push_back(at->path());
++      }
++    }
++    std::sort(folders.begin(), folders.end());
++    for (const auto& below : folders) self(self, below, depth + 1);
++  };
++  walk(walk, path, 0);
++  if (executables == 0 && packages.size() == 1) return packages.front();
++  if (why) {
++    if (executables > 1)
++      *why = "no default.xex and " + std::to_string(executables) + " .xex files in this folder; give the one to start";
++    else if (packages.size() > 1)
++      *why = std::to_string(packages.size()) + " game packages below this folder; give the one to start";
++    else
++      *why = "no default.xex, single .xex or game package in this folder";
++  }
++  return {};
++}
++
++// A game the library lists (Launcher::Entries): what it starts, the folder it
++// was found in, and its title ID.
++struct LibraryGame {
++  std::filesystem::path path;
++  std::filesystem::path folder;
++  std::string title_id;
++};
++
++struct Choice {
++  int entry = -1;              // index into the library's games, when it is one of them
++  std::filesystem::path file;  // what to start (empty: nothing found, see error)
++  std::string error;
++};
++
++// The game a forwarder asks for, looked for the way the library lists games so
++// that it starts with its own name, title ID and options:
++//  1. a path (full, or inside a game folder, first match in their order) that
++//     is a library game's file, or its folder (an extracted game, a multi-disc
++//     set), or a folder with exactly one library game below it (an XBLA or
++//     Games on Demand title's folder);
++//  2. a path that exists but is not in the library: LaunchFile;
++//  3. a title ID: the library's game with that ID, the most recently played
++//     first (the library's order) when there are several copies.
++inline Choice Pick(std::string_view rom, const std::vector<std::string>& folders, const std::vector<LibraryGame>& games) {
++  Choice choice;
++  const std::string text = Trim(rom);
++  if (text.empty()) {
++    choice.error = "no game given";
++    return choice;
++  }
++  const auto candidates = Candidates(text, folders);
++  for (const auto& candidate : candidates) {
++    std::error_code exists_error;
++    if (!std::filesystem::exists(candidate, exists_error)) continue;
++    const std::string key = Key(candidate), below = key + "/";
++    std::vector<int> found_in, inside;
++    for (int n = 0; n < int(games.size()); ++n) {
++      const std::string path = Key(games[size_t(n)].path);
++      if (path == key) {
++        choice.entry = n;
++        choice.file = games[size_t(n)].path;
++        return choice;
++      }
++      if (Key(games[size_t(n)].folder) == key) found_in.push_back(n);
++      if (path.compare(0, below.size(), below) == 0) inside.push_back(n);
++    }
++    for (const auto* list : {&found_in, &inside}) {
++      if (list->size() != 1) continue;
++      choice.entry = list->front();
++      choice.file = games[size_t(list->front())].path;
++      return choice;
++    }
++    if (inside.size() > 1) {
++      choice.error = candidate.string() + ": " + std::to_string(inside.size()) +
++                     " games below this folder; give the one to start";
++      return choice;
++    }
++    std::string why;
++    choice.file = LaunchFile(candidate, &why);
++    if (choice.file.empty()) choice.error = candidate.string() + ": " + why;
++    return choice;
++  }
++  if (IsTitleId(text)) {
++    const std::string id = Upper(text);
++    for (int n = 0; n < int(games.size()); ++n) {
++      if (Upper(games[size_t(n)].title_id) != id) continue;
++      choice.entry = n;
++      choice.file = games[size_t(n)].path;
++      return choice;
++    }
++    choice.error = text + ": no game with this title ID in the library";
++    return choice;
++  }
++  if (candidates.empty())
++    choice.error = text + ": not a path inside the game folders (no \"..\")";
++  else
++    choice.error = text + ": not found" + (text.front() == '/' ? "" : " in the game folders");
++  return choice;
++}
++
++// launch-once.txt's third line: a forwarded game that restarts into itself
++// (its own start options, its render-target mode) stays forwarded.
++inline std::string OnceFlags(bool exit_after_game) { return exit_after_game ? "forwarded exit-after-game" : "forwarded"; }
++inline bool OnceForwarded(std::string_view flags) { return flags.substr(0, 9) == "forwarded"; }
++inline bool OnceExitAfterGame(std::string_view flags) {
++  return OnceForwarded(flags) && flags.find("exit-after-game") != std::string_view::npos;
++}
++
++}  // namespace xbox360ps5::forward
+diff --git a/include/xbox360ps5/launcher.hpp b/include/xbox360ps5/launcher.hpp
+index 7f4fc80..29b8b8d 100644
+--- a/include/xbox360ps5/launcher.hpp
++++ b/include/xbox360ps5/launcher.hpp
+@@ -192,6 +192,9 @@ class Launcher {
+   void Scan();
+   // Every game found, ordered by path (a stable order for unattended runs).
+   std::vector<std::filesystem::path> GamePaths() const;
++  // Every game found, as the shelf lists them (recently played first): a
++  // forwarder's game is started as the library's own entry (forward.hpp).
++  const std::vector<GameEntry>& Entries() const { return games_; }
+   void Press(Key key);
+   void SetPadConnected(bool connected) { pad_connected_ = connected; }
+   void Draw(ImGuiIO& io);
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+index 975203f..44ff7b0 100644
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -84,6 +84,7 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
+ #include "xbox360ps5/dualsense_input.hpp"
+ #include "xbox360ps5/autotest.hpp"
+ #include "xbox360ps5/launcher.hpp"
++#include "xbox360ps5/forward.hpp"
+ #include "xbox360ps5/achievement_hook.hpp"
+ #include "xbox360ps5/notify.hpp"
+ #include "xbox360ps5/web_settings.hpp"
+@@ -1259,13 +1260,14 @@ int main(int argc, char** argv) {
+   // A start the launcher asked for, straight into one game: the game has
+   // options of its own that are only read as the emulator starts.
+   std::filesystem::path once_game;
+-  std::string once_title;
++  std::string once_title, once_flags;
+   {
+     std::ifstream once(storage / "launch-once.txt");
+     std::string line;
+     if (std::getline(once, line) && !line.empty()) {
+       once_game = line;
+       std::getline(once, once_title);
++      std::getline(once, once_flags);  // A forwarder's game (forward.hpp OnceFlags), when it was one.
+     }
+     once.close();
+     std::error_code once_error;
+@@ -1392,14 +1394,34 @@ int main(int argc, char** argv) {
+   if (log_ready && log_root == storage / "LOGS")
+     XELOGW("Installation folder is not writable; desktop log downloader exports sessions to /data/homebrew/PPSA50011/logs");
+   std::filesystem::path game;
+-  if (argc > 1 && argv[1]) game = argv[1];
+-  else {
++  // A home screen forwarder's game (fix 21, forward.hpp, docs/FORWARDER.md):
++  // --rom <game> [--exit-after-game], or a bare full path. It is looked for
++  // once the library has been scanned, so it starts as the library's own entry
++  // (title ID, options, recent list). game.txt is not read then. Every restart
++  // of the title runs without arguments, so the game starts once; a restart
++  // into the same game keeps it forwarded through launch-once.txt.
++  for (int i = 0; i < argc && i < 16 && argv && argv[i]; ++i) XELOGW("Start argument {}: {}", i, argv[i]);
++  const auto forward = xbox360ps5::forward::Parse(argc, argv);
++  const std::string forward_request = forward.rom;
++  bool forwarded = !forward_request.empty();
++  bool exit_after_game = forwarded && forward.exit_after_game;
++  xbox360ps5::GameEntry forward_entry;
++  bool forward_listed = false;
++  if (forwarded) {
++    XELOGW("Forwarder: asked for {}{}", forward_request, exit_after_game ? " (--exit-after-game)" : "");
++  } else {
+     std::ifstream input(storage / "game.txt");
+     std::string line;
+     if (std::getline(input, line)) { if (!line.empty() && line.back() == '\r') line.pop_back(); game = line; }
+   }
+-  if (game.empty() && !once_game.empty()) game = once_game;
+-  if (game.empty()) {
++  if (game.empty() && !forwarded && !once_game.empty()) {
++    game = once_game;
++    // Restarted into its own start options: still the forwarder's game.
++    forwarded = xbox360ps5::forward::OnceForwarded(once_flags);
++    exit_after_game = xbox360ps5::forward::OnceExitAfterGame(once_flags);
++    if (forwarded) XELOGW("Forwarder: {} again after a restart{}", game.string(), exit_after_game ? " (--exit-after-game)" : "");
++  }
++  if (game.empty() && forward_request.empty()) {
+     std::ifstream input("/app0/assets/game.txt");
+     std::string line;
+     if (std::getline(input, line)) { if (!line.empty() && line.back() == '\r') line.pop_back(); game = line; }
+@@ -1827,6 +1849,29 @@ int main(int argc, char** argv) {
+         XELOGE("Title switch: restart refused {:08X}", unsigned(refused));
+       };
+       xam->LoadLoaderData();
++      // The forwarder's game, found the way the library lists games (forward.hpp Pick).
++      if (game.empty() && !forward_request.empty()) {
++        launcher.Scan();
++        const auto& entries = launcher.Entries();
++        std::vector<xbox360ps5::forward::LibraryGame> listed;
++        listed.reserve(entries.size());
++        for (const auto& entry : entries) listed.push_back({entry.path, entry.folder, entry.title_id});
++        const auto pick = xbox360ps5::forward::Pick(forward_request, global.game_paths, listed);
++        if (pick.entry >= 0) {
++          forward_entry = entries[size_t(pick.entry)];
++          forward_listed = true;
++        }
++        game = pick.file;
++        if (game.empty()) {
++          XELOGE("Forwarder: {}; opening the library", pick.error);
++          Stage("BOOT forwarded game not found; opening the library");
++          launcher.SetMessage(std::string(Tr("Não foi possível iniciar o jogo: ")) + pick.error);
++          forwarded = exit_after_game = false;
++        } else {
++          XELOGW("Forwarder: starting {} ({}{})", game.string(), forward_listed ? "library game " : "not in the library",
++                 forward_listed ? forward_entry.title_id : std::string());
++        }
++      }
+       const bool switched = game.empty() && !xam->loader_data().host_path.empty();
+       if (switched) {
+         game = xam->loader_data().host_path;
+@@ -1869,6 +1914,7 @@ int main(int argc, char** argv) {
+                                   game, "XEX", game.parent_path().string()};
+       if (dashboard) chosen.name = "Xbox 360 Dashboard";
+       if (!once_game.empty() && game == once_game) chosen.title_id = once_title;
++      if (forward_listed && game == forward_entry.path) chosen = forward_entry;
+       const auto start_reached = [&storage] {
+         std::error_code reached_error;
+         std::filesystem::remove(storage / "start-check.txt", reached_error);
+@@ -1961,14 +2007,16 @@ int main(int argc, char** argv) {
+           XELOGW("Settings: {} uses {} render targets; restarting into it", chosen.name,
+                  fsi_wanted ? "accurate (FSI)" : "fast");
+           xbox360ps5::FsiForNextStart(fsi_wanted);
+-          std::ofstream(storage / "launch-once.txt", std::ios::trunc) << game.string() << "\n" << settings_title << "\n";
++          std::ofstream(storage / "launch-once.txt", std::ios::trunc) << game.string() << "\n" << settings_title << "\n"
++              << (forwarded ? xbox360ps5::forward::OnceFlags(exit_after_game) + "\n" : std::string());
+           restart = true;
+           break;
+         }
+         if (!switched && xbox360ps5::StartOptionsDiffer(settings, started)) {
+           // Some are only read as the emulator starts: start again, straight into this game.
+           XELOGW("Settings: {} has start options of its own; restarting into it", chosen.name);
+-          std::ofstream(storage / "launch-once.txt", std::ios::trunc) << game.string() << "\n" << settings_title << "\n";
++          std::ofstream(storage / "launch-once.txt", std::ios::trunc) << game.string() << "\n" << settings_title << "\n"
++              << (forwarded ? xbox360ps5::forward::OnceFlags(exit_after_game) + "\n" : std::string());
+           restart = true;
+           break;
+         }
+@@ -2036,6 +2084,16 @@ int main(int argc, char** argv) {
+         launcher.SetLoading("");
+         if (dialog) { dialog->Dismiss(); context.Tick(); window.Paint(); }
+         if (!status) { launched = true; break; }
++        if (!dialog && forwarded) {
++          // A forwarder's game that did not start: the library, from a fresh
++          // process, says why (notice.txt), as after a launch that threw.
++          XELOGE("Forwarder: {} did not start ({:08X}); restarting into the library", game.string(), unsigned(status));
++          char reason[48];
++          std::snprintf(reason, sizeof(reason), "error %08X", unsigned(status));
++          std::ofstream(storage / "notice.txt", std::ios::trunc) << chosen.name << ": " << reason << "\n";
++          restart = true;
++          break;
++        }
+         if (!dialog) { result = 5; break; }
+         char text[96];
+         std::snprintf(text, sizeof(text), Tr("Não foi possível iniciar este jogo (erro %08X)."), unsigned(status));
+@@ -2232,6 +2290,13 @@ int main(int argc, char** argv) {
+               switch (items[size_t(guide.row)].action) {
+                 case GuideAction::resume: guide.open = false; changed = false; break;
+                 case GuideAction::shelf:
++                  if (exit_after_game) {
++                    // --exit-after-game: closing the forwarder's game closes the title.
++                    XELOGW("Guide: closing the game and the title (--exit-after-game)");
++                    quit = true;
++                    changed = false;
++                    break;
++                  }
+                   XELOGW("Guide: back to the launcher");
+                   // Closing a game goes back to the dashboard; closing the dashboard, to the library.
+                   if (dashboard) std::ofstream(storage / "dashboard-skip.txt", std::ios::trunc) << "library\n";

@@ -88,6 +88,12 @@ jobs:
       - name: Assemble the 1.0.2 source tree
         run: python3 -I tools/source-1.0.2/assemble.py --out build/src102 --cache .deps/src102-cache
 
+      - name: Check the forwarder's launch arguments (fix 21) on the runner
+        run: |
+          set -euo pipefail
+          clang++-18 -std=c++20 -Wall -Wextra -I build/src102/include tools/source-1.0.2/checks/check-forward.cpp -o build/check-forward
+          build/check-forward
+
       - name: Build RADV platform and payload SDK
         if: steps.radv.outputs.cache-hit != 'true'
         run: |
