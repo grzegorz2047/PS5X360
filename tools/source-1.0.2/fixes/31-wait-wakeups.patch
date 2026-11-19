@@ -1028,10 +1028,10 @@ index bb07c33..6d582a2 100644
    current_thread_ = nullptr;
 diff --git a/.deps/xenia-canary/src/xenia/base/wait_stats.h b/.deps/xenia-canary/src/xenia/base/wait_stats.h
 new file mode 100644
-index 0000000..5c675be
+index 0000000..a9cdb94
 --- /dev/null
 +++ b/.deps/xenia-canary/src/xenia/base/wait_stats.h
-@@ -0,0 +1,436 @@
+@@ -0,0 +1,440 @@
 +/**
 + ******************************************************************************
 + * Xenia : Xbox 360 Emulator Research Project                                 *
@@ -1076,12 +1076,14 @@ index 0000000..5c675be
 +#include <x86intrin.h>
 +#endif
 +#endif
++#include "xenia/base/platform.h"
++
 +#if __has_include(<pthread.h>)
 +#include <pthread.h>
 +#define XE_WAIT_STATS_HAVE_PTHREAD 1
 +#endif
-+#if __has_include(<pthread_np.h>)
-+#include <pthread_np.h>  // FreeBSD and the PS5: pthread_getname_np
++#if XE_PLATFORM_PS5
++#include <pthread_np.h>  // pthread_get_name_np, the FreeBSD spelling
 +#endif
 +
 +namespace xe {
@@ -1165,7 +1167,9 @@ index 0000000..5c675be
 +  }
 +  slot.name_epoch.store(now, std::memory_order_relaxed);
 +  char name[24] = {};
-+#if XE_WAIT_STATS_HAVE_PTHREAD
++#if XE_PLATFORM_PS5
++  pthread_get_name_np(pthread_self(), name, sizeof(name) - 1);
++#elif XE_WAIT_STATS_HAVE_PTHREAD
 +  pthread_getname_np(pthread_self(), name, sizeof(name) - 1);
 +#endif
 +  for (size_t i = 0; i < 3; ++i) {
