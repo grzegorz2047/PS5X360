@@ -48,25 +48,8 @@ and, for a decision cave, a truth table in `test_caves.py`.
 `tools/test_mesa_weaks.py`, `tools/check-autolog.py` and `tools/check-log-export.py`
 (both mock FTP).
 
-## `tools/check-*` programs not run in CI
+## `tools/check-*` programs
 
-They test the repository's C++ (the 0.5.7-era tree), not the shipped v1.0.2
-binary, and need Linux with clang-18 and, for most, the prepared Xenia tree in
-`.deps/` (`tools/prepare.py`):
-
-- Compile code out of `.deps/xenia-canary`: `check-invalidation-window.py`,
-  `check-shared-memory-cache.py`, `check-unwatched-pages.py`, `check-watch-batching.py`,
-  `check-watch-limit.py`, `check-vsync-pacing.py`, `check-ps5-mutex.py` (TSan/ASan),
-  `check-readback-barrier.py` (reads the source), `check-ldi.cpp`, `check-thread-exit.cpp`
-  and `check-thread-exit.sh`, `check-mapped-slice.sh` (also `build/canary-runner`).
-- Compile repository code with clang++-18 (some with sanitizers): `check-autolog-ftp.py`,
-  `check-guest-dump-range.py`, `check-motion.py`, `check-protection-batching.py`,
-  `check-web-settings.py`, `check-qr-code.sh` (zbar), `check-native-autolog.sh`
-  (`.deps/autolog` mbedTLS), `check-multiplayer.cpp` (its header includes Xenia).
-- Header-only C++ that may build with `clang++ -std=c++20 -Iinclude` alone (not tried):
-  `check-frame-watch.cpp`, `check-game-storage.cpp`, `check-gpu-diagnostics.cpp`,
-  `check-save-storage.cpp`, `check-ui-language.cpp`, `check-virtual-depth.cpp`,
-  `check-virtual-skeleton.cpp`.
-- Talk to real systems, never in CI: `check-native-autolog-console.py` (reads the
-  development PS5 over FTP) and `check-relay-live.py` (sends a report to the
-  configured relay).
+They test C++ sources, not the shipped binary. `.github/workflows/source-checks.yml`
+runs them against the v1.0.2 tree assembled from branch `source-1.0.2`; which pass,
+and why the others do not, is in `tools/source-checks/README.md`.

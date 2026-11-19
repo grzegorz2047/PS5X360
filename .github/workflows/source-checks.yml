@@ -8,6 +8,8 @@ on:
     paths:
       - 'tools/source-checks/**'
       - 'tools/check-*'
+      - 'tools/source-1.0.2/**'
+      - 'src/memory_contract_test.cpp'
       - '.github/workflows/source-checks.yml'
   workflow_dispatch:
     inputs:

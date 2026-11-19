@@ -1,2 +1,18 @@
 # Checks that must pass on the assembled v1.0.2 tree (tools/source-checks/run.py --expect).
-# Filled from the first runs; a check not listed here is still run and reported.
+# Every other check is still run and reported (README.md says why each one fails).
+check-autolog.py
+check-frame-watch.cpp
+check-game-storage.cpp
+check-gpu-diagnostics.cpp
+check-guest-dump-range.py
+check-log-export.py
+check-protection-batching.py
+check-ps5-mutex.py
+check-qr-code.sh
+check-readback-barrier.py
+check-save-storage.cpp
+check-virtual-depth.cpp
+check-virtual-skeleton.cpp
+check-vsync-pacing.py
+check-watch-batching.py
+check-watch-limit.py
