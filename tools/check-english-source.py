@@ -67,10 +67,10 @@ OLD_CODE = {
 NEW_CODE = {
     rekey.I18N: [rekey.NEW_TR],
     rekey.I18N_UI: [
-        '  i18n_ui::Read(id, *table);\n',
-        '  const i18n_ui::Table& table = id == 9 ? brazilian : id == 5 ? spanish : english;\n',
-        '  static const i18n_ui::Table english = read_file(1);\n  static const i18n_ui::Table brazilian = read_file(9);\n'
-        '  static const i18n_ui::Table spanish = read_file(5);\n',
+        '  table->folder = i18n_ui::Folder();\n  i18n_ui::Read(id, *table);\n',
+        '  if (id == 9) {\n    static const i18n_ui::Table brazilian = read_file(9);\n    table = &brazilian;\n'
+        '  } else if (id == 5) {\n    static const i18n_ui::Table spanish = read_file(5);\n    table = &spanish;\n'
+        '  } else {\n    static const i18n_ui::Table english = read_file(1);\n    table = &english;\n  }\n',
         '  const char* mark = std::strstr(key, "||");\n',
     ],
     rekey.GAME_MAIN: ['    if (!std::strcmp(entry.core, english)) return xbox360ps5::Tr(entry.key);\n  }\n  return english;'],

@@ -94,6 +94,12 @@ int main(int argc, char** argv) {
   assert(Is(Tr("On||feminine"), "Włączona"));
   assert(Is(Tr("Off||feminine"), "Off"));
   std::printf("  Polish: selected -> en.txt -> the English key\n");
+  // Selecting the same language again (Settings::Apply does on every settings change) keeps its
+  // table: the file is not read again and the text stays the same.
+  const char* polish = Tr("Text A");
+  Use(11);
+  assert(Tr("Text A") == polish);
+  std::printf("  the same language again: its table is kept, not read again\n");
 
   // English: en.txt is the chosen file; a context key without an entry shows its English.
   Use(1);
@@ -138,6 +144,19 @@ int main(int argc, char** argv) {
   assert(Is(Tr("Text A"), "English A"));
   assert(Is(Tr("On||feminine"), "On"));
   std::printf("  German without a file: English\n");
+
+  // Another folder (host checks only): the language's file is read again, from it.
+  Use(11);
+  assert(Is(Tr("Text A"), "Polski A"));
+  const fs::path other = folder / "other";
+  fs::create_directories(other);
+  Write(other / "pl.txt", "Text\\sA = Polski B\n");
+  xbox360ps5::i18n_ui::Folder() = other.string() + "/";
+  Use(11);
+  assert(Is(Tr("Text A"), "Polski B"));
+  assert(Is(polish, "Polski A"));  // the earlier table's text stays valid
+  xbox360ps5::i18n_ui::Folder() = folder.string() + "/";
+  std::printf("  another folder: read again\n");
 
   // The default interface language: the console's, English when it is not supported.
   assert(xbox360ps5::SupportedUiLanguage(xbox360ps5::ConsoleUiLanguage(16)) == 11);  // Polish console

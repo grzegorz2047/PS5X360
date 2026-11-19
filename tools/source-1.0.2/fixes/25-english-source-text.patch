@@ -725,7 +725,7 @@ index 80f8a33..230250c 100644
  }
  }  // namespace xbox360ps5
 diff --git a/reconstructed/xbox360ps5/i18n_ui.hpp b/reconstructed/xbox360ps5/i18n_ui.hpp
-index 435c185..066f36f 100644
+index 435c185..382b77d 100644
 --- a/reconstructed/xbox360ps5/i18n_ui.hpp
 +++ b/reconstructed/xbox360ps5/i18n_ui.hpp
 @@ -2,14 +2,18 @@
@@ -748,17 +748,33 @@ index 435c185..066f36f 100644
  #include <string>
  
  namespace xbox360ps5 {
-@@ -106,30 +110,48 @@ inline void Read(int id, Table& table) {
+@@ -63,6 +67,7 @@ inline int GameLanguageForUi(int id) { return id == 18 ? 5 : id == 19 ? 9 : id;
+ namespace i18n_ui {
+ struct Table {
+   int language = -1;
++  std::string folder;  // Folder() when it was read (LoadUiTranslations)
+   std::map<std::string, std::string> text;
+ };
+ inline std::shared_ptr<const Table>& Current() {
+@@ -106,30 +111,63 @@ inline void Read(int id, Table& table) {
  }
  }  // namespace i18n_ui
  
 -// Loads /app0/assets/lang/<code>.txt for the language (Brazilian Portuguese is the source).
 +// Loads /app0/assets/lang/<code>.txt for the language (every one, English and Brazilian
-+// Portuguese included: the keys are English, fix 25).
++// Portuguese included: the keys are English, fix 25). Settings::Apply calls this on every
++// settings change; the file is read again only when the language (or the folder) changed, since
++// LoadedUiText keeps each table it gave text from for the process.
  inline void LoadUiTranslations(int id) {
++  {
++    std::lock_guard<std::mutex> guard(i18n_ui::Lock());
++    const auto& current = i18n_ui::Current();
++    if (current->language == id && current->folder == i18n_ui::Folder()) return;
++  }
    auto table = std::make_shared<i18n_ui::Table>();
    table->language = id;
 -  if (id != 9) i18n_ui::Read(id, *table);
++  table->folder = i18n_ui::Folder();
 +  i18n_ui::Read(id, *table);
    std::lock_guard<std::mutex> guard(i18n_ui::Lock());
    i18n_ui::Current() = std::move(table);
@@ -768,9 +784,9 @@ index 435c185..066f36f 100644
 -// shown in English, not in the Portuguese source.
 -inline const char* EnglishUiText(const char* pt) {
 -  static const i18n_ui::Table english = [] {
-+// The text of a key in a fallback language's file, read once: English (en.txt; fix 23 for every
-+// language), Brazilian Portuguese (pt-BR.txt, for Portugal's) or Spanish (es.txt, for Latin
-+// America's). nullptr when the file lacks it.
++// The text of a key in a fallback language's file, or nullptr when the file lacks it: English
++// (en.txt; fix 23 for every language), Brazilian Portuguese (pt-BR.txt, for Portugal's) or
++// Spanish (es.txt, for Latin America's). Each file is read once, when first needed.
 +inline const char* FallbackUiText(int id, const char* key) {
 +  const auto read_file = [](int language) {
      i18n_ui::Table table;
@@ -783,16 +799,20 @@ index 435c185..066f36f 100644
 -  const auto found = english.text.find(pt);
 -  return found == english.text.end() ? nullptr : found->second.c_str();
 +  };
-+  static const i18n_ui::Table english = read_file(1);
-+  static const i18n_ui::Table brazilian = read_file(9);
-+  static const i18n_ui::Table spanish = read_file(5);
-+  const i18n_ui::Table& table = id == 9 ? brazilian : id == 5 ? spanish : english;
-+  const auto found = table.text.find(key);
-+  return found == table.text.end() ? nullptr : found->second.c_str();
- }
--// The loaded translation of a Portuguese text, or nullptr. Tables stay alive for the
--// process, so the returned text remains valid.
--inline const char* LoadedUiText(const char* pt) {
++  const i18n_ui::Table* table;
++  if (id == 9) {
++    static const i18n_ui::Table brazilian = read_file(9);
++    table = &brazilian;
++  } else if (id == 5) {
++    static const i18n_ui::Table spanish = read_file(5);
++    table = &spanish;
++  } else {
++    static const i18n_ui::Table english = read_file(1);
++    table = &english;
++  }
++  const auto found = table->text.find(key);
++  return found == table->text.end() ? nullptr : found->second.c_str();
++}
 +// Fix 23's name for the English file's text of a key.
 +inline const char* EnglishUiText(const char* key) { return FallbackUiText(1, key); }
 +// The English of a key no file has: the key, without the "||context" that tells apart keys
@@ -805,14 +825,17 @@ index 435c185..066f36f 100644
 +  static std::set<std::string> texts;
 +  std::lock_guard<std::mutex> guard(lock);
 +  return texts.emplace(key, size_t(mark - key)).first->c_str();
-+}
+ }
+-// The loaded translation of a Portuguese text, or nullptr. Tables stay alive for the
+-// process, so the returned text remains valid.
+-inline const char* LoadedUiText(const char* pt) {
 +// The loaded translation of a key, or nullptr. Tables stay alive for the process, so the
 +// returned text remains valid.
 +inline const char* LoadedUiText(const char* key) {
    static std::mutex keep_lock;
    static std::vector<std::shared_ptr<const i18n_ui::Table>> keep;
    std::shared_ptr<const i18n_ui::Table> table;
-@@ -137,7 +159,7 @@ inline const char* LoadedUiText(const char* pt) {
+@@ -137,7 +175,7 @@ inline const char* LoadedUiText(const char* pt) {
      std::lock_guard<std::mutex> guard(i18n_ui::Lock());
      table = i18n_ui::Current();
    }

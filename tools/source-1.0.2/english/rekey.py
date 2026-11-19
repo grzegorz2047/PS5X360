@@ -895,17 +895,25 @@ inline const char* EnglishUiText(const char* pt) {
 // process, so the returned text remains valid.
 inline const char* LoadedUiText(const char* pt) {''',
      '''// Loads /app0/assets/lang/<code>.txt for the language (every one, English and Brazilian
-// Portuguese included: the keys are English, fix 25).
+// Portuguese included: the keys are English, fix 25). Settings::Apply calls this on every
+// settings change; the file is read again only when the language (or the folder) changed, since
+// LoadedUiText keeps each table it gave text from for the process.
 inline void LoadUiTranslations(int id) {
+  {
+    std::lock_guard<std::mutex> guard(i18n_ui::Lock());
+    const auto& current = i18n_ui::Current();
+    if (current->language == id && current->folder == i18n_ui::Folder()) return;
+  }
   auto table = std::make_shared<i18n_ui::Table>();
   table->language = id;
+  table->folder = i18n_ui::Folder();
   i18n_ui::Read(id, *table);
   std::lock_guard<std::mutex> guard(i18n_ui::Lock());
   i18n_ui::Current() = std::move(table);
 }
-// The text of a key in a fallback language's file, read once: English (en.txt; fix 23 for every
-// language), Brazilian Portuguese (pt-BR.txt, for Portugal's) or Spanish (es.txt, for Latin
-// America's). nullptr when the file lacks it.
+// The text of a key in a fallback language's file, or nullptr when the file lacks it: English
+// (en.txt; fix 23 for every language), Brazilian Portuguese (pt-BR.txt, for Portugal's) or
+// Spanish (es.txt, for Latin America's). Each file is read once, when first needed.
 inline const char* FallbackUiText(int id, const char* key) {
   const auto read_file = [](int language) {
     i18n_ui::Table table;
@@ -913,12 +921,19 @@ inline const char* FallbackUiText(int id, const char* key) {
     i18n_ui::Read(language, table);
     return table;
   };
-  static const i18n_ui::Table english = read_file(1);
-  static const i18n_ui::Table brazilian = read_file(9);
-  static const i18n_ui::Table spanish = read_file(5);
-  const i18n_ui::Table& table = id == 9 ? brazilian : id == 5 ? spanish : english;
-  const auto found = table.text.find(key);
-  return found == table.text.end() ? nullptr : found->second.c_str();
+  const i18n_ui::Table* table;
+  if (id == 9) {
+    static const i18n_ui::Table brazilian = read_file(9);
+    table = &brazilian;
+  } else if (id == 5) {
+    static const i18n_ui::Table spanish = read_file(5);
+    table = &spanish;
+  } else {
+    static const i18n_ui::Table english = read_file(1);
+    table = &english;
+  }
+  const auto found = table->text.find(key);
+  return found == table->text.end() ? nullptr : found->second.c_str();
 }
 // Fix 23's name for the English file's text of a key.
 inline const char* EnglishUiText(const char* key) { return FallbackUiText(1, key); }
@@ -939,6 +954,9 @@ inline const char* LoadedUiText(const char* key) {'''),
     ('  const auto found = table->text.find(pt);\n  if (found == table->text.end()) return nullptr;\n',
      '  const auto found = table->text.find(key);\n  if (found == table->text.end()) return nullptr;\n'),
     ('#include <atomic>\n#include <fstream>\n', '#include <atomic>\n#include <cstring>\n#include <fstream>\n'),
+    ('struct Table {\n  int language = -1;\n  std::map<std::string, std::string> text;\n};\n',
+     'struct Table {\n  int language = -1;\n  std::string folder;  // Folder() when it was read (LoadUiTranslations)\n'
+     '  std::map<std::string, std::string> text;\n};\n'),
 ]
 
 I18N_EDITS = [
