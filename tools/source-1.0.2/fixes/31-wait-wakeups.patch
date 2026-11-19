@@ -1028,10 +1028,10 @@ index bb07c33..6d582a2 100644
    current_thread_ = nullptr;
 diff --git a/.deps/xenia-canary/src/xenia/base/wait_stats.h b/.deps/xenia-canary/src/xenia/base/wait_stats.h
 new file mode 100644
-index 0000000..e03a99f
+index 0000000..347011d
 --- /dev/null
 +++ b/.deps/xenia-canary/src/xenia/base/wait_stats.h
-@@ -0,0 +1,428 @@
+@@ -0,0 +1,433 @@
 +/**
 + ******************************************************************************
 + * Xenia : Xbox 360 Emulator Research Project                                 *
@@ -1052,6 +1052,11 @@ index 0000000..e03a99f
 +
 +#ifndef XENIA_BASE_WAIT_STATS_H_
 +#define XENIA_BASE_WAIT_STATS_H_
++
++// Candidate 32 (diagnostic): 1.0.2's wake-ups and critical sections, counted.
++#ifndef XBOX360PS5_LEGACY_WAKES
++#define XBOX360PS5_LEGACY_WAKES 1
++#endif
 +
 +#include <algorithm>
 +#include <array>
