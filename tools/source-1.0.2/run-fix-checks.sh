@@ -12,6 +12,7 @@ checks=(
   check-stale-dispatch-header.cpp  # fix 20
   check-guide-network.cpp          # fix 22
   check-english-fallback.cpp       # fix 23
+  check-stall-dump.cpp             # fix 24
 )
 mkdir -p "$tree/tools" "$tree/build/fix-checks"
 status=0

@@ -1,40 +1,210 @@
-diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
-index 5c3db7d..4ec36c0 100644
---- a/src/canary_game_main.cpp
-+++ b/src/canary_game_main.cpp
-@@ -727,6 +727,23 @@ std::string CallersText(xe::Memory* memory, uint32_t stack) {
-   }
-   return text.empty() ? " none read" : text;
- }
-+// Fix 24: eight guest code words from `address` - 16 (when readable), for a loop a thread spins
-+// in outside any wait (Battlefield 3's loaders at lr 838D4514), to disassemble from the log.
-+std::string CodeText(xe::Memory* memory, uint32_t address) {
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xthread.cc b/.deps/xenia-canary/src/xenia/kernel/xthread.cc
+index 8b4b9b0..46d4ec7 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xthread.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xthread.cc
+@@ -11,6 +11,7 @@
+ #include <xmmintrin.h>
+ #include <atomic>
+ #include <cstdlib>
++#include <ctime>
+ #include <mutex>
+ #include <unordered_set>
+ 
+@@ -65,6 +66,16 @@ uint32_t next_xthread_id_ = 0;
+ // faulted on its next write to the context. Both are given back once, when
+ // the thread ends.
+ namespace {
++// Xbox360PS5 (fix 24): each guest thread's end in the log, with its exit code and the time, for
++// a game that hangs after waiting on a thread (Battlefield 3's ClientLoad after ServerLoad).
++void LogThreadEnd(const char* how, const std::string& name, uint32_t handle, uint32_t id,
++                  int exit_code) {
++  const std::time_t now = std::time(nullptr);
++  std::tm parts{};
++  gmtime_r(&now, &parts);
++  XELOGW("Thread end ({}): '{}' handle {:08X} id {} exit code {:08X} at {:02d}:{:02d}:{:02d} UTC",
++         how, name, handle, id, uint32_t(exit_code), parts.tm_hour, parts.tm_min, parts.tm_sec);
++}
+ std::mutex self_owned_mutex;
+ std::unordered_set<XThread*> self_owned;
+ 
+@@ -531,6 +542,9 @@ X_STATUS XThread::Exit(int exit_code) {
+   // Set exit code.
+   kthread->header.signal_state = 1;
+   kthread->exit_status = exit_code;
++  if (is_guest_thread()) {
++    LogThreadEnd("exit", thread_name(), handles_.empty() ? 0 : handle(), thread_id_, exit_code);
++  }
+ 
+   auto kprocess = cpu_context->TranslateVirtual(kthread->process);
+ 
+@@ -574,6 +588,10 @@ X_STATUS XThread::Terminate(int exit_code) {
+   X_KTHREAD* thread = guest_object<X_KTHREAD>();
+   thread->header.signal_state = 1;
+   thread->exit_status = exit_code;
++  if (is_guest_thread()) {
++    LogThreadEnd("terminated", thread_name(), handles_.empty() ? 0 : handle(), thread_id_,
++                 exit_code);
++  }
+ 
+   // Notify processor of our exit.
+   emulator()->processor()->OnThreadExit(thread_id_);
+diff --git a/port/stall_dump.hpp b/port/stall_dump.hpp
+new file mode 100644
+index 0000000..ccf2434
+--- /dev/null
++++ b/port/stall_dump.hpp
+@@ -0,0 +1,86 @@
++// SPDX-License-Identifier: MIT
++// Fix 24 of the source rebuild (tools/source-1.0.2/fixes/24-stall-code-words.patch): what the
++// STALL report reads from a guest thread that spins outside any wait, as templates over a
++// memory reader, so the host check tools/check-stall-dump.cpp drives them with fake memory.
++// No Xenia headers here.
++//
++// Reader:
++//   bool Readable(uint32_t address);   the 4 bytes at `address` can be read (host access)
++//   uint32_t Word(uint32_t address);   the big-endian word there
++#pragma once
++#include <cstdint>
++#include <cstdio>
++#include <string>
++#include <vector>
++
++namespace xbox360ps5 {
++namespace stall_dump {
++
++// `count` words from `first` (word-aligned), "????????" for each one that cannot be read.
++template <typename Reader>
++std::string Words(Reader& reader, uint32_t first, uint32_t count) {
 +  std::string text;
-+  for (uint32_t at = (address & ~3u) - 16, n = 0; n < 8; ++n, at += 4) {
-+    auto* heap = memory->LookupHeap(at);
-+    uint32_t protection = 0;
-+    if (!heap || !heap->QueryProtect(at, &protection) || !(protection & xe::kMemoryProtectRead)) {
-+      text += " ????????";
-+      continue;
-+    }
++  first &= ~3u;
++  for (uint32_t n = 0; n < count; ++n) {
++    const uint64_t at = uint64_t(first) + uint64_t(n) * 4;
 +    char item[16];
-+    std::snprintf(item, sizeof(item), " %08X", xe::load_and_swap<uint32_t>(memory->TranslateVirtual(at)));
++    if (at > 0xFFFFFFFCull || !reader.Readable(uint32_t(at)))
++      std::snprintf(item, sizeof(item), " ????????");
++    else
++      std::snprintf(item, sizeof(item), " %08X", reader.Word(uint32_t(at)));
 +    text += item;
 +  }
 +  return text;
 +}
++
++// 64 bytes around a code address: 8 words before it and 8 from it (the address's own word is
++// the ninth), so the loop's branch and what it reads are in view.
++template <typename Reader>
++std::string CodeWindow(Reader& reader, uint32_t address) {
++  const uint32_t aligned = address & ~3u;
++  return Words(reader, aligned >= 32 ? aligned - 32 : 0, 16);
++}
++
++struct Frame {
++  uint32_t address = 0;   // the frame (r1 for the first)
++  uint32_t back = 0;      // its back chain: the caller's frame
++  uint32_t saved_lr = 0;  // the return address the caller's frame keeps (at back - 8)
++  bool lr_read = false;
++  std::string words;      // the frame's first 8 words
++};
++
++// The back chain from r1: each frame's first word is its caller's frame, which keeps the return
++// address 8 bytes below its start. Stops at an unreadable or misaligned frame, one that does
++// not move up the stack, a jump of more than 64 KiB, or after `limit` frames.
++template <typename Reader>
++std::vector<Frame> StackFrames(Reader& reader, uint32_t r1, int limit = 8) {
++  std::vector<Frame> frames;
++  uint32_t frame = r1;
++  for (int depth = 0; depth < limit; ++depth) {
++    if (!frame || (frame & 3) || !reader.Readable(frame)) break;
++    Frame item;
++    item.address = frame;
++    item.back = reader.Word(frame);
++    item.words = Words(reader, frame, 8);
++    const bool chained = item.back > frame && item.back - frame <= 0x10000;
++    if (chained && item.back >= 8 && reader.Readable(item.back - 8)) {
++      item.saved_lr = reader.Word(item.back - 8);
++      item.lr_read = true;
++    }
++    frames.push_back(item);
++    if (!chained) break;
++    frame = item.back;
++  }
++  return frames;
++}
++
++// A register value worth dumping memory at: a guest data address (not a small number, not the
++// stack, not the address space's top).
++inline bool LooksLikeData(uint32_t value) {
++  if (value < 0x10000) return false;
++  if (value >= 0x70000000 && value < 0x80000000) return false;  // stacks
++  return value < 0xFFFF0000;
++}
++
++}  // namespace stall_dump
++}  // namespace xbox360ps5
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+index 5c3db7d..c253aa1 100644
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -76,6 +76,8 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
+ #include "xenia/base/mutex.h"
+ #include "xbox360ps5/thread_place.hpp"
+ #include "xbox360ps5/frame_watch.hpp"
++#include "stall_dump.hpp"  // fix 24: the STALL report's guest memory
++#include "xenia/base/memory.h"
+ #include "xbox360ps5/session_log.hpp"
+ #include "xbox360ps5/crash_report.hpp"
+ #include "xbox360ps5/ui_sounds.hpp"
+@@ -727,6 +729,19 @@ std::string CallersText(xe::Memory* memory, uint32_t stack) {
+   }
+   return text.empty() ? " none read" : text;
+ }
++// Fix 24: guest memory for the STALL report, read only where the host can read it (the page's
++// host access, as guest_crash_dump.hpp does: the heaps' own page tables do not tell on the
++// PS5, and the code at 0x838D4514 was shown as unreadable through them).
++struct StallReader {
++  xe::Memory* memory;
++  bool Readable(uint32_t address) {
++    size_t length = 4;
++    xe::memory::PageAccess access;
++    return xe::memory::QueryProtect(memory->TranslateVirtual(address), length, access) &&
++           access != xe::memory::PageAccess::kNoAccess;
++  }
++  uint32_t Word(uint32_t address) { return xe::load_and_swap<uint32_t>(memory->TranslateVirtual(address)); }
++};
  void ReportStall(xe::Emulator& emulator, int pass) {
    const auto threads = emulator.kernel_state()->object_table()->GetObjectsByType<xe::kernel::XThread>();
    XELOGW("STALL pass {}: {} threads", pass, threads.size());
-@@ -739,6 +756,11 @@ void ReportStall(xe::Emulator& emulator, int pass) {
+@@ -739,6 +754,34 @@ void ReportStall(xe::Emulator& emulator, int pass) {
             thread->handle(), thread->thread_id(), thread->thread_name(), thread->is_guest_thread() ? 1 : 0,
             thread->suspend_count(), uint32_t(context->lr), uint32_t(context->ctr), uint32_t(context->r[1]),
             uint32_t(context->r[3]), uint32_t(context->r[4]), uint32_t(context->r[5]));
-+    // Fix 24: the thread's KTHREAD (what a wait on the thread names) and the code it is in.
-+    if (thread->is_guest_thread())
-+      XELOGW("STALL thread {:08X} kthread {:08X} r6 {:08X} r31 {:08X}; code at lr-16:{}; at ctr-16:{}",
-+             thread->handle(), thread->guest_object(), uint32_t(context->r[6]), uint32_t(context->r[31]),
-+             CodeText(emulator.memory(), uint32_t(context->lr)), CodeText(emulator.memory(), uint32_t(context->ctr)));
++    // Fix 24: for a guest thread, its KTHREAD (what a wait on the thread names), the code around
++    // lr and ctr (64 bytes each, lr's own word the ninth), its stack frames, and for one in no
++    // wait the memory its registers point at (the registers as last stored by the generated
++    // code: a loop that makes no call may have newer values in host registers).
++    if (thread->is_guest_thread()) {
++      namespace sd = xbox360ps5::stall_dump;
++      StallReader reader{emulator.memory()};
++      XELOGW("STALL thread {:08X} kthread {:08X} r6 {:08X} r7 {:08X} r8 {:08X} r31 {:08X}", thread->handle(),
++             thread->guest_object(), uint32_t(context->r[6]), uint32_t(context->r[7]), uint32_t(context->r[8]),
++             uint32_t(context->r[31]));
++      XELOGW("STALL thread {:08X} code at {:08X}-32:{}", thread->handle(), uint32_t(context->lr),
++             sd::CodeWindow(reader, uint32_t(context->lr)));
++      XELOGW("STALL thread {:08X} code at {:08X}-32 (ctr):{}", thread->handle(), uint32_t(context->ctr),
++             sd::CodeWindow(reader, uint32_t(context->ctr)));
++      int depth = 0;
++      for (const auto& frame : sd::StackFrames(reader, uint32_t(context->r[1]))) {
++        XELOGW("STALL thread {:08X} frame {} at {:08X} back {:08X} lr {}:{}", thread->handle(), depth++,
++               frame.address, frame.back, frame.lr_read ? fmt::format("{:08X}", frame.saved_lr) : std::string("?"),
++               frame.words);
++      }
++      if (!thread->wait_note().count) {
++        for (int n : {3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 28, 29, 30, 31}) {
++          const uint32_t value = uint32_t(context->r[n]);
++          if (!sd::LooksLikeData(value)) continue;
++          XELOGW("STALL thread {:08X} r{} {:08X}:{}", thread->handle(), n, value, sd::Words(reader, value, 8));
++        }
++      }
++    }
    }
    xe::FlushLog();
    for (const auto& thread : threads) {
