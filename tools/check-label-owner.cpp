@@ -170,7 +170,9 @@ void ProbesOnlyForTheirCode() {
     auto found = code.find(address);
     return found == code.end() ? 0u : found->second;
   };
-  const uint32_t addresses[] = {0x83D2C8A8, 0x82FD54A0, 0x82FD7398, 0x82FD6B78, 0x82FD6CF0};
+  const uint32_t addresses[] = {0x83D2C8A8, 0x82FD54A0, 0x82FD7398, 0x82FD6B78, 0x82FD6CF0,
+                               0x8346ED68, 0x8346E3B0, 0x8346D590};
+  static_assert(ep::kProbes == 8);
   for (int n = 0; n < ep::kProbes; ++n) {
     assert(ep::Probes()[n].address == addresses[n]);
     assert(ep::Find(addresses[n], read) == n);
@@ -194,6 +196,18 @@ void ProbesOnlyForTheirCode() {
   assert(ep::Probes()[0].object_reg == -1 && ep::Probes()[0].context_reg == 5 && ep::Probes()[0].context_offset == 0x79C);
   assert(ep::Probes()[1].object_reg == 4 && ep::Probes()[2].object_reg == 3);
   assert(ep::Probes()[3].object_reg == 4 && ep::Probes()[4].object_reg == 4);
+  // Candidate 31, the job manager: the dependency's handle (r3+0), the pushed job (r4+18:
+  // function, +1C, pending dependencies; r4+50: sequence, priority, affinity), the first
+  // dependency link (r3+0: state, next, callback; r3+C: argument, pool).
+  for (int n = 0; n < 5; ++n)
+    assert(ep::Probes()[n].extra_reg == -1 && ep::Probes()[n].lines == ep::kLinesPerProbe && !ep::Probes()[n].after_render_job);
+  assert(ep::Probes()[5].object_reg == -1 && ep::Probes()[5].context_reg == 3 && ep::Probes()[5].context_offset == 0 &&
+         ep::Probes()[5].extra_reg == -1);
+  assert(ep::Probes()[6].context_reg == 4 && ep::Probes()[6].context_offset == 0x18 && ep::Probes()[6].extra_reg == 4 &&
+         ep::Probes()[6].extra_offset == 0x50);
+  assert(ep::Probes()[7].context_reg == 3 && ep::Probes()[7].context_offset == 0 && ep::Probes()[7].extra_reg == 3 &&
+         ep::Probes()[7].extra_offset == 0xC);
+  for (int n = 5; n < 8; ++n) assert(ep::Probes()[n].lines == ep::kJobLines && ep::Probes()[n].after_render_job);
 }
 
 void CountsAndLines() {
@@ -243,6 +257,57 @@ void CountsAndLines() {
              "entered 101 times, last -1000 ms by thread id 9 from lr 83D23928, r3 51708A60 r4 00007010"));
 }
 
+// The job manager's probes log only once the render job has run, and then up to kJobLines.
+void JobProbesAfterTheRenderJob() {
+  ep::Counters counters;
+  counters.Enable(true);
+  uint64_t number = 0;
+  // The loading screen's jobs before any render job: counted, not logged.
+  for (int n = 0; n < 1000; ++n) assert(!counters.Enter(6, n, 30, 0xFFC49088, 0xFFC4A000, 0x8346EE48, &number));
+  assert(number == 1000 && counters.Get(6).entered == 1000);
+  // The render job runs (logged: its own probe has no such condition).
+  assert(counters.Enter(0, 2000, 30, 0x43AABE00, 0x43AAC330, 0x8346DF44, &number));
+  int logged = 0;
+  for (int n = 0; n < 1000; ++n)
+    if (counters.Enter(6, 3000 + n, 30, 0xFFC49088, 0xFFC4A000, 0x8346EE48, &number)) ++logged;
+  assert(logged == ep::kJobLines);
+  // Each job probe has its own budget; the D3D probes keep theirs.
+  logged = 0;
+  for (int n = 0; n < 1000; ++n)
+    if (counters.Enter(7, 5000 + n, 6, 0xFFC4F730, 0, 0x8346E234, &number)) ++logged;
+  assert(logged == ep::kJobLines);
+  // Not enabled (another title): nothing logged whatever ran.
+  ep::Counters other;
+  assert(!other.Enter(0, 1, 1, 0, 0, 0, &number) && !other.Enter(7, 2, 1, 0, 0, 0, &number));
+
+  // The push line: the job's function, its pending dependencies and its sequence/affinity.
+  ep::Entry entry;
+  entry.number = 2;
+  entry.thread = 6;
+  entry.lr = 0x8346EE48;
+  entry.r = {0xFFC49088, 0xFFC4A780, 0, 0};
+  entry.context = 0xFFC4A780;
+  entry.context_read = true;
+  entry.context_words = {0, 2, 1};
+  entry.extra = 0xFFC4A780;
+  entry.extra_read = true;
+  entry.extra_words = {0x20FA003F, 0, 3};
+  const std::string line = ep::Line(ep::Probes()[6], entry);
+  assert(Has(line, "PROBE 8346E3B0 push job entered (#2) thread id 6 lr 8346EE48 r3 FFC49088 r4 FFC4A780"));
+  assert(Has(line, "; r4+18: 00000000 00000002 00000001; r4+50: 20FA003F 00000000 00000003"));
+  assert(!Has(line, "command buffer"));
+  entry.extra_read = false;
+  assert(Has(ep::Line(ep::Probes()[6], entry), "; r4+50 unreadable"));
+  // The link line (c28's crash: the callback already 0).
+  entry.r = {0xFFC4F730, 0xFFC490C0, 0, 0};
+  entry.context_words = {0x000002B2, 0xFFC509F0, 0};
+  entry.extra_read = true;
+  entry.extra_words = {0xFFC4C600, 0xFFC49180, 0};
+  assert(Has(ep::Line(ep::Probes()[7], entry),
+             "run dependency links entered (#2) thread id 6 lr 8346EE48 r3 FFC4F730 r4 FFC490C0 r5 00000000 r6 00000000"
+             "; r3+0: 000002B2 FFC509F0 00000000; r3+C: FFC4C600 FFC49180 00000000"));
+}
+
 void FindsJobsByFunction() {
   FakeMemory memory;
   // Two readable pages with a hit each, one page in between that cannot be read (its word is
@@ -272,6 +337,7 @@ int main() {
   NoTagOrUnreadable();
   ProbesOnlyForTheirCode();
   CountsAndLines();
+  JobProbesAfterTheRenderJob();
   FindsJobsByFunction();
   std::printf(
       "PASS: the GPU's awaited label is traced to its command buffer and the missing side of the "

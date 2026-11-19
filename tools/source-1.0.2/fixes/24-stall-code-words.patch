@@ -1,9 +1,9 @@
 diff --git a/.deps/xenia-canary/src/xenia/cpu/entry_probe.h b/.deps/xenia-canary/src/xenia/cpu/entry_probe.h
 new file mode 100644
-index 0000000..2f2bafb
+index 0000000..776f93e
 --- /dev/null
 +++ b/.deps/xenia-canary/src/xenia/cpu/entry_probe.h
-@@ -0,0 +1,202 @@
+@@ -0,0 +1,241 @@
 +// Xbox360PS5 (tools/source-1.0.2/fixes/24-stall-code-words.patch, candidate 21): a log line when
 +// the guest enters one of a few functions of Battlefield 3 (title 45410950), to tell whether its
 +// render job ever runs (research/bf3/ANALYSIS.md). The JIT calls a builtin at the entry of a
@@ -25,8 +25,11 @@ index 0000000..2f2bafb
 +namespace entry_probe {
 +
 +constexpr int kWords = 12;    // code words that must match
-+constexpr int kProbes = 5;
-+constexpr int kLinesPerProbe = 24;
++constexpr int kProbes = 8;
++constexpr int kLinesPerProbe = 24;  // the D3D and render-job probes
++// Candidate 31: the job manager's probes log more, and only once the render job has run (the
++// loading screen runs thousands of jobs before).
++constexpr int kJobLines = 400;
 +
 +struct Probe {
 +  uint32_t address;
@@ -35,6 +38,10 @@ index 0000000..2f2bafb
 +  int object_reg;           // the register holding the command buffer (-1: none)
 +  int context_reg;          // a register whose words at context_offset are logged (-1: none)
 +  uint32_t context_offset;  // 3 words
++  int extra_reg;            // candidate 31: 3 more words (-1: none)
++  uint32_t extra_offset;
++  int lines;                // lines logged
++  bool after_render_job;    // logged only once probe 0 (the render job) has been entered
 +};
 +
 +// Battlefield 3 (BF.Main.xex, both discs, base 82D80000).
@@ -43,23 +50,42 @@ index 0000000..2f2bafb
 +      {0x83D2C8A8u, "render job",
 +       {0x7D8802A6u, 0x9181FFF8u, 0xFBC1FFE8u, 0xFBE1FFF0u, 0x9421FF90u, 0x7C7F1B78u,
 +        0x7CBE2B78u, 0x4BFFFD75u, 0x7FC4F378u, 0x7FE3FB78u, 0x4BFF5381u, 0x38210070u},
-+       -1, 5, 0x79C},
++       -1, 5, 0x79C, -1, 0, kLinesPerProbe, false},
 +      {0x82FD54A0u, "begin command buffer",
 +       {0x7D8802A6u, 0x488DF97Du, 0x9421FF50u, 0x8164006Cu, 0x39400001u, 0x7D374B78u,
 +        0x81240008u, 0x514B0F3Eu, 0x7C7F1B78u, 0x7C9E2378u, 0x9164006Cu, 0x7CB82B78u},
-+       4, -1, 0},
++       4, -1, 0, -1, 0, kLinesPerProbe, false},
 +      {0x82FD7398u, "finish command buffer",
 +       {0x7D8802A6u, 0x488DDA85u, 0x9421FF50u, 0x7C7D1B78u, 0x7C972378u, 0x7CBF2B78u,
 +        0x7CD93378u, 0x7CFE3B78u, 0x48EF6C6Du, 0x2F030002u, 0x409A0010u, 0x3D6082D8u},
-+       3, -1, 0},
++       3, -1, 0, -1, 0, kLinesPerProbe, false},
 +      {0x82FD6B78u, "release label",
 +       {0x7D8802A6u, 0x488DE2B1u, 0x9421FF70u, 0x83A40008u, 0x7C7F1B78u, 0x7C9E2378u,
 +        0x7CBA2B78u, 0x7CD93378u, 0x488FAC71u, 0x817F2B08u, 0x7F0B1840u, 0x409A0014u},
-+       4, -1, 0},
++       4, -1, 0, -1, 0, kLinesPerProbe, false},
 +      {0x82FD6CF0u, "run command buffer",
 +       {0x7D8802A6u, 0x488DE12Du, 0x9421FF50u, 0xE9640018u, 0x7C9C2378u, 0xE9430000u,
 +        0x7CD93378u, 0xE9240038u, 0x3AE00000u, 0xE9040030u, 0x7D645038u, 0xE9430020u},
-+       4, -1, 0},
++       4, -1, 0, -1, 0, kLinesPerProbe, false},
++      // Candidate 31, the job manager (research/bf3/ANALYSIS.md 8-11): a render job's
++      // dependency on a sync job the GPU makes runnable (r3: the render job's handle
++      // {vtable, job, sequence}).
++      {0x8346ED68u, "add GPU-kicked dependency",
++       {0x7D8802A6u, 0x484460C5u, 0x9421FF40u, 0x39600000u, 0x81430004u, 0x7C7A1B78u,
++        0x99610060u, 0x7C9C2378u, 0x99610078u, 0x7CBB2B78u, 0x99610079u, 0x39000000u},
++       -1, 3, 0x0, -1, 0, kJobLines, true},
++      // A job into the queue (r3 the queue, r4 the job: +18 function, +1C, +20 pending
++      // dependencies; +50 sequence, priority, affinity).
++      {0x8346E3B0u, "push job",
++       {0x7D8802A6u, 0x9181FFF8u, 0xFBE1FFF0u, 0x9421FF90u, 0x89640052u, 0x39400000u,
++        0x89040053u, 0x7C691B78u, 0xA0C40050u, 0x38E00000u, 0x80A30010u, 0xF9410050u},
++       -1, 4, 0x18, 4, 0x50, kJobLines, true},
++      // A finished job's dependency links (r3 the first: +0 state/version, +4 next, +8
++      // callback; +C its argument, +10 pool).
++      {0x8346D590u, "run dependency links",
++       {0x7D8802A6u, 0x484478A1u, 0x9421FF70u, 0x7C7F1B78u, 0x7C9B2378u, 0x2B030000u,
++        0x419A00F0u, 0x3BA00000u, 0x3B80FFFFu, 0xE97F0000u, 0x557E003Eu, 0xE95F0000u},
++       -1, 3, 0x0, 3, 0xC, kJobLines, true},
 +  }};
 +  return probes;
 +}
@@ -104,7 +130,9 @@ index 0000000..2f2bafb
 +    slot.last_r4.store(r4, std::memory_order_relaxed);
 +    slot.last_lr.store(lr, std::memory_order_relaxed);
 +    if (!Enabled()) return false;
-+    return slot.logged.fetch_add(1, std::memory_order_relaxed) < kLinesPerProbe;
++    const Probe& spec = Probes()[probe];
++    if (spec.after_render_job && !slots_[0].entered.load(std::memory_order_relaxed)) return false;
++    return slot.logged.fetch_add(1, std::memory_order_relaxed) < spec.lines;
 +  }
 +  Count Get(int probe) const {
 +    const Slot& slot = slots_[probe];
@@ -157,6 +185,9 @@ index 0000000..2f2bafb
 +  bool context_read = false;
 +  uint32_t context = 0;
 +  std::array<uint32_t, 3> context_words{};
++  bool extra_read = false;
++  uint32_t extra = 0;
++  std::array<uint32_t, 3> extra_words{};
 +};
 +
 +inline std::string Line(const Probe& probe, const Entry& entry) {
@@ -183,6 +214,14 @@ index 0000000..2f2bafb
 +      std::snprintf(text, sizeof(text), "; r%d+%X unreadable", probe.context_reg, probe.context_offset);
 +    line += text;
 +  }
++  if (probe.extra_reg >= 0) {
++    if (entry.extra_read)
++      std::snprintf(text, sizeof(text), "; r%d+%X: %08X %08X %08X", probe.extra_reg, probe.extra_offset,
++                    entry.extra_words[0], entry.extra_words[1], entry.extra_words[2]);
++    else
++      std::snprintf(text, sizeof(text), "; r%d+%X unreadable", probe.extra_reg, probe.extra_offset);
++    line += text;
++  }
 +  return line;
 +}
 +
@@ -207,7 +246,7 @@ index 0000000..2f2bafb
 +
 +#endif  // XENIA_CPU_ENTRY_PROBE_H_
 diff --git a/.deps/xenia-canary/src/xenia/cpu/ppc/ppc_frontend.cc b/.deps/xenia-canary/src/xenia/cpu/ppc/ppc_frontend.cc
-index 666bd7b..a2d1bf0 100644
+index 666bd7b..1ceb680 100644
 --- a/.deps/xenia-canary/src/xenia/cpu/ppc/ppc_frontend.cc
 +++ b/.deps/xenia-canary/src/xenia/cpu/ppc/ppc_frontend.cc
 @@ -9,8 +9,11 @@
@@ -222,7 +261,7 @@ index 666bd7b..a2d1bf0 100644
  #include "xenia/base/mutex.h"
  #include "xenia/cpu/ppc/ppc_context.h"
  #include "xenia/cpu/ppc/ppc_emit.h"
-@@ -91,7 +94,61 @@ void SyscallHandler(PPCContext* ppc_context, void* arg0, void* arg1) {
+@@ -91,7 +94,69 @@ void SyscallHandler(PPCContext* ppc_context, void* arg0, void* arg1) {
    }
  }
  
@@ -271,6 +310,14 @@ index 666bd7b..a2d1bf0 100644
 +      entry.context_read =
 +          entry.context_read &&
 +          read(entry.context + p.context_offset + 4 * n, entry.context_words[n]);
++  }
++  if (p.extra_reg >= 0) {
++    entry.extra = uint32_t(ppc_context->r[p.extra_reg]);
++    entry.extra_read = true;
++    for (int n = 0; n < 3; ++n)
++      entry.extra_read =
++          entry.extra_read &&
++          read(entry.extra + p.extra_offset + 4 * n, entry.extra_words[n]);
 +  }
 +  XELOGW("{}", ep::Line(p, entry));
 +}

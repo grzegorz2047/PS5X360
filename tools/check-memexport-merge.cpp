@@ -292,6 +292,41 @@ void StaleCopyNeedsTheRefresh() {
   }
 }
 
+// Candidate 31: the per-dword record of a merge, for the log of Battlefield 3's queue.
+void ChangesAreRecorded() {
+  const std::vector<uint8_t> before = Queue();
+  std::vector<uint8_t> after = before;
+  Store(after, 5 * 8 + 4, 0x3F002066);  // the export, written
+  Store(after, 7 * 8 + 4, 0x3F002033);  // an export into a slot the CPU changed: kept
+  Store(after, 9 * 8, 0x11111111);      // a third change
+  std::vector<uint8_t> guest = before;
+  Store(guest, 7 * 8 + 4, 0x00002077);
+  std::vector<mm::Change> changes;
+  mm::Merged merged = mm::Merge(guest.data(), before.data(), after.data(), guest.size(), &changes, 2);
+  // Every change is merged, only the first `limit` recorded, in address order.
+  assert(merged.written == 2 && merged.kept == 1 && changes.size() == 2);
+  assert(changes[0].offset == 5 * 8 + 4 && changes[0].before == 0x00002066 && changes[0].after == 0x3F002066);
+  assert(changes[0].guest == 0x3F002066 && changes[0].written);
+  assert(changes[1].offset == 7 * 8 + 4 && changes[1].before == 0x3F002007 && changes[1].after == 0x3F002033);
+  assert(changes[1].guest == 0x00002077 && !changes[1].written);
+  assert(Load(guest, 9 * 8) == 0x11111111);
+  // The line, with the other half of the doubleword (the slot's job pointer).
+  assert(mm::ChangeLine(0x1FC4E200, changes[0], 0xFFC4A1E0) ==
+         "memexport 1FC4E22C (+2C): 00002066 -> 3F002066, guest 3F002066, written; other half of the "
+         "doubleword FFC4A1E0");
+  assert(mm::ChangeLine(0x1FC4E200, changes[1], 0xFFC4A2A0) ==
+         "memexport 1FC4E23C (+3C): 3F002007 -> 3F002033, guest 00002077, kept (the CPU changed it); other "
+         "half of the doubleword FFC4A2A0");
+  // Without a record: the same merge, nothing recorded.
+  guest = before;
+  merged = mm::Merge(guest.data(), before.data(), after.data(), guest.size());
+  assert(merged.written == 3 && merged.kept == 0);
+  assert(mm::GuestWord(guest.data() + 5 * 8 + 4) == 0x3F002066);
+  // The title's switch and the total budget start off and at zero.
+  assert(!mm::DetailEnabled().load() && mm::DetailLines().load() == 0);
+  assert(mm::kChangesPerRange == 64 && mm::kChangeLinesTotal == 800);
+}
+
 }  // namespace
 
 int main() {
@@ -301,6 +336,7 @@ int main() {
   TailsAndUnaligned();
   ConcurrentWorkerKeepsItsUpdates();
   StaleCopyNeedsTheRefresh();
+  ChangesAreRecorded();
   std::printf(
       "PASS: small memory exports reach guest memory, only the dwords the draw changed and only "
       "where the CPU did not change them meanwhile (fix 30)\n");
