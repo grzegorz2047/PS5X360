@@ -26,6 +26,7 @@ checks=(
   check-system-ui.cpp              # fix 26
   check-fix26-tree.cpp             # fix 26
   check-save-devices.cpp           # fix 27
+  check-home-hints.cpp             # fix 40 (reconstructed files)
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
