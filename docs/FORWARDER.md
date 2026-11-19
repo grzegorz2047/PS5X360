@@ -97,6 +97,60 @@ Other arguments are ignored. `--rom` wins over a bare path. Examples of `forward
 - The log (stream on TCP 9100 and the session log) shows `Start argument N: ...` and
   `Forwarder: ...` lines saying what was asked for and what was started.
 
+## Troubleshooting
+
+### "Error in the game or application" right after opening the tile
+
+The system's error screen (Polish: *Wystąpił błąd w grze lub aplikacji*) names the **tile's** title
+ID, not PPSA50011, and its **Debug** box says:
+
+```
+signal: 12 (SIGSYS)  thread name: eboot.bin  RIP: 0x00000008000003ac
+Forwarder: could not start PPSA50011: the system refused to start the app (0x80940033, 0x80940033)
+```
+
+PS5X360 never started, so its own logs have nothing new. The SIGSYS is not a second fault: the
+forwarder program ends with `exit()` after the refusal, and the system reports that as a crash.
+
+`0x80940033` is the system's launcher refusing a homebrew title. To see why, read
+`/data/forwarder-manager/launcher.log` (the forwarder launcher) and `/data/shadowmount/debug.log`
+(ShadowMount+, with `debug = on`). The case seen with ShadowMount+ 1.7beta12:
+
+```
+launcher.log:     sceSystemServiceLaunchApp(PPSA50011) structsize=0 rc=0x80940033   (twice)
+debug.log:        [GAME] started: PPSA99758 ...                                      (the tile)
+                  [SHELLCORE] launch mount unavailable: PPSA50011 status=16 (Device busy)   (twice)
+```
+
+This is ShadowMount+ bug [drakmor/ShadowMountPlus#196](https://github.com/drakmor/ShadowMountPlus/issues/196)
+(open): ShadowMount+ refuses a launch that another managed app (the tile) requests **within about a
+second of its own start**. The same request about 6 s later goes through ("game switch prepared:
+outgoing=<tile> incoming=PPSA50011"). It does not depend on PS5X360, the game, its path or the
+arguments, and it happens for folder installs too, so moving PS5X360 out of its `.ffpkg` or
+`persistent_image_mounts=1` do not fix it.
+
+The tile asks at once when the forwarder launcher is already running (Forwarder Manager starts it
+when it opens, and it stays running after a tile's first use). When the tile has to start the
+launcher itself through elfldr, its request comes several seconds later and is accepted. Until
+ShadowMount+ is fixed:
+
+- open the tile when the forwarder launcher is **not** running: after a console restart and the
+  payloads, without opening Forwarder Manager first; the first tile then usually works;
+- after that the launcher stays resident, and later tile opens in the same session are refused
+  again: restart the console (there is no command to stop the launcher);
+- or start the game from PS5X360's library.
+
+Other `Forwarder: ...` texts: *no launcher is running, and it could not be started through elfldr*
+(elfldr not listening on 9021); *nobody is signed in*; *the launcher did not answer* or *refused
+the request* (another or an old launcher on port 10199, see `launcher.log`).
+
+### PS5X360 opens, but in the library
+
+- PS5X360 was already open: the system brings it to the front and the arguments are lost. Close
+  it first.
+- The game was not found: the library says *Could not launch the game:* and why. The log has
+  `Start argument N: ...` and `Forwarder: ...` lines.
+
 ## For developers
 
 Parsing and lookup are in `include/xbox360ps5/forward.hpp` (assembled tree; added by fix 21) and
