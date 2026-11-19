@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Fix 24 (tools/source-1.0.2/fixes/24-gdfx-win1252-names.patch): a GDFX disc whose file names
+// Fix 26 (tools/source-1.0.2/fixes/26-gdfx-win1252-names.patch): a GDFX disc whose file names
 // hold Windows-1252 letters must mount. Handball 16 (Europe, 573607E4) stopped every launch
 // with "Not enough space": utfcpp's utf8::not_enough_room, thrown by the UTF-8 path code for a
 // name like "caf\xE9" that xe::win1252_to_utf8 copied unconverted on POSIX.

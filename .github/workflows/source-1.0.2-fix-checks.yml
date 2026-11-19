@@ -37,5 +37,5 @@ jobs:
       - name: Assemble the 1.0.2 source tree
         run: python3 -I tools/source-1.0.2/assemble.py --out build/src102 --cache .deps/src102-cache
 
-      - name: Fix 24, GDFX names in Windows-1252 (Handball 16)
+      - name: Fix 26, GDFX names in Windows-1252 (Handball 16)
         run: bash tools/check-gdfx-names.sh build/src102

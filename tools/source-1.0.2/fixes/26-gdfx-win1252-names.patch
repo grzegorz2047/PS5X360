@@ -8,7 +8,7 @@ index dbd6b5f..876c64c 100644
  
 +#if !XE_PLATFORM_WIN32
 +namespace {
-+// Xbox360PS5 (fix 24): Windows-1252 without the Windows API. 0x80-0x9F as below, 0xA0-0xFF
++// Xbox360PS5 (fix 26): Windows-1252 without the Windows API. 0x80-0x9F as below, 0xA0-0xFF
 +// are U+00A0-U+00FF. The five bytes the code page leaves undefined (81, 8D, 8F, 90, 9D) are
 +// the C1 controls of the same value, as MultiByteToWideChar(1252) gives them. Up to 1.0.2
 +// these functions copied the bytes, so a disc name such as "caf\xE9" reached the UTF-8 path
@@ -86,7 +86,7 @@ index dbd6b5f..876c64c 100644
  #else
 -  // TODO: Use iconv on POSIX.
 -  std::string output_str(source);
-+  // Xbox360PS5 (fix 24): what Windows-1252 cannot hold, and bytes that are not UTF-8, become
++  // Xbox360PS5 (fix 26): what Windows-1252 cannot hold, and bytes that are not UTF-8, become
 +  // '_' (WideCharToMultiByte's default character above).
 +  std::string output_str;
 +  output_str.reserve(source.size());
@@ -114,7 +114,7 @@ index dbd6b5f..876c64c 100644
  #else
 -  // TODO: Use iconv on POSIX.
 -  std::string output_str(source);
-+  // Xbox360PS5 (fix 24): always valid UTF-8, never empty for a non-empty name.
++  // Xbox360PS5 (fix 26): always valid UTF-8, never empty for a non-empty name.
 +  std::string output_str;
 +  output_str.reserve(source.size() + source.size() / 2);
 +  for (const char c : source) {
@@ -142,7 +142,7 @@ index de4b758..eb0420e 100644
        ansi_string->length);
  }
  
-+// Xbox360PS5 (fix 24): a guest path is Windows-1252, like the names on a disc, which the
++// Xbox360PS5 (fix 26): a guest path is Windows-1252, like the names on a disc, which the
 +// devices convert to UTF-8 (win1252_to_utf8); converted the same way, a path with an accented
 +// name finds its entry, and the UTF-8 path code never sees bytes that are not UTF-8.
  inline std::string TranslateAnsiPath(const Memory* memory,
@@ -170,7 +170,7 @@ index fe5f117..907abc4 100644
  
    auto end = reinterpret_cast<uint8_t*>(out_info) + length;
 -  const auto& entry_name = entry->name();
-+  // Xbox360PS5 (fix 24): entry names are UTF-8 (a disc's Windows-1252 names converted); the
++  // Xbox360PS5 (fix 26): entry names are UTF-8 (a disc's Windows-1252 names converted); the
 +  // guest gets the Windows-1252 bytes of its disc back.
 +  const std::string entry_name = xe::utf8_to_win1252(entry->name());
    if (reinterpret_cast<uint8_t*>(&out_info->file_name[0]) + entry_name.size() >
@@ -199,7 +199,7 @@ index f0b9bce..e862a0d 100644
    }
  
 -  result = ReadAllEntries(&state);
-+  // Xbox360PS5 (fix 24): an exception while the entries are read (1.0.2: utfcpp's
++  // Xbox360PS5 (fix 26): an exception while the entries are read (1.0.2: utfcpp's
 +  // not_enough_room, "Not enough space", for a Windows-1252 name) fails the mount here, with
 +  // the name it was reading, instead of ending the launch with only its message.
 +  try {
@@ -248,7 +248,7 @@ index ef83058..309c804 100644
    std::filesystem::path host_path_;
    std::unique_ptr<Entry> root_entry_;
    std::unique_ptr<MappedMemory> mmap_;
-+  // Xbox360PS5 (fix 24): counted while the entries are read, for the mount log.
++  // Xbox360PS5 (fix 26): counted while the entries are read, for the mount log.
 +  size_t entry_count_ = 0;
 +  size_t win1252_names_ = 0;
 +  std::string last_name_;

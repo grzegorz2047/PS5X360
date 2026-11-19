@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fix 24 (tools/source-1.0.2/fixes/24-gdfx-win1252-names.patch): GDFX names in Windows-1252.
+# Fix 26 (tools/source-1.0.2/fixes/26-gdfx-win1252-names.patch): GDFX names in Windows-1252.
 # Handball 16 (Europe, 573607E4) never launched: "Not enough space" (utfcpp's not_enough_room)
 # at DiscImageDevice::Initialize.
 #
@@ -8,13 +8,13 @@
 # 1. Builds tools/check-gdfx-names.cpp with the tree's xenia/base and the disc image device
 #    (host clang, AddressSanitizer) and runs it: a 30,000-entry image with accented names must
 #    mount, resolve, round-trip and stay within its heap bound.
-# 2. Builds the same check against the tree's xenia/base and xenia/vfs with fix 24 reversed (the
+# 2. Builds the same check against the tree's xenia/base and xenia/vfs with fix 26 reversed (the
 #    1.0.2 code) and requires the console's failure: the mount throws "Not enough space".
 set -euo pipefail
 repo=$(cd "$(dirname "$0")/.." && pwd)
 tree=$(cd "${1:-build/src102}" && pwd)
 core=$tree/.deps/xenia-canary
-fix=$repo/tools/source-1.0.2/fixes/24-gdfx-win1252-names.patch
+fix=$repo/tools/source-1.0.2/fixes/26-gdfx-win1252-names.patch
 CXX=${CXX_HOST:-clang++-18}
 out=$tree/build/check-gdfx-names
 rm -rf "$out"
@@ -43,7 +43,7 @@ echo "== fixed tree"
 build "$core" "$out/check"
 ASAN_OPTIONS=detect_leaks=0 "$out/check" | tee "$out/fixed.log"
 
-echo "== 1.0.2 (fix 24 reversed in xenia/base and xenia/vfs)"
+echo "== 1.0.2 (fix 26 reversed in xenia/base and xenia/vfs)"
 orig=$(mktemp -d)
 trap 'rm -rf "$orig"' EXIT
 mkdir -p "$orig/.deps/xenia-canary/src/xenia"
@@ -51,8 +51,8 @@ cp -r "$core/src/xenia/base" "$core/src/xenia/vfs" "$orig/.deps/xenia-canary/src
 # Outside any repository, git apply works on the plain directory.
 (cd "$orig" && git apply -R --include='.deps/xenia-canary/src/xenia/base/*' \
   --include='.deps/xenia-canary/src/xenia/vfs/*' "$fix")
-if grep -q 'fix 24' "$orig/.deps/xenia-canary/src/xenia/base/string.cc"; then
-  echo "FAIL: fix 24 did not reverse" >&2
+if grep -q 'fix 26' "$orig/.deps/xenia-canary/src/xenia/base/string.cc"; then
+  echo "FAIL: fix 26 did not reverse" >&2
   exit 1
 fi
 build "$orig/.deps/xenia-canary" "$out/check-102"
@@ -66,4 +66,4 @@ if [ "$code" -eq 0 ]; then
   exit 1
 fi
 grep -q 'mount threw: Not enough space' "$out/original.log"
-echo "PASS: 1.0.2 fails as on the console (Not enough space); fix 24 mounts, resolves and round-trips"
+echo "PASS: 1.0.2 fails as on the console (Not enough space); fix 26 mounts, resolves and round-trips"
