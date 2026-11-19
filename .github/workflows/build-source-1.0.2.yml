@@ -88,6 +88,10 @@ jobs:
       - name: Assemble the 1.0.2 source tree
         run: python3 -I tools/source-1.0.2/assemble.py --out build/src102 --cache .deps/src102-cache
 
+      # The host checks of the release fixes (tools/check-*.cpp), before the long compile.
+      - name: Host checks of the fixes
+        run: bash tools/source-1.0.2/run-fix-checks.sh build/src102
+
       - name: Build RADV platform and payload SDK
         if: steps.radv.outputs.cache-hit != 'true'
         run: |

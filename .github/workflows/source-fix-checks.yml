@@ -1,0 +1,43 @@
+name: Host checks of the 1.0.2 source fixes
+
+# Assembles the v1.0.2 source tree (tools/source-1.0.2/assemble.py, with the fixes in
+# tools/source-1.0.2/fixes) and runs the host checks of those fixes
+# (tools/source-1.0.2/run-fix-checks.sh) with the runner's clang-18. No PS5 toolchain, RADV
+# build or apt packages are needed. The source build (build-source-1.0.2.yml) runs the same
+# checks before it compiles.
+on:
+  push:
+    branches: [source-1.0.2-patches]
+    paths:
+      - 'tools/source-1.0.2/**'
+      - 'tools/check-stale-dispatch-header.cpp'
+      - 'tools/check-guide-network.cpp'
+      - 'tools/check-english-fallback.cpp'
+      - '.github/workflows/source-fix-checks.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Fix checks on the assembled 1.0.2 tree
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore the source drops
+        uses: actions/cache@v4
+        with:
+          path: .deps/src102-cache
+          key: src102-drops-${{ hashFiles('tools/source-1.0.2/assemble.py') }}
+          restore-keys: src102-drops-
+
+      - name: Assemble the 1.0.2 source tree
+        run: python3 -I tools/source-1.0.2/assemble.py --out build/src102 --cache .deps/src102-cache
+
+      - name: Host checks of the fixes
+        run: |
+          clang++-18 --version | head -1
+          bash tools/source-1.0.2/run-fix-checks.sh build/src102

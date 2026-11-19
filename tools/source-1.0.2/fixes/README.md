@@ -37,6 +37,21 @@ Fixes made in source after the port (numbered from 20, not binary patch groups):
 | `22-guide-network-mode` | the guide's settings page gets a "Rede" row (Desligada / System Link / Online) that switches the network mode while a game runs, on a thread of its own: `XLiveAPI::SelectNetworkMode` (the netplay core's live switch, with the Live connection and link-state notifications), signed-in profiles converted to Live-enabled as at sign-in, a sign-in change notification, and `network.conf`'s mode written as the home's Online channel does. Logs `Network: switched to … while running …`. UPnP stays as at start (`port/guide_network.hpp`, `canary_game_main.cpp`, `launcher.cpp`) |
 | `23-english-fallback` | interface text the chosen language's file lacks is shown in English (`assets/lang/en.txt`, then the built-in English table), not in the Portuguese source, which stays the last resort; Spanish (Spain and Latin America) falls back to the built-in Spanish table and Portuguese (Portugal) to the Brazilian source. `Tr()` (`i18n.hpp`), `FramegenText` (`launcher.cpp`), `EnglishUiText` (`reconstructed/xbox360ps5/i18n_ui.hpp`). The default interface language is unchanged: the console's, else English |
 
+## Host checks
+
+`tools/source-1.0.2/run-fix-checks.sh <tree>` builds and runs the checks of the fixes with
+the host's clang-18 against an assembled tree, as `tools/source-checks/run.py` builds the
+repository's other `tools/check-*.cpp`. The source build runs them before it compiles, and
+`.github/workflows/source-fix-checks.yml` runs them alone (no PS5 toolchain) on each push to
+`source-1.0.2-patches`. The logic of fixes 20 and 22 lives in header-only templates the
+emulator code calls, so a check drives the same code with a fake kernel or emulator.
+
+| Check | Fix | Covers | Console only |
+|---|---|---|---|
+| `tools/check-stale-dispatch-header.cpp` | 20 | `xbox360ps5::native_object::Resolve` (`native_object_resolve.h`), the decisions of `XObject::GetNativeObject`: a stale event (both kinds), mutant and semaphore header gets a new object, is re-stamped, and a second lookup gives the same object with no stale report; the other object keeps its references (the lookup's is given back once) and the caller holds one; a stale thread header gets the signalled stand-in when its thread has exited and is left untouched when it runs; unsupported types and closed handles give no object; first use and valid handles as before | the kernel side (`Create`'s type switch, `XEvent::InitializeNativeExitedThread`, `KernelState::IsRunningThreadObject`, the log lines) and whether Battlefield 3 loads |
+| `tools/check-guide-network.cpp` | 22 | `xbox360ps5::network_switch::Run` and `SignedInToLive` (used by `UserProfile::signin_state`): the mode after each switch (offline, System Link, online, online without the server), profile conversion only when online and only for profiles that are not Live-enabled, registration of the first player once, the notifications in order (Live connection, link state, the conversion's sign-out and sign-in, the sign-in re-read), `network.conf`'s mode, and the sign-in state for modes 0, 1 and 2 | the guide row and its input, `XLiveAPI::SelectNetworkMode` against the real server, the real profile conversion, and how a game (Black Ops III) reacts |
+| `tools/check-english-fallback.cpp` | 23 | `Tr()` with language files in a temporary folder: Polish selected, then `en.txt`, then the built-in English, then the Portuguese source; English, Spanish (5, 18), Portuguese (9, 19) and a language without a file; the default interface language (the console's, else English) | `FramegenText` and the look of the screens |
+
 To change one: assemble a tree, commit it in a scratch repository (the title and the core
 separately), edit, and regenerate the patch with `git diff` (for the core with
 `--src-prefix=a/.deps/xenia-canary/ --dst-prefix=b/.deps/xenia-canary/`). A later patch may
