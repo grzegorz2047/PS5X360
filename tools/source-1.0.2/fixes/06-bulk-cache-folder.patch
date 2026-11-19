@@ -1,0 +1,29 @@
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+index e383e4a..560585b 100644
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -1467,15 +1467,20 @@ int main(int argc, char** argv) {
+     std::filesystem::path bulk = storage;
+     {
+       std::error_code bulk_error;
+-      const std::filesystem::path candidate = "/app0/cache";
+-      std::filesystem::create_directories(candidate, bulk_error);
++      // Binary release patch group 6: the internal disk's homebrew folder first.
++      // /app0 is read-only on a .ffpkg installation, so the caches stayed in
++      // the save storage and filled it (Halo: Reach's utility cache alone).
+       bool writable = false;
+-      if (!bulk_error) {
++      for (const char* path : {"/data/homebrew/PPSA50011/cache", "/app0/cache"}) {
++        const std::filesystem::path candidate = path;
++        bulk_error.clear();
++        std::filesystem::create_directories(candidate, bulk_error);
++        if (bulk_error) continue;
+         { std::ofstream probe(candidate / ".probe", std::ios::trunc); probe << "probe"; probe.flush(); writable = probe.good(); }
+         std::filesystem::remove(candidate / ".probe", bulk_error);
++        if (writable) { bulk = candidate; break; }
+       }
+       if (writable) {
+-        bulk = candidate;
+         for (const char* old : {"cache", "utility-cache"}) {
+           std::error_code remove_error;
+           const auto removed = std::filesystem::remove_all(storage / old, remove_error);
