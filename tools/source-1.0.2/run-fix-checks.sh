@@ -55,6 +55,13 @@ else
   echo "FAIL check-patch-syntax.py"
   status=1
 fi
+echo "=== check-bf3-preset.py"
+if "$python" -I "$repo/tools/check-bf3-preset.py" --tree "$tree"; then
+  echo "pass check-bf3-preset.py"
+else
+  echo "FAIL check-bf3-preset.py"
+  status=1
+fi
 echo "=== check-assemble-skip.py"
 if "$python" -I "$repo/tools/check-assemble-skip.py" --tree "$tree"; then
   echo "pass check-assemble-skip.py"
