@@ -128,22 +128,18 @@ def apply(elf_bytes: bytes) -> bytes:
         "Code cave 1 (int3 padding after ret): readback full -> wait; no colour or blended RT0 -> no wait",
     )
     #    With the experimental async-shader mode on (patch 12, flag byte
-    #    0x3926582 = 0x02), a draw with <= 6 indices waits only when the depth
-    #    test is off (full-screen passes); depth-tested quads (billboards,
-    #    decals) use the stand-in, which patch 12 then draws invisible. In the
-    #    "no waiting" mode (flag 0x0A, patch 14) a draw with <= 6 indices never
-    #    waits for that reason; it still waits when its target is at most 256
-    #    pixels wide. ebx holds the normalized RB_DEPTHCONTROL here (bit 1
-    #    z_enable); `or bl,8` forces bit 3, so `test [flag],bl` is z_enable for
-    #    flag 0x02 and always non-zero for 0x0A. Cave 2 ends on the original
+    #    0x3926582), a draw with <= 6 indices waits only when the depth test is
+    #    off (full-screen passes); depth-tested quads (billboards, decals) use the
+    #    stand-in, which patch 12 then draws invisible. ebx holds the normalized
+    #    RB_DEPTHCONTROL here (bit 1 z_enable). Cave 2 ends on the original
     #    `jne 0x5bb01a` kept at 0x5bafe8 (ZF=1 <=> 1 <= pitch <= 256 -> wait;
-    #    pitch 0 already returned at 0x5ba5df). The cave changes bl; rbx is dead
+    #    pitch 0 already returned at 0x5ba5df). The cave shifts bl; rbx is dead
     #    on both continuations (redefined at 0x5bb064 or popped).
     patch_vaddr(
         0xA98E57,
         "cc" * 41,
-        "6683b8f287000006770f80cb08841d18d7e8020f847a21b2ff8b8000800000ffc8f6c43fe96821b2ff",
-        "Code cave 2 (int3 padding after jmp): <=6 indices (depth off in experimental mode, never in no-wait mode) or pitch <= 256 -> wait",
+        "6683b8f287000006770ed0eb841d19d7e8020f847b21b2ff8b8000800000ffc8f6c43fe96921b2ffcc",
+        "Code cave 2 (int3 padding after jmp): <=6 indices (and depth off in experimental mode) or pitch <= 256 -> wait",
     )
     patch_vaddr(
         0x5BAFDF,
@@ -161,19 +157,15 @@ def apply(elf_bytes: bytes) -> bytes:
     #    [this+8], priority in r12b), a pipeline that writes a visible colour
     #    target (priority >= 2) and matches patch 8's rule (<= 6 indices, or a
     #    render target at most 256 pixels wide) gets priority 4, ahead of all.
-    #    In the experimental modes (patches 12 and 14, flag 0x02 or 0x0A) a
-    #    <= 6-index pipeline is boosted only when its normalized depth test is
-    #    off (`and al,2` keeps z_enable alone: GetNormalizedDepthControl passes
-    #    bits 3..31 through raw). In the no-wait mode such a pipeline is no
-    #    longer waited for, but compiling it first still shortens the time its
-    #    full-screen pass is missing. The hook
+    #    In the experimental mode (patch 12) a <= 6-index pipeline is boosted
+    #    only when its normalized depth test is off, matching patch 8. The hook
     #    sits at 0x5f0b98 (after the queue lock, before `mov r13,[rbp-0xa8]`,
     #    which a 12-byte cave at 0x1500131 replays): at 0x5f0bed rdi is live.
     #    GetNormalizedDepthControl (0xfc790) is a leaf on the register file.
     patch_vaddr(
         0x150EDC8,
         "cc" * 56,
-        "4180fc02722d488b7b088b8700800000ffc8f6c43f74196683bff2870000067712e8a2d9befe240284058c774102750341b404e93113ffff",
+        "4180fc02722d488b7b088b8700800000ffc8f6c43f74196683bff2870000067712e8a2d9befed0e884058c774102750341b404e93113ffff",
         "Code cave 3 (int3 padding after jmp): priority 4 for full-screen / small-target colour pipelines",
     )
     patch_vaddr(
@@ -278,7 +270,7 @@ def apply(elf_bytes: bytes) -> bytes:
     # 12. Experimental async-shader mode: "Shaders em segundo plano" gets a third
     #     choice, "Ligado (experimental)" (value 2; still on for every other use,
     #     Apply keeps `async_shader_compilation = value != 0`). Settings::Apply
-    #     also stores an experimental flag into the byte 0x3926582, alignment padding
+    #     also stores (value == 2) into the byte 0x3926582, alignment padding
     #     after the bool cvar 0x3926581 that nothing else reads or writes (no
     #     RIP reference, no relocation). Patches 8 and 8b read it; here it also
     #     makes stand-in pipelines with a colour output invisible: no colour
@@ -286,11 +278,7 @@ def apply(elf_bytes: bytes) -> bytes:
     #     so occlusion query counts stay close to the old stand-in's). A stand-in
     #     without colour output (depth
     #     prepass, shadow maps) keeps writing depth as before. Values 0 and 1
-    #     leave the flag 0 and every path as it was. Since patch 14 the flag is
-    #     0, 0, 0x02, 0x0A for values 0..3 (computed by a helper cave); patches
-    #     8, 8b and 12 treat 0x02 and 0x0A alike, only cave 2 tells them apart.
-    #     The Options() and Apply bytes below call caves 9 and 10, which are
-    #     written in group 14: groups 12 and 14 only work together.
+    #     leave the flag 0 and every path as it was.
     patch_cstring(
         0x1DA8082,
         b"\x00" * 21,
@@ -303,16 +291,15 @@ def apply(elf_bytes: bytes) -> bytes:
         "8800000048c78530f8ffff01000000c78538f8ffff01000000c6853cf8ffff0148899540f8ffff48898d48f8ffff488d35"
         "47c87903e8520d0000",
         "904c8dbd20f8ffff488d058158c10149890749c7470888000000488d056d74ba0149894720488d0524b4b40149894728488b"
-        "0576c879030f1000410f114748488d0509a7be01498947586a015849894710418947184188471c498d7748498d7f30"
-        "e8e8320000e8820c0000",
-        "Options(): async_shaders choices = {off_on[0], off_on[1], \"Ligado (experimental)\", \"Ligado (sem espera)\"}; "
-        "cave 9 adds the 4th pointer and n = 4 before vector(ptr, n) at 0x1bd999",
+        "0576c879030f1000410f114748488d0509a7be0149894758b80100000049894710418947184188471c498d7748498d7f30"
+        "8d5002e8820c0000",
+        "Options(): async_shaders choices = {off_on[0], off_on[1], \"Ligado (experimental)\"} via vector(ptr, 3)",
     )
     patch_vaddr(
         0x1C2126,
         "83bb8400000000488d052c3979030f9500488d054344760383bb88000000000f9500488d059938790383bb8c000000000f9500",
-        "488db384000000833e000f9505293979038b460485c00f95053e447603e809f6ffff881534447603837e08000f95058f387903",
-        "Settings::Apply: also store the experimental flag 0x3926582 (0, 0, 0x02, 0x0A for async_shaders 0..3) via cave 10",
+        "488db384000000833e000f9505293979038b460485c00f95053e44760383f8020f940535447603837e08000f95059038790390",
+        "Settings::Apply: also store async_shaders == 2 into the experimental flag 0x3926582",
     )
     #     Stand-in look: VulkanPipelineCache::EnsurePipelineCreated (0x5fa580),
     #     right before vkCreateGraphicsPipelines (subpass store at 0x5fb0ae).
@@ -414,41 +401,6 @@ def apply(elf_bytes: bytes) -> bytes:
         "Code cave 8 (int3 padding after ret): per-game fsi value, else FsiWantedFor",
     )
     patch_vaddr(0x689FB, "67e86fd51700", "67e8e0a04901", "launch: FsiWantedFor goes through code cave 8")
-
-    # 14. "Shaders em segundo plano" gets a fourth choice, "Ligado (sem espera)"
-    #     (value 3): the experimental mode of patch 12, except that full-screen
-    #     passes (<= 6 indices) no longer wait for their real pipeline (patch 8,
-    #     cave 2). Their effect is missing until it compiles (e.g. no tone
-    #     mapping for a moment) instead of the game stopping. Draws into small
-    #     targets (reflection cube faces, the luminance chain) and readback
-    #     "full" still wait: a reflection cube is baked once and would stay
-    #     black. A full-screen pass a game bakes only once into a larger target
-    #     (a lookup table, an environment map) can stay missing in this mode
-    #     until the game draws it again, which is why it is a separate choice.
-    #     Out-of-range values cannot reach Apply (Load, Checked, the web page
-    #     and the menus clamp to the choice count). Battlefield: Bad Company,
-    #     first run, value 2: 50 waits, the
-    #     worst 30 s at 43 FPS (2026-11-19).
-    #     The label takes the slot of "/app0/framegen.conf.new", unreferenced
-    #     since patch 11 redirected its three leas.
-    patch_cstring(
-        0x1D9D3C6,
-        b"/app0/framegen.conf.new",
-        b"Ligado (sem espera)",
-        "label of the fourth async_shaders choice (dead framegen path slot)",
-    )
-    patch_vaddr(
-        0x1C0C81,
-        "cc" * 15,
-        "488d053ec7bd01498947606a045ac3",
-        "Code cave 9 (int3 padding after ud2): 4th async_shaders choice pointer at [r15+0x60]; rdx = 4",
-    )
-    patch_vaddr(
-        0x1C1751,
-        "cc" * 13,
-        "89c1c1e103ba0000020ad3eac3",
-        "Code cave 10 (int3 padding after ud2): dl = byte v of 0x0A020000 (flag 0, 0, 0x02, 0x0A for v = 0..3)",
-    )
 
     return bytes(elf)
 
