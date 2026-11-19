@@ -50,7 +50,8 @@ def apply(elf_bytes: bytes) -> bytes:
         actual = bytes(elf[off : off + len(exp_nul)])
         assert actual == exp_nul, f"String mismatch at {vaddr:#x} ({desc}): expected {exp_nul!r}, got {actual!r}"
         elf[off : off + len(rep_nul)] = rep_nul
-        print(f"[PATCHED] {vaddr:#x}: {expected.decode()} -> {replacement.decode()} ({desc})")
+        shown = lambda b: b.decode("utf-8").encode("ascii", "backslashreplace").decode("ascii")
+        print(f"[PATCHED] {vaddr:#x}: {shown(expected)} -> {shown(replacement)} ({desc})")
 
     fsi_redirects = [
         (0x1D6E396, b"/app0/render-target-fsi.once", b"/download0/xbox360ps5/fsi.1", "FsiAtStart/FsiForNextStart once path"),
@@ -328,6 +329,78 @@ def apply(elf_bytes: bytes) -> bytes:
         "e92af5ffff0f1f440000",
         "EnsurePipelineCreated: subpass store goes through code cave 7",
     )
+
+    # 13. Accurate render targets (FSI) per game. A 46th settings entry "fsi"
+    #     ("FSI por jogo", category Performance, applies at game launch, per
+    #     game; {"Desligada", "Padrão", "Ligada"}, recommended 1 = Padrão) lives
+    #     in Settings+0x38, the resolution_scale int that Load never reads and no
+    #     UI shows (it is copied with the struct; Apply now stores a constant 1
+    #     into draw_resolution_scale instead). Padrão keeps today's choice
+    #     (the preset's accurate_targets, else the global FSI row); Desligada and
+    #     Ligada force it for that game, through the existing restart-into-FSI
+    #     path at launch. Options() entries 41-44 are rebuilt r15-relative (same
+    #     fields and calls) to make room in place; the new entry is built in the
+    #     frame slot after entry 44 (rbp-0xd8) and the static vector gets 46.
+    #     Its help text is its own string in the slot of the debug log format
+    #     "Creating graphics pipeline state with VS ..." (0x1d78c03), whose only
+    #     reference was in the log block patch 12 turned into code cave 7. (The
+    #     global FSI row's help text is a lang-file key too, so it is not shared.)
+    patch_cstring(
+        0x1D78C03,
+        b"Creating graphics pipeline state with VS {:016X}, PS {:016X}",
+        "Padrão: preset do jogo ou FSI geral. As outras forçam.".encode(),
+        "help text of the per-game FSI option (unreferenced since patch 12)",
+    )
+    patch_cstring(
+        0x1DA8098,
+        b"\x00" * 12,
+        b"FSI por jogo",
+        "label of the per-game FSI option (zeroed tail of the reused help-text slot)",
+    )
+    patch_vaddr(
+        0x1BE2E1,
+        "488d05dce4c501488d0d1b15bf014c8dbd08feffff488d3d8ae7bd0148898508feffff48c78510feffffd000000048c78518"
+        "feffff04000000c78520feffff01000000c68524feffff0048898d28feffff488d0d226bc2014889bd30feffff488dbd38fe"
+        "ffff48894d984c8965a0488d7598ba02000000e8c3020000488d05f74bb50148b904000000020000004c8dbd50feffff488d"
+        "3ddf69c6014c896da84c8975b048898550feffff48c78558feffffd400000048898d60feffff488d0d077ebe01c78568feff"
+        "ff01000000c6856cfeffff004889bd70feffff488dbd80feffff48898d78feffff488d75a8ba02000000e848020000488d05"
+        "91eab60148b90400000001000000488d3d73cab5014c8dbd98feffff4c8d05573fb50148898598feffff48c785a0feffffd8"
+        "00000048898da8feffff488d0d31a5bf01c785b0feffff00000000c685b4feffff014889bdb8feffff488dbdc8feffff4c89"
+        "45b848898dc0feffff488d0d153fb50148894dc0488d75b8ba02000000e8bf010000488d05d6b8b801488d0d1c1bb801488d"
+        "3ddbabb401488985e0feffff48c785e8feffff28000000c785f0feffff0400000048c785f4feffff00000000c685fcfeffff"
+        "0048898d00ffffff488d0da969c2014889bd08ffffff488dbd10ffffff48894dc84c8965d0488d75c8ba02000000e84a0100"
+        "00488d3d43bd7903488db580f2ffffba2d000000e892020000",
+        "4983c748488d05d8e4c50149890749c74708d000000049c747100400000049c7471801000000488d05fc14bf014989472048"
+        "8d056ee7bd0149894728488d05376bc201498947484d896750498d7748498d7f30ba02000000e8e20200004983c748488d05"
+        "124cb50149890749c74708d400000048b804000000020000004989471049c7471801000000488d05ea69c60149894720488d"
+        "052f7ebe01498947284d896f484d897750498d7748498d7f30ba02000000e8860200004983c748488d05cbeab60149890749"
+        "c74708d800000048b8040000000100000049894710b00049894718488d0598cab50149894720488d0579a5bf014989472848"
+        "8d05743fb50149894748488d05783fb50149894750498d7748498d7f30ba02000000e81e0200004983c748488d0531b9b801"
+        "49890749c747082800000049c747100400000049c7471800000000488d055c1bb80149894720488d0517acb4014989472848"
+        "8d05166ac201498947484d896750498d7748498d7f30ba02000000e8c10100004983c748488d05d2e0c10149890749c74708"
+        "3800000048b801000000010000004989471049894718488d050a9cbe0149894720488d056aa7bb01498947284d896f48488d"
+        "05f646b901498947504d897758498d7748498d7f30ba03000000e85e010000660f1f840000000000660f1f84000000000066"
+        "90488d3d43bd7903488db580f2ffffba2e000000e892020000",
+        "Options(): entries 41-44 compacted, new fsi entry at rbp-0xd8, vector(ptr, 46)",
+    )
+    patch_vaddr(0x1BE4F6, "900c0000", "d80c0000", "Options(): temporaries destroy loop starts at entry 45's choices")
+    patch_vaddr(0x1BE559, "900c0000", "d80c0000", "Options(): landing pad 0x1be54d loop starts at entry 45")
+    patch_vaddr(0x1CA8AD1, "cf2a0e992f00", "b92a05992f00", "Options() LSDA call site moved with the compacted tail")
+    patch_vaddr(0x1CA8AD7, "ca2b0e972f00", "952b05972f00", "Options() LSDA call site moved with the compacted tail")
+    patch_vaddr(0x1CA8ADD, "d32c0e952f00", "fd2b05952f00", "Options() LSDA call site moved with the compacted tail")
+    patch_vaddr(0x1CA8AE3, "c82d0e872f00", "da2c68952f00", "Options() LSDA: one record covers detailed_logs and the fsi entry")
+    patch_vaddr(0x1C2005, "8b4338", "6a0158", "Settings::Apply: draw_resolution_scale = 1 (push 1; pop rax); field 0x38 now holds fsi")
+    #     Launch (canary_game_main): the only FsiWantedFor (0x1e5f70) call goes
+    #     through a 15-byte cave: 1 (Padrão) tail-jumps to FsiWantedFor with the
+    #     title still in rdi; 0 returns false, 2 returns true. Settings are at
+    #     rbp-0xce8 of the caller, so the field is [rbp-0xcb0].
+    patch_vaddr(
+        0x1502AE1,
+        "cc" * 15,
+        "8b8550f3ffffd1e80f828134cefec3",
+        "Code cave 8 (int3 padding after ret): per-game fsi value, else FsiWantedFor",
+    )
+    patch_vaddr(0x689FB, "67e86fd51700", "67e8e0a04901", "launch: FsiWantedFor goes through code cave 8")
 
     return bytes(elf)
 

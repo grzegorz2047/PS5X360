@@ -8,3 +8,6 @@ Controla\sa\ssincronização\svertical\semulada.\sO\sritmo\sautomático\spermane
 # Third async_shaders choice (binary patch 12).
 Ligado\s(experimental) = On\s(experimental)
 Ligado:\so\sjogo\snão\strava\senquanto\sum\sefeito\snovo\sé\spreparado,\smas\so\sefeito\spode\saparecer\sum\sinstante\sdepois.\sDesligado:\sespera\scada\sefeito\sficar\spronto,\scom\stravadinhas\sna\sprimeira\svez. = On:\sthe\sgame\sdoes\snot\sstop\swhile\sa\snew\seffect\sis\sprepared,\sbut\sthe\seffect\smay\sappear\sa\smoment\slater.\sExperimental:\seven\sfewer\sstops\son\sa\sfirst\srun;\sobjects\swhose\sshader\sis\snot\sready\syet\sappear\slate\sinstead\sof\sas\sblack\spatches.\sOff:\swaits\sfor\severy\seffect\sto\sbe\sready,\swith\shitches\sthe\sfirst\stime.
+# Per-game FSI option (binary patch 13).
+FSI\spor\sjogo = FSI\s(per\sgame)
+Padrão:\spreset\sdo\sjogo\sou\sFSI\sgeral.\sAs\soutras\sforçam. = Accurate\srender\stargets\s(FSI)\sfor\sa\sgame.\sStandard:\sthe\sgame's\spreset,\sor\swithout\sone\sthe\sgeneral\sFSI\sswitch\sbelow.\sOff\sor\sOn\sforces\sthe\schoice;\son\sthe\sgeneral\ssettings\spage\sit\sapplies\sto\severy\sgame\swithout\sits\sown\svalue.\sFSI\sgives\smore\sfaithful\sparticles\sand\stransparency,\sbut\sshaders\scompile\slonger\sand\sthe\sgame\sruns\sslower.\sApplies\sfrom\sthe\snext\slaunch\sof\sthe\sgame\s(the\semulator\srestarts\sby\sitself).
