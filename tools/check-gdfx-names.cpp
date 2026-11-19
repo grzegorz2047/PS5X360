@@ -242,18 +242,18 @@ static void CheckGuestPaths() {
   CHECK(IsValidGuestPath("", false));
 
   // Failure reports: raw bytes, the conversion, empty names said out loud, once each.
-  GuestPathFailures failures;
+  GuestPathFailures reports;
   const uint32_t callers[3] = {0x82001234, 0x82005678, 0};
   const std::string empty =
-      failures.Report("NtCreateFile", 0xC0000034, 0xFFFFFFFD, callers, "", "");
+      reports.Report("NtCreateFile", 0xC0000034, 0xFFFFFFFD, callers, "", "");
   std::cout << empty << "\n";
   CHECK(empty.find("NtCreateFile C0000034, root FFFFFFFD, caller 82001234 < 82005678") !=
         std::string::npos);
   CHECK(empty.find("0 bytes \"\" (empty name)") != std::string::npos);
-  CHECK(failures.Report("NtCreateFile", 0xC0000034, 0xFFFFFFFD, callers, "", "").empty());
-  CHECK(!failures.Report("NtCreateFile", 0xC0000034, 0, callers, "", "").empty());
+  CHECK(reports.Report("NtCreateFile", 0xC0000034, 0xFFFFFFFD, callers, "", "").empty());
+  CHECK(!reports.Report("NtCreateFile", 0xC0000034, 0, callers, "", "").empty());
   const std::string raw = "game:\\Fran\xE7" "ais";
-  const std::string line = failures.Report("NtCreateFile", 0xC0000033, 0xFFFFFFFD, callers,
+  const std::string line = reports.Report("NtCreateFile", 0xC0000033, 0xFFFFFFFD, callers,
                                            raw, GuestAnsiPathToUtf8(raw));
   std::cout << line << "\n";
   // Shown escaped (a backslash doubled, a high byte as \xNN), then byte for byte.
@@ -266,7 +266,7 @@ static void CheckGuestPaths() {
   CHECK(lost.find("(empty after conversion)") != std::string::npos);
   size_t reported = 0;
   for (int i = 0; i < 400; ++i) {
-    reported += !failures.Report("NtQueryFullAttributesFile", 0xC000000F, 0, callers,
+    reported += !reports.Report("NtQueryFullAttributesFile", 0xC000000F, 0, callers,
                                  "file" + std::to_string(i), "").empty();
   }
   CHECK(reported == GuestPathFailures::kMaxReports - 3);  // three reported above
