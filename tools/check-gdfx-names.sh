@@ -7,7 +7,9 @@
 #
 # 1. Builds tools/check-gdfx-names.cpp with the tree's xenia/base and the disc image device
 #    (host clang, AddressSanitizer) and runs it: a 30,000-entry image with accented names must
-#    mount, resolve, round-trip and stay within its heap bound.
+#    mount, resolve, round-trip and stay within its heap bound; the game's own cp1252 paths,
+#    converted and checked as the file calls do (kernel/util/guest_path.h), must resolve to
+#    the same entries, never come out empty, and each failure is reported once byte for byte.
 # 2. Builds the same check against the tree's xenia/base and xenia/vfs with fix 26 reversed (the
 #    1.0.2 code) and requires the console's failure: the mount throws "Not enough space".
 set -euo pipefail

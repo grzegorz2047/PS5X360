@@ -1,5 +1,5 @@
 diff --git a/.deps/xenia-canary/src/xenia/base/string.cc b/.deps/xenia-canary/src/xenia/base/string.cc
-index dbd6b5f..876c64c 100644
+index dbd6b5f..147ce92 100644
 --- a/.deps/xenia-canary/src/xenia/base/string.cc
 +++ b/.deps/xenia-canary/src/xenia/base/string.cc
 @@ -62,6 +62,77 @@ std::u16string to_utf16(const std::string_view source) {
@@ -126,11 +126,217 @@ index dbd6b5f..876c64c 100644
    return output_str;
  #endif
  }
+diff --git a/.deps/xenia-canary/src/xenia/kernel/util/guest_path.h b/.deps/xenia-canary/src/xenia/kernel/util/guest_path.h
+new file mode 100644
+index 0000000..ffa1318
+--- /dev/null
++++ b/.deps/xenia-canary/src/xenia/kernel/util/guest_path.h
+@@ -0,0 +1,200 @@
++/**
++ ******************************************************************************
++ * Xenia : Xbox 360 Emulator Research Project                                 *
++ ******************************************************************************
++ * Released under the BSD license - see LICENSE in the root for more details. *
++ ******************************************************************************
++ */
++
++#ifndef XENIA_KERNEL_UTIL_GUEST_PATH_H_
++#define XENIA_KERNEL_UTIL_GUEST_PATH_H_
++
++// Xbox360PS5 (fix 26): guest paths. A game names files in Windows-1252, the code page of the
++// names on its disc; the devices hold those names as UTF-8 (xe::win1252_to_utf8), so a guest
++// path is converted the same way before it is resolved. Up to 1.0.2 a path was kept as its
++// raw bytes, and IsValidPath (a signed char compared with 31 and 127) refused any byte from
++// 0x80 up with OBJECT_NAME_INVALID before anything was logged. Here a converted path may hold
++// UTF-8, and every failed path is reported once with its raw bytes (Handball 16, 573607E4).
++
++#include <cstdint>
++#include <cstdio>
++#include <mutex>
++#include <string>
++#include <string_view>
++#include <unordered_set>
++
++#include "xenia/base/string.h"
++
++namespace xe {
++namespace kernel {
++namespace util {
++
++// The guest's Windows-1252 path as UTF-8, without the ASCII white space around it (as
++// string_util::trim removed it). Empty only when the guest's name is empty or white space.
++inline std::string GuestAnsiPathToUtf8(std::string_view raw) {
++  auto space = [](char c) {
++    return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' ||
++           c == '\v';
++  };
++  size_t begin = 0, end = raw.size();
++  while (begin < end && space(raw[begin])) ++begin;
++  while (end > begin && space(raw[end - 1])) --end;
++  return xe::win1252_to_utf8(raw.substr(begin, end - begin));
++}
++
++// True when `s` is complete, shortest-form UTF-8 (what the UTF-8 path code needs not to throw).
++inline bool IsUtf8(std::string_view s) {
++  for (size_t i = 0; i < s.size();) {
++    const uint8_t lead = uint8_t(s[i]);
++    size_t length;
++    uint32_t cp;
++    if (lead < 0x80) {
++      ++i;
++      continue;
++    } else if (lead >= 0xC2 && lead <= 0xDF) {
++      length = 2, cp = lead & 0x1F;
++    } else if (lead >= 0xE0 && lead <= 0xEF) {
++      length = 3, cp = lead & 0x0F;
++    } else if (lead >= 0xF0 && lead <= 0xF4) {
++      length = 4, cp = lead & 0x07;
++    } else {
++      return false;
++    }
++    if (s.size() - i < length) return false;
++    for (size_t k = 1; k < length; ++k) {
++      const uint8_t trail = uint8_t(s[i + k]);
++      if ((trail & 0xC0) != 0x80) return false;
++      cp = (cp << 6) | (trail & 0x3F);
++    }
++    if ((length == 3 && (cp < 0x800 || (cp >= 0xD800 && cp <= 0xDFFF))) ||
++        (length == 4 && (cp < 0x10000 || cp > 0x10FFFF))) {
++      return false;
++    }
++    i += length;
++  }
++  return true;
++}
++
++// xfile.h IsValidPath: a converted guest path. Control characters (below 32, and 127) and
++// "+,<>|" are refused, '*' and '?' only in a pattern, '*' only before '.'. Characters from
++// U+0080 up are accepted as UTF-8 (1.0.2 refused every byte from 0x80 up).
++inline bool IsValidGuestPath(std::string_view s, bool is_pattern) {
++  if (!IsUtf8(s)) return false;
++  bool got_asterisk = false;
++  for (const char ch : s) {
++    const uint8_t c = uint8_t(ch);
++    if (c <= 31 || c == 127) return false;
++    if (got_asterisk) {
++      // * must be followed by a . (*.)
++      // 4D530819 has a bug in its game code where it attempts to FindFirstFile() with filters
++      // of "Game:\\*_X3.rkv", "Game:\\m*_X3.rkv", and "Game:\\w*_X3.rkv" and will infinite
++      // loop if the path filter is allowed.
++      if (c != '.') return false;
++      got_asterisk = false;
++    }
++    switch (c) {
++      case '"':
++      case '+':
++      case ',':
++      case '<':
++      case '>':
++      case '|':
++        return false;
++      case '*':
++        if (!is_pattern) return false;
++        got_asterisk = true;
++        break;
++      case '?':
++        if (!is_pattern) return false;
++        break;
++      default:
++        break;
++    }
++  }
++  return true;
++}
++
++// Failed guest paths, each distinct one (call, root, raw bytes) reported once and at most
++// kMaxReports in all: what the game passed, byte for byte, what it became, and where from.
++class GuestPathFailures {
++ public:
++  static constexpr size_t kMaxReports = 256;
++
++  static GuestPathFailures& Get() {
++    static GuestPathFailures failures;
++    return failures;
++  }
++
++  // The line to log, or empty when this one was reported already or the cap is reached.
++  // `callers`: the game's return address, then up to two callers above it (0 = unknown).
++  std::string Report(std::string_view call, uint32_t status, uint32_t root,
++                     const uint32_t (&callers)[3], std::string_view raw,
++                     std::string_view path) {
++    std::string key(call);
++    key += '\0';
++    key += std::to_string(root);
++    key += '\0';
++    key += raw;
++    {
++      std::lock_guard<std::mutex> lock(mutex_);
++      if (seen_.size() >= kMaxReports || !seen_.insert(key).second) {
++        return {};
++      }
++    }
++    return Describe(call, status, root, callers, raw, path);
++  }
++
++  static std::string Describe(std::string_view call, uint32_t status,
++                              uint32_t root, const uint32_t (&callers)[3],
++                              std::string_view raw, std::string_view path) {
++    char head[160];
++    std::snprintf(head, sizeof(head),
++                  "Guest path: %.*s %08X, root %08X, caller %08X < %08X < %08X, %zu bytes ",
++                  int(call.size()), call.data(), status, root, callers[0],
++                  callers[1], callers[2], raw.size());
++    std::string line = head;
++    line += '"';
++    bool high = false;
++    for (const char ch : raw) {
++      const uint8_t c = uint8_t(ch);
++      if (c >= 0x20 && c < 0x7F && c != '"' && c != '\\') {
++        line += char(c);
++      } else if (c == '\\') {
++        line += "\\\\";
++      } else {
++        char escaped[8];
++        std::snprintf(escaped, sizeof(escaped), "\\x%02X", c);
++        line += escaped;
++        high = high || c >= 0x80;
++      }
++    }
++    line += '"';
++    if (raw.empty()) {
++      line += " (empty name)";
++    } else if (high) {
++      line += " [";
++      for (size_t i = 0; i < raw.size() && i < 64; ++i) {
++        char hex[4];
++        std::snprintf(hex, sizeof(hex), i ? " %02X" : "%02X", uint8_t(raw[i]));
++        line += hex;
++      }
++      if (raw.size() > 64) line += " ...";
++      line += ']';
++    }
++    line += " -> \"";
++    line += path;
++    line += '"';
++    if (path.empty() && !raw.empty()) line += " (empty after conversion)";
++    return line;
++  }
++
++ private:
++  std::mutex mutex_;
++  std::unordered_set<std::string> seen_;
++};
++
++}  // namespace util
++}  // namespace kernel
++}  // namespace xe
++
++#endif  // XENIA_KERNEL_UTIL_GUEST_PATH_H_
 diff --git a/.deps/xenia-canary/src/xenia/kernel/util/shim_utils.h b/.deps/xenia-canary/src/xenia/kernel/util/shim_utils.h
-index de4b758..eb0420e 100644
+index de4b758..f34dec2 100644
 --- a/.deps/xenia-canary/src/xenia/kernel/util/shim_utils.h
 +++ b/.deps/xenia-canary/src/xenia/kernel/util/shim_utils.h
-@@ -17,6 +17,7 @@
+@@ -17,11 +17,13 @@
  #include "xenia/base/byte_order.h"
  #include "xenia/base/logging.h"
  #include "xenia/base/memory.h"
@@ -138,23 +344,135 @@ index de4b758..eb0420e 100644
  #include "xenia/base/string_buffer.h"
  #include "xenia/cpu/export_resolver.h"
  #include "xenia/cpu/ppc/ppc_context.h"
-@@ -79,10 +80,13 @@ inline std::string_view TranslateAnsiString(const Memory* memory,
+ #include "xenia/kernel/kernel_flags.h"
+ #include "xenia/kernel/kernel_state.h"
++#include "xenia/kernel/util/guest_path.h"
+ 
+ namespace xe {
+ namespace kernel {
+@@ -79,10 +81,13 @@ inline std::string_view TranslateAnsiString(const Memory* memory,
        ansi_string->length);
  }
  
 +// Xbox360PS5 (fix 26): a guest path is Windows-1252, like the names on a disc, which the
-+// devices convert to UTF-8 (win1252_to_utf8); converted the same way, a path with an accented
-+// name finds its entry, and the UTF-8 path code never sees bytes that are not UTF-8.
++// devices convert to UTF-8 (win1252_to_utf8); converted the same way (guest_path.h), a path
++// with an accented name finds its entry, and the UTF-8 path code never sees bytes that are
++// not UTF-8. The white space around it goes as before (without a regex per path).
  inline std::string TranslateAnsiPath(const Memory* memory,
                                       const X_ANSI_STRING* ansi_string) {
-   return string_util::trim(
+-  return string_util::trim(
 -      std::string(TranslateAnsiString(memory, ansi_string)));
-+      xe::win1252_to_utf8(TranslateAnsiString(memory, ansi_string)));
++  return GuestAnsiPathToUtf8(TranslateAnsiString(memory, ansi_string));
  }
  
  inline std::string_view TranslateAnsiStringAddress(const Memory* memory,
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io.cc
+index 48119ec..d01746d 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io.cc
+@@ -33,6 +33,34 @@ namespace xe {
+ namespace kernel {
+ namespace xboxkrnl {
+ 
++// Xbox360PS5 (fix 26): a guest path that failed, reported once per distinct name
++// (util::GuestPathFailures): the raw bytes the game passed, what they became, and the game's
++// return address with two callers above it (saved LR words along the stack's back chain).
++static void ReportGuestPath(const char* call, X_STATUS status, uint32_t root,
++                            const X_ANSI_STRING* name,
++                            const std::string& path) {
++  const std::string_view raw = util::TranslateAnsiString(kernel_memory(), name);
++  uint32_t callers[3] = {};
++  if (auto* thread_state = cpu::ThreadState::Get()) {
++    const auto* context = thread_state->context();
++    callers[0] = uint32_t(context->lr);
++    uint32_t sp = uint32_t(context->r[1]);
++    for (int i = 1; i < 3 && sp; ++i) {
++      const uint32_t back = xe::load_and_swap<uint32_t>(
++          kernel_memory()->TranslateVirtual(sp));
++      if (back <= sp || back - sp > 0x100000) break;
++      callers[i] = xe::load_and_swap<uint32_t>(
++          kernel_memory()->TranslateVirtual(back - 8));
++      sp = back;
++    }
++  }
++  const std::string line = util::GuestPathFailures::Get().Report(
++      call, uint32_t(status), root, callers, raw, path);
++  if (!line.empty()) {
++    XELOGW("{}", line);
++  }
++}
++
+ struct CreateOptions {
+   // https://processhacker.sourceforge.io/doc/ntioapi_8h.html
+   static constexpr uint32_t FILE_DIRECTORY_FILE = 0x00000001;
+@@ -72,8 +100,10 @@ dword_result_t NtCreateFile_entry(lpdword_t handle_out, dword_t desired_access,
+   // Compute path, possibly attrs relative.
+   auto target_path = util::TranslateAnsiPath(kernel_memory(), object_name);
+ 
+-  // Enforce that the path is ASCII.
++  // A valid path (fix 26: UTF-8 from the guest's Windows-1252 allowed).
+   if (!IsValidPath(target_path, false)) {
++    ReportGuestPath("NtCreateFile", X_STATUS_OBJECT_NAME_INVALID,
++                    object_attrs->root_directory, object_name, target_path);
+     return X_STATUS_OBJECT_NAME_INVALID;
+   }
+ 
+@@ -97,6 +127,8 @@ dword_result_t NtCreateFile_entry(lpdword_t handle_out, dword_t desired_access,
+       (create_options & CreateOptions::FILE_NON_DIRECTORY_FILE) != 0, &vfs_file,
+       &file_action);
+   if (XFAILED(result)) {
++    ReportGuestPath("NtCreateFile", result, object_attrs->root_directory,
++                    object_name, target_path);
+     static std::atomic<uint32_t> recorded{0};
+     if (recorded.fetch_add(1, std::memory_order_relaxed) < 64) {
+       char text[1024];
+@@ -518,8 +550,10 @@ dword_result_t NtQueryFullAttributesFile_entry(
+ 
+   auto target_path = util::TranslateAnsiPath(kernel_memory(), object_name);
+ 
+-  // Enforce that the path is ASCII.
++  // A valid path (fix 26: UTF-8 from the guest's Windows-1252 allowed).
+   if (!IsValidPath(target_path, false)) {
++    ReportGuestPath("NtQueryFullAttributesFile", X_STATUS_OBJECT_NAME_INVALID,
++                    obj_attribs->root_directory, object_name, target_path);
+     return X_STATUS_OBJECT_NAME_INVALID;
+   }
+ 
+@@ -538,6 +572,8 @@ dword_result_t NtQueryFullAttributesFile_entry(
+     return X_STATUS_SUCCESS;
+   }
+ 
++  ReportGuestPath("NtQueryFullAttributesFile", X_STATUS_NO_SUCH_FILE,
++                  obj_attribs->root_directory, object_name, target_path);
+   return X_STATUS_NO_SUCH_FILE;
+ }
+ DECLARE_XBOXKRNL_EXPORT1(NtQueryFullAttributesFile, kFileSystem, kImplemented);
+@@ -557,8 +593,10 @@ dword_result_t NtQueryDirectoryFile_entry(
+   auto file = kernel_state()->object_table()->LookupObject<XFile>(file_handle);
+   auto name = util::TranslateAnsiPath(kernel_memory(), file_name);
+ 
+-  // Enforce that the path is ASCII.
++  // A valid pattern (fix 26: UTF-8 from the guest's Windows-1252 allowed).
+   if (!IsValidPath(name, true)) {
++    ReportGuestPath("NtQueryDirectoryFile", X_STATUS_INVALID_PARAMETER,
++                    file_handle, file_name, name);
+     return X_STATUS_INVALID_PARAMETER;
+   }
+ 
+@@ -614,8 +652,10 @@ dword_result_t NtOpenSymbolicLinkObject_entry(
+ 
+   auto target_path = util::TranslateAnsiPath(kernel_memory(), object_name);
+ 
+-  // Enforce that the path is ASCII.
++  // A valid path (fix 26: UTF-8 from the guest's Windows-1252 allowed).
+   if (!IsValidPath(target_path, false)) {
++    ReportGuestPath("NtOpenSymbolicLinkObject", X_STATUS_OBJECT_NAME_INVALID,
++                    object_attrs->root_directory, object_name, target_path);
+     return X_STATUS_OBJECT_NAME_INVALID;
+   }
+ 
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xfile.cc b/.deps/xenia-canary/src/xenia/kernel/xfile.cc
-index fe5f117..907abc4 100644
+index fe5f117..0c18043 100644
 --- a/.deps/xenia-canary/src/xenia/kernel/xfile.cc
 +++ b/.deps/xenia-canary/src/xenia/kernel/xfile.cc
 @@ -11,6 +11,7 @@
@@ -176,8 +494,85 @@ index fe5f117..907abc4 100644
    if (reinterpret_cast<uint8_t*>(&out_info->file_name[0]) + entry_name.size() >
        end) {
      assert_always("Buffer overflow?");
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xfile.h b/.deps/xenia-canary/src/xenia/kernel/xfile.h
+index 896178f..8c0f6bd 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xfile.h
++++ b/.deps/xenia-canary/src/xenia/kernel/xfile.h
+@@ -14,6 +14,7 @@
+ #include <string>
+ 
+ #include "xenia/kernel/xiocompletion.h"
++#include "xenia/kernel/util/guest_path.h"
+ #include "xenia/vfs/device.h"
+ #include "xenia/vfs/entry.h"
+ #include "xenia/vfs/file.h"
+@@ -72,60 +73,11 @@ class X_FILE_DIRECTORY_INFORMATION {
+   }
+ };
+ 
++// Xbox360PS5 (fix 26): util::IsValidGuestPath (guest_path.h). The 1.0.2 check compared a
++// signed char with 31 and 127, so it refused every byte from 0x80 up; a converted guest path
++// may now hold UTF-8 (accented names on a European disc).
+ static bool IsValidPath(const std::string_view s, bool is_pattern) {
+-  // TODO(gibbed): validate path components individually
+-  bool got_asterisk = false;
+-  for (const auto& c : s) {
+-    if (c <= 31 || c >= 127) {
+-      return false;
+-    }
+-    if (got_asterisk) {
+-      // * must be followed by a . (*.)
+-      //
+-      // 4D530819 has a bug in its game code where it attempts to
+-      // FindFirstFile() with filters of "Game:\\*_X3.rkv", "Game:\\m*_X3.rkv",
+-      // and "Game:\\w*_X3.rkv" and will infinite loop if the path filter is
+-      // allowed.
+-      if (c != '.') {
+-        return false;
+-      }
+-      got_asterisk = false;
+-    }
+-    switch (c) {
+-      case '"':
+-      // case '*':
+-      case '+':
+-      case ',':
+-      // case ':':
+-      // case ';':
+-      case '<':
+-      // case '=':
+-      case '>':
+-      // case '?':
+-      case '|': {
+-        return false;
+-      }
+-      case '*': {
+-        // Pattern-specific (for NtQueryDirectoryFile)
+-        if (!is_pattern) {
+-          return false;
+-        }
+-        got_asterisk = true;
+-        break;
+-      }
+-      case '?': {
+-        // Pattern-specific (for NtQueryDirectoryFile)
+-        if (!is_pattern) {
+-          return false;
+-        }
+-        break;
+-      }
+-      default: {
+-        break;
+-      }
+-    }
+-  }
+-  return true;
++  return util::IsValidGuestPath(s, is_pattern);
+ }
+ 
+ class XFile : public XObject {
 diff --git a/.deps/xenia-canary/src/xenia/vfs/devices/disc_image_device.cc b/.deps/xenia-canary/src/xenia/vfs/devices/disc_image_device.cc
-index f0b9bce..e862a0d 100644
+index f0b9bce..40f34bf 100644
 --- a/.deps/xenia-canary/src/xenia/vfs/devices/disc_image_device.cc
 +++ b/.deps/xenia-canary/src/xenia/vfs/devices/disc_image_device.cc
 @@ -9,10 +9,13 @@
@@ -241,7 +636,7 @@ index f0b9bce..e862a0d 100644
    // Fallback to normal name if for whatever reason conversion from 1252 code
    // page failed.
 diff --git a/.deps/xenia-canary/src/xenia/vfs/devices/disc_image_device.h b/.deps/xenia-canary/src/xenia/vfs/devices/disc_image_device.h
-index ef83058..309c804 100644
+index ef83058..213d7d2 100644
 --- a/.deps/xenia-canary/src/xenia/vfs/devices/disc_image_device.h
 +++ b/.deps/xenia-canary/src/xenia/vfs/devices/disc_image_device.h
 @@ -63,6 +63,10 @@ class DiscImageDevice : public Device {

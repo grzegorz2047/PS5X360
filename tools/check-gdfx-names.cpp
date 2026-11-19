@@ -9,7 +9,10 @@
 // tree's DiscImageDevice, reading through pread as on the console (XE_MAPPED_READ_FILE).
 // Checks the entry count, lookups by the UTF-8 name and by the guest's cp1252 bytes (as
 // TranslateAnsiPath now converts them), the names given back to the guest, the full
-// Windows-1252 table, and a bound on the heap the mount takes.
+// Windows-1252 table, and a bound on the heap the mount takes. Guest paths (guest_path.h, used
+// by TranslateAnsiPath, IsValidPath and the file calls' failure reports): converted, accepted
+// with UTF-8 (1.0.2's IsValidPath refused every byte from 0x80 up), never empty unless the
+// game's name is, and each failure reported once with its raw bytes.
 //
 // check-gdfx-names.sh builds this against an assembled tree, and also against the tree with fix
 // 24's core changes reversed; that build must fail with "Not enough space", as on the console.
@@ -32,6 +35,7 @@
 
 #include "third_party/utfcpp/source/utf8.h"
 #include "xenia/base/string.h"
+#include "xenia/kernel/util/guest_path.h"
 #include "xenia/vfs/devices/disc_image_device.h"
 #include "xenia/vfs/entry.h"
 
@@ -196,8 +200,81 @@ static void CheckTable() {
   CHECK(!threw);
 }
 
+// 1.0.2's xfile.h IsValidPath, the part that refused the bytes (a signed char).
+static bool IsValidPath102(std::string_view s) {
+  for (const char c : s) {
+    if (c <= 31 || c >= 127) return false;
+  }
+  return true;
+}
+
+static void CheckGuestPaths() {
+  using namespace xe::kernel::util;
+  // Conversion as TranslateAnsiPath does it: white space around goes, nothing else.
+  CHECK(GuestAnsiPathToUtf8("").empty());
+  CHECK(GuestAnsiPathToUtf8(" \t\r\n").empty());
+  CHECK(GuestAnsiPathToUtf8(" game:\\Media\\a.dat\r\n") == "game:\\Media\\a.dat");
+  CHECK(GuestAnsiPathToUtf8("game:\\Fran\xE7" "ais\\Options.dat") ==
+        "game:\\Fran\xC3\xA7" "ais\\Options.dat");
+  CHECK(GuestAnsiPathToUtf8("x\xA0") == "x\xC2\xA0");  // no-break space is a character
+  for (int b = 1; b < 256; ++b) {
+    const std::string raw(1, char(b));
+    const bool space = b == ' ' || (b >= '\t' && b <= '\r');
+    const std::string path = GuestAnsiPathToUtf8(raw);
+    // An empty result only for an empty or white-space name, never from the conversion.
+    CHECK(path.empty() == space);
+    CHECK(IsUtf8(path));
+  }
+  // Validity: UTF-8 accepted now, refused by 1.0.2.
+  const std::string accented = GuestAnsiPathToUtf8("game:\\Donn\xE9" "es\\caf\xE9");
+  CHECK(IsValidGuestPath(accented, false));
+  CHECK(!IsValidPath102(accented));
+  CHECK(IsValidGuestPath("game:\\Media\\Data\\Stadium_1.li2", false));
+  CHECK(!IsValidGuestPath("game:\\Fran\xE7" "ais", false));  // raw cp1252 is not UTF-8
+  CHECK(!IsValidGuestPath("a\x01", false));
+  CHECK(!IsValidGuestPath("a\x7F", false));
+  CHECK(!IsValidGuestPath("a|b", false));
+  CHECK(!IsValidGuestPath("a*.b", false));
+  CHECK(IsValidGuestPath("*.dat", true));
+  CHECK(!IsValidGuestPath("*_X3.rkv", true));
+  CHECK(!IsValidGuestPath("a?b", false));
+  CHECK(IsValidGuestPath("a?b", true));
+  CHECK(IsValidGuestPath("", false));
+
+  // Failure reports: raw bytes, the conversion, empty names said out loud, once each.
+  GuestPathFailures failures;
+  const uint32_t callers[3] = {0x82001234, 0x82005678, 0};
+  const std::string empty =
+      failures.Report("NtCreateFile", 0xC0000034, 0xFFFFFFFD, callers, "", "");
+  std::cout << empty << "\n";
+  CHECK(empty.find("NtCreateFile C0000034, root FFFFFFFD, caller 82001234 < 82005678") !=
+        std::string::npos);
+  CHECK(empty.find("0 bytes \"\" (empty name)") != std::string::npos);
+  CHECK(failures.Report("NtCreateFile", 0xC0000034, 0xFFFFFFFD, callers, "", "").empty());
+  CHECK(!failures.Report("NtCreateFile", 0xC0000034, 0, callers, "", "").empty());
+  const std::string raw = "game:\\Fran\xE7" "ais";
+  const std::string line = failures.Report("NtCreateFile", 0xC0000033, 0xFFFFFFFD, callers,
+                                           raw, GuestAnsiPathToUtf8(raw));
+  std::cout << line << "\n";
+  // Shown escaped (a backslash doubled, a high byte as \xNN), then byte for byte.
+  CHECK(line.find("14 bytes \"game:\\\\Fran\\xE7" "ais\"") != std::string::npos);
+  CHECK(line.find("[67 61 6D 65 3A 5C 46 72 61 6E E7 61 69 73]") != std::string::npos);
+  CHECK(line.find("-> \"game:\\Fran\xC3\xA7" "ais\"") != std::string::npos);
+  CHECK(line.find("empty after conversion") == std::string::npos);
+  const std::string lost = GuestPathFailures::Describe("NtCreateFile", 0xC0000034, 0, callers,
+                                                       "x", "");
+  CHECK(lost.find("(empty after conversion)") != std::string::npos);
+  size_t reported = 0;
+  for (int i = 0; i < 400; ++i) {
+    reported += !failures.Report("NtQueryFullAttributesFile", 0xC000000F, 0, callers,
+                                 "file" + std::to_string(i), "").empty();
+  }
+  CHECK(reported == GuestPathFailures::kMaxReports - 3);  // three reported above
+}
+
 int main() {
   CheckTable();
+  CheckGuestPaths();
 
   // 31 directories: one named with cp1252 letters holding the accented names, and 30 of
   // 1,000 files each (30,000 entries, Handball 16 has 27,811).
@@ -303,6 +380,12 @@ int main() {
       CHECK(ValidUtf8(by_utf8->name()));
       CHECK(xe::utf8_to_win1252(by_utf8->name()) == name);
       CHECK(by_utf8->size() == ("file " + name).size());
+      // The game's own path, as the file calls see it: converted, valid, and the same entry.
+      const std::string kernel_path =
+          xe::kernel::util::GuestAnsiPathToUtf8(" " + guest + "\r\n");
+      CHECK(!kernel_path.empty());
+      CHECK(xe::kernel::util::IsValidGuestPath(kernel_path, false));
+      CHECK(device.ResolvePath(kernel_path) == by_utf8);
     }
     auto* deep_entry = device.ResolvePath(xe::win1252_to_utf8("Donn\xE9" "es\\\xC9lite\\caf\xE9"));
     CHECK(deep_entry != nullptr);
