@@ -126,16 +126,24 @@ def apply(elf_bytes: bytes) -> bytes:
         "e80359b9fe83f8020f84d43e0bff83bc24a0000000000f84f63e0bff488b442418488b4038f680058800001f0f85e03e0bffe9181d59ff",
         "Code cave 1 (int3 padding after ret): readback full -> wait; no colour or blended RT0 -> no wait",
     )
+    #    With the experimental async-shader mode on (patch 12, flag byte
+    #    0x3926582), a draw with <= 6 indices waits only when the depth test is
+    #    off (full-screen passes); depth-tested quads (billboards, decals) use the
+    #    stand-in, which patch 12 then draws invisible. ebx holds the normalized
+    #    RB_DEPTHCONTROL here (bit 1 z_enable). Cave 2 ends on the original
+    #    `jne 0x5bb01a` kept at 0x5bafe8 (ZF=1 <=> 1 <= pitch <= 256 -> wait;
+    #    pitch 0 already returned at 0x5ba5df). The cave shifts bl; rbx is dead
+    #    on both continuations (redefined at 0x5bb064 or popped).
     patch_vaddr(
         0xA98E57,
         "cc" * 41,
-        "6683b8f2870000060f868521b2ff8b800080000025ff3f00003d000100000f866f21b2ffe99a21b2ff",
-        "Code cave 2 (int3 padding after jmp): <=6 indices or render target pitch <= 256 -> wait",
+        "6683b8f287000006770ed0eb841d19d7e8020f847b21b2ff8b8000800000ffc8f6c43fe96921b2ffcc",
+        "Code cave 2 (int3 padding after jmp): <=6 indices (and depth off in experimental mode) or pitch <= 256 -> wait",
     )
     patch_vaddr(
         0x5BAFDF,
         "67e82b1aaeff83f8027530",
-        "e924c1f400660f1f440000",
+        "e924c1f4000f1f40007530",
         "IssueDrawInner: stand-in decision goes through the selective wait caves",
     )
 
@@ -148,16 +156,27 @@ def apply(elf_bytes: bytes) -> bytes:
     #    [this+8], priority in r12b), a pipeline that writes a visible colour
     #    target (priority >= 2) and matches patch 8's rule (<= 6 indices, or a
     #    render target at most 256 pixels wide) gets priority 4, ahead of all.
+    #    In the experimental mode (patch 12) a <= 6-index pipeline is boosted
+    #    only when its normalized depth test is off, matching patch 8. The hook
+    #    sits at 0x5f0b98 (after the queue lock, before `mov r13,[rbp-0xa8]`,
+    #    which a 12-byte cave at 0x1500131 replays): at 0x5f0bed rdi is live.
+    #    GetNormalizedDepthControl (0xfc790) is a leaf on the register file.
     patch_vaddr(
         0x150EDC8,
-        "cc" * 55,
-        "4180fc027225488b43086683b8f28700000676148b800080000025ff3f0000740a3d00010000770341b4044488a508ffffffe9f51d0eff",
+        "cc" * 56,
+        "4180fc02722d488b7b088b8700800000ffc8f6c43f74196683bff2870000067712e8a2d9befed0e884058c774102750341b404e93113ffff",
         "Code cave 3 (int3 padding after jmp): priority 4 for full-screen / small-target colour pipelines",
     )
     patch_vaddr(
-        0x5F0BED,
-        "4488a508ffffff",
-        "e9d6e1f1006690",
+        0x1500131,
+        "cc" * 12,
+        "4c8bad58ffffffe9620a0fff",
+        "Code cave 3b (int3 padding after ret): replay mov r13,[rbp-0xa8], back to ConfigurePipeline",
+    )
+    patch_vaddr(
+        0x5F0B98,
+        "4c8bad58ffffff",
+        "e92be2f1006690",
         "ConfigurePipeline: queue priority goes through the boost cave before the push",
     )
 
@@ -245,6 +264,69 @@ def apply(elf_bytes: bytes) -> bytes:
         "c5f92e053ac7c901",
         "c5f92e05fac5c901",
         "main loop: no-new-frames banner after 2 s (vucomisd vs 2.0 at 0x1d079d8, was 45.0 at 0x1d07b18)",
+    )
+
+    # 12. Experimental async-shader mode: "Shaders em segundo plano" gets a third
+    #     choice, "Ligado (experimental)" (value 2; still on for every other use,
+    #     Apply keeps `async_shader_compilation = value != 0`). Settings::Apply
+    #     also stores (value == 2) into the byte 0x3926582, alignment padding
+    #     after the bool cvar 0x3926581 that nothing else reads or writes (no
+    #     RIP reference, no relocation). Patches 8 and 8b read it; here it also
+    #     makes stand-in pipelines with a colour output invisible: no colour
+    #     writes, no depth writes, stencil ops KEEP (depth/stencil tests stay,
+    #     so occlusion query counts stay close to the old stand-in's). A stand-in
+    #     without colour output (depth
+    #     prepass, shadow maps) keeps writing depth as before. Values 0 and 1
+    #     leave the flag 0 and every path as it was.
+    patch_cstring(
+        0x1DA8082,
+        b"\x00" * 21,
+        b"Ligado (experimental)",
+        "label of the third async_shaders choice (zeroed tail of the reused help-text slot)",
+    )
+    patch_vaddr(
+        0x1BD933,
+        "488d058958c1014c8dbd20f8ffff488d157974ba01488d0d34b4b401488dbd50f8ffff48898520f8ffff48c78528f8ffff"
+        "8800000048c78530f8ffff01000000c78538f8ffff01000000c6853cf8ffff0148899540f8ffff48898d48f8ffff488d35"
+        "47c87903e8520d0000",
+        "904c8dbd20f8ffff488d058158c10149890749c7470888000000488d056d74ba0149894720488d0524b4b40149894728488b"
+        "0576c879030f1000410f114748488d0509a7be0149894758b80100000049894710418947184188471c498d7748498d7f30"
+        "8d5002e8820c0000",
+        "Options(): async_shaders choices = {off_on[0], off_on[1], \"Ligado (experimental)\"} via vector(ptr, 3)",
+    )
+    patch_vaddr(
+        0x1C2126,
+        "83bb8400000000488d052c3979030f9500488d054344760383bb88000000000f9500488d059938790383bb8c000000000f9500",
+        "488db384000000833e000f9505293979038b460485c00f95053e44760383f8020f940535447603837e08000f95059038790390",
+        "Settings::Apply: also store async_shaders == 2 into the experimental flag 0x3926582",
+    )
+    #     Stand-in look: VulkanPipelineCache::EnsurePipelineCreated (0x5fa580),
+    #     right before vkCreateGraphicsPipelines (subpass store at 0x5fb0ae).
+    #     [rbp-0x70] is the fragment shader override (non-null only for the
+    #     stand-in). The cave reuses the debug-level "Creating graphics pipeline
+    #     state with VS ..." log block, which a jmp at 0x5fa5d8 now skips: that
+    #     line no longer appears, even with detailed logs (level 3) on.
+    patch_vaddr(
+        0x5FA5D8,
+        "4885c07461",
+        "e98c000000",
+        "EnsurePipelineCreated: skip the debug-level pipeline log block (cave space)",
+    )
+    patch_vaddr(
+        0x5FA5DD,
+        "488b4b08488b4908488b492848898d50fcffff488b4008488b402848898540fdffffbf03000000be0800000067e811b6c5ff"
+        "84c07456488d15e9e577014c8d8550fcffff4c8d8d40fdffffb93c000000bf03000000be47000000e8c9900000eb2b488b43"
+        "08488b4008488b402848898550fcff",
+        "c785b8fdffff00000000803d94bf320300745b48837d900074548b85ecfbffff0b850cfcffff0b852cfcffff0b854cfcffff"
+        "743a31c0898528feffff48898538feffff898540feffff48898554feffff89855cfeffff8985ecfbffff89850cfcffff8985"
+        "2cfcffff89854cfcffffe9680a0000",
+        "Code cave 7 (dead log block): experimental flag + stand-in with colour -> no colour/depth/stencil writes",
+    )
+    patch_vaddr(
+        0x5FB0AE,
+        "c785b8fdffff00000000",
+        "e92af5ffff0f1f440000",
+        "EnsurePipelineCreated: subpass store goes through code cave 7",
     )
 
     return bytes(elf)
