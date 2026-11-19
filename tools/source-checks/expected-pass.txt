@@ -1,0 +1,2 @@
+# Checks that must pass on the assembled v1.0.2 tree (tools/source-checks/run.py --expect).
+# Filled from the first runs; a check not listed here is still run and reported.

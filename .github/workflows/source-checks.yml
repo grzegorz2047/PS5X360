@@ -1,0 +1,67 @@
+name: Source checks (assembled v1.0.2 tree)
+
+# Assembles the v1.0.2 source tree with tools/source-1.0.2/assemble.py from branch
+# source-1.0.2 and runs the host checks (tools/check-*, src/memory_contract_test.cpp)
+# against it with clang-18. No PS5 toolchain or RADV build is needed for host checks.
+on:
+  push:
+    paths:
+      - 'tools/source-checks/**'
+      - 'tools/check-*'
+      - '.github/workflows/source-checks.yml'
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Branch or commit with tools/source-1.0.2 (the tree to assemble)
+        default: source-1.0.2
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Host checks on the 1.0.2 tree
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout (checks runner)
+        uses: actions/checkout@v4
+        with:
+          path: ci
+
+      - name: Checkout the source-1.0.2 tooling
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref || 'source-1.0.2' }}
+          path: src
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Restore the source drops and core clone
+        uses: actions/cache@v4
+        with:
+          path: src/.deps/src102-cache
+          key: src102-cache-${{ hashFiles('src/tools/source-1.0.2/assemble.py', 'src/tools/source-1.0.2/layer.py') }}
+          restore-keys: src102-cache-
+
+      - name: Assemble the 1.0.2 source tree
+        run: python3 -I src/tools/source-1.0.2/assemble.py --out "$RUNNER_TEMP/src102" --cache src/.deps/src102-cache
+
+      - name: Host tools
+        run: |
+          clang++-18 --version | head -1
+          python -m pip install pyftpdlib
+
+      - name: Run the checks
+        run: >
+          python3 ci/tools/source-checks/run.py --tree "$RUNNER_TEMP/src102" --repo src
+          --report source-checks.json --expect ci/tools/source-checks/expected-pass.txt
+
+      - name: Upload the report and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-checks-report
+          path: source-checks.json
