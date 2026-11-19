@@ -12,6 +12,7 @@
 \sof\s = \s/\s
 \sout\sof\s5 = \s/\s5
 \swithout\sa\scover\son\sXboxUnity = \s件は\sXboxUnity\sにカバーなし
+\swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \sXboxUnity\sにも\sMicrosoft\sのサーバーにもカバーなし
 %d\schanged\s\s> = %d\s件変更\s\s>
 %d\sof\s%d = %d\s/\s%d
 %d\sof\s%d\spatches\senabled = パッチ\s%d\s/\s%d\s件が有効

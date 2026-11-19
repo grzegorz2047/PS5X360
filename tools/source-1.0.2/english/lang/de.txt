@@ -12,6 +12,7 @@
 \sof\s = \svon\s
 \sout\sof\s5 = \svon\s5
 \swithout\sa\scover\son\sXboxUnity = \sohne\sCover\sbei\sXboxUnity
+\swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \sohne\sCover\sbei\sXboxUnity\soder\sauf\sdem\sServer\svon\sMicrosoft
 %d\schanged\s\s> = %d\sgeändert\s\s>
 %d\sof\s%d = %d\svon\s%d
 %d\sof\s%d\spatches\senabled = %d\svon\s%d\sPatches\saktiviert

@@ -209,6 +209,7 @@ USB drive usb4 = Unidade USB usb4
 USB drive usb5 = Unidade USB usb5
 USB drive usb6 = Unidade USB usb6
 USB drive usb7 = Unidade USB usb7
+\swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \ssem\scapa\sno\sXboxUnity\snem\sna\sMicrosoft
 
 [added pt]
 Console storage = Armazenamento da consola
@@ -235,6 +236,7 @@ USB drive usb4 = Unidade USB usb4
 USB drive usb5 = Unidade USB usb5
 USB drive usb6 = Unidade USB usb6
 USB drive usb7 = Unidade USB usb7
+\swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \ssem\scapa\sno\sXboxUnity\snem\sna\sMicrosoft
 
 [added es]
 Console storage = Almacenamiento de la consola
@@ -261,6 +263,7 @@ USB drive usb4 = Unidad USB usb4
 USB drive usb5 = Unidad USB usb5
 USB drive usb6 = Unidad USB usb6
 USB drive usb7 = Unidad USB usb7
+\swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \ssin\sportada\sen\sXboxUnity\sni\sen\sMicrosoft
 
 [added es-419]
 Console storage = Almacenamiento de la consola
@@ -287,6 +290,7 @@ USB drive usb4 = Unidad USB usb4
 USB drive usb5 = Unidad USB usb5
 USB drive usb6 = Unidad USB usb6
 USB drive usb7 = Unidad USB usb7
+\swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \ssin\sportada\sen\sXboxUnity\sni\sen\sMicrosoft
 
 [added de]
 Console storage = Konsolenspeicher
@@ -313,6 +317,7 @@ USB drive usb4 = USB-Laufwerk usb4
 USB drive usb5 = USB-Laufwerk usb5
 USB drive usb6 = USB-Laufwerk usb6
 USB drive usb7 = USB-Laufwerk usb7
+\swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \sohne\sCover\sbei\sXboxUnity\soder\sauf\sdem\sServer\svon\sMicrosoft
 
 [added fr]
 Console storage = Stockage de la console
@@ -339,6 +344,7 @@ USB drive usb4 = Périphérique USB usb4
 USB drive usb5 = Périphérique USB usb5
 USB drive usb6 = Périphérique USB usb6
 USB drive usb7 = Périphérique USB usb7
+\swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \ssans\sjaquette\ssur\sXboxUnity\sni\ssur\sle\sserveur\sde\sMicrosoft
 
 [added it]
 Console storage = Memoria della console
@@ -365,6 +371,7 @@ USB drive usb4 = Unità USB usb4
 USB drive usb5 = Unità USB usb5
 USB drive usb6 = Unità USB usb6
 USB drive usb7 = Unità USB usb7
+\swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \ssenza\scopertina\ssu\sXboxUnity\sné\ssul\sserver\sdi\sMicrosoft
 
 [added ja]
 Console storage = 本体ストレージ
@@ -391,6 +398,7 @@ USB drive usb4 = USBドライブ usb4
 USB drive usb5 = USBドライブ usb5
 USB drive usb6 = USBドライブ usb6
 USB drive usb7 = USBドライブ usb7
+\swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \sXboxUnity\sにも\sMicrosoft\sのサーバーにもカバーなし
 
 [added ko]
 Console storage = 본체 저장 공간
@@ -417,6 +425,7 @@ USB drive usb4 = USB 드라이브 usb4
 USB drive usb5 = USB 드라이브 usb5
 USB drive usb6 = USB 드라이브 usb6
 USB drive usb7 = USB 드라이브 usb7
+\swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \sXboxUnity와\sMicrosoft\s서버에\s표지\s없음
 
 [added nl]
 Console storage = Consoleopslag
@@ -443,6 +452,7 @@ USB drive usb4 = USB-station usb4
 USB drive usb5 = USB-station usb5
 USB drive usb6 = USB-station usb6
 USB drive usb7 = USB-station usb7
+\swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \szonder\shoes\sop\sXboxUnity\sof\sde\sserver\svan\sMicrosoft
 
 [added pl]
 Console storage = Pamięć konsoli
@@ -469,6 +479,7 @@ USB drive usb4 = Dysk USB usb4
 USB drive usb5 = Dysk USB usb5
 USB drive usb6 = Dysk USB usb6
 USB drive usb7 = Dysk USB usb7
+\swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \sbez\sokładki\sw\sXboxUnity\sani\sna\sserwerze\sMicrosoftu
 
 [added ru]
 Console storage = Память консоли
@@ -495,6 +506,7 @@ USB drive usb4 = USB-накопитель usb4
 USB drive usb5 = USB-накопитель usb5
 USB drive usb6 = USB-накопитель usb6
 USB drive usb7 = USB-накопитель usb7
+\swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \sбез\sобложки\sна\sXboxUnity\sи\sна\sсервере\sMicrosoft
 
 [added tr]
 Console storage = Konsol depolama alanı
@@ -521,6 +533,7 @@ USB drive usb4 = USB sürücü usb4
 USB drive usb5 = USB sürücü usb5
 USB drive usb6 = USB sürücü usb6
 USB drive usb7 = USB sürücü usb7
+\swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \sXboxUnity'de\sve\sMicrosoft\ssunucusunda\skapak\syok
 
 [added zh-Hans]
 Console storage = 主机存储空间
@@ -547,6 +560,7 @@ USB drive usb4 = USB 驱动器 usb4
 USB drive usb5 = USB 驱动器 usb5
 USB drive usb6 = USB 驱动器 usb6
 USB drive usb7 = USB 驱动器 usb7
+\swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \sXboxUnity\s和微软服务器上都没有封面
 
 [added zh-Hant]
 Console storage = 主機儲存空間
@@ -573,3 +587,4 @@ USB drive usb4 = USB 磁碟機 usb4
 USB drive usb5 = USB 磁碟機 usb5
 USB drive usb6 = USB 磁碟機 usb6
 USB drive usb7 = USB 磁碟機 usb7
+\swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \sXboxUnity\s和微軟伺服器上都沒有封面

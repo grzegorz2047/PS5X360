@@ -1,0 +1,338 @@
+diff --git a/port/cover_fallback.hpp b/port/cover_fallback.hpp
+new file mode 100644
+index 0000000..8505633
+--- /dev/null
++++ b/port/cover_fallback.hpp
+@@ -0,0 +1,141 @@
++// Fix 41: the home's cover download (covers.cpp) falls back to Microsoft's own box art when
++// XboxUnity has no cover, as the official 1.0.2 eboot does.
++//
++// The official cover routine (0xd1000-0xd2c00) asks XboxUnity first (CoverInfo.php, then
++// Cover.php for the chosen cover) and, when that gave no picture, the Xbox marketplace image
++// server: http://download.xbox.com/content/images/66acd000-77fe-1000-9115-d802<id>/1033/boxartlg.jpg
++// with the title ID in lower case. A picture is at least 4 bytes and starts FF D8 (JPEG) or 89 'P'
++// (PNG). Its log line names where the cover came from ("XboxUnity cover <cid>" or "Xbox
++// marketplace box art"); a title neither has, or whose server answered with an HTTP error, counts
++// as without a cover; once a request to each server failed for want of a connection the run
++// stops (one down server alone only stops asking it). The shared HTTP GET (0xd3220) adds the
++// address xboxunity.net had in October 2026 to the ones it looked up only for that host.
++// game_art.cpp (the home's background and tile) builds the same image-server paths.
++// No Xenia headers here: the interface texts come in translated (checked on the host by
++// tools/check-cover-fallback.cpp).
++#pragma once
++
++#include <cctype>
++#include <cstdint>
++#include <string>
++#include <vector>
++
++namespace xbox360ps5::cover_fallback {
++
++constexpr const char* kXboxUnityHost = "xboxunity.net";
++constexpr const char* kMarketplaceHost = "download.xbox.com";
++// xboxunity.net's address in October 2026, tried after the looked-up ones.
++constexpr const char* kXboxUnityAddress = "149.56.47.64";
++constexpr const char* kMarketplaceSource = "Xbox marketplace box art";
++
++// The fixed address to try for a host after the looked-up ones: xboxunity.net's only.
++inline const char* FixedAddress(const std::string& host) {
++  return host == kXboxUnityHost ? kXboxUnityAddress : nullptr;
++}
++
++inline std::string LowerTitleId(std::string title_id) {
++  for (auto& ch : title_id) ch = char(std::tolower(static_cast<unsigned char>(ch)));
++  return title_id;
++}
++
++// The path on download.xbox.com of a title's marketplace image `name` (boxartlg.jpg,
++// background.jpg, tile.png), English (1033).
++inline std::string MarketplaceImagePath(const std::string& title_id, const std::string& name) {
++  return "/content/images/66acd000-77fe-1000-9115-d802" + LowerTitleId(title_id) + "/1033/" + name;
++}
++
++inline std::string BoxArtPath(const std::string& title_id) {
++  return MarketplaceImagePath(title_id, "boxartlg.jpg");
++}
++
++// A JPEG or PNG: at least 4 bytes, FF D8 or 89 'P' first.
++inline bool IsCoverImage(const std::vector<uint8_t>& data) {
++  return data.size() >= 4 && ((data[0] == 0xFF && data[1] == 0xD8) || (data[0] == 0x89 && data[1] == 'P'));
++}
++
++inline std::string XboxUnitySource(const std::string& cover_id) { return "XboxUnity cover " + cover_id; }
++
++// The interface texts the decisions compare with, translated by the caller (Tr).
++struct Texts {
++  std::string invalid_image;    // Tr("invalid image")
++  std::string server_returned;  // Tr("server returned "), the start of an HTTP error
++  std::string no_connection;    // Tr("no connection to "), the start of a connection failure
++  std::string no_socket;        // Tr("socket unavailable")
++};
++
++// A failure that the next title would hit as well: no connection, no socket.
++inline bool ConnectionLost(const std::string& error, const Texts& texts) {
++  return (!texts.no_connection.empty() && error.rfind(texts.no_connection, 0) == 0) ||
++         (!error.empty() && error == texts.no_socket);
++}
++
++// Kept over one run of the downloader.
++struct RunState {
++  bool xboxunity_down = false;    // CoverInfo.php could not be reached: XboxUnity is not asked again
++  bool marketplace_down = false;  // download.xbox.com could not be reached: not asked again
++};
++
++struct Result {
++  std::vector<uint8_t> image;  // the picture when `source` is set
++  std::string source;          // "XboxUnity cover <cid>", "Xbox marketplace box art", or empty
++  std::string error;           // why there is none (XboxUnity's reason first), may be empty
++};
++
++enum class Outcome { kFetched, kMissing, kFailed };
++
++// One title's cover. get(host, path, body, error) is an HTTP GET (true and the body on 200, else
++// false and a reason); choose(json) picks the cover ID from CoverInfo.php's answer ("" for none).
++template <typename Get, typename Choose>
++Result Fetch(const std::string& title_id, RunState& state, const Texts& texts, Get&& get, Choose&& choose) {
++  Result result;
++  if (!state.xboxunity_down) {
++    std::vector<uint8_t> info;
++    if (!get(std::string(kXboxUnityHost), "/Resources/Lib/CoverInfo.php?titleid=" + title_id, info,
++             result.error)) {
++      state.xboxunity_down = ConnectionLost(result.error, texts);
++    } else {
++      result.error.clear();
++      const std::string cover = choose(std::string(info.begin(), info.end()));
++      if (!cover.empty()) {
++        if (get(std::string(kXboxUnityHost), "/Resources/Lib/Cover.php?size=large&cid=" + cover,
++                result.image, result.error) &&
++            IsCoverImage(result.image)) {
++          result.source = XboxUnitySource(cover);
++          result.error.clear();
++          return result;
++        }
++        if (result.error.empty()) result.error = texts.invalid_image;
++      }
++    }
++  }
++  if (!state.marketplace_down) {
++    std::vector<uint8_t> art;
++    std::string error;
++    const bool ok = get(std::string(kMarketplaceHost), BoxArtPath(title_id), art, error);
++    state.marketplace_down = !ok && ConnectionLost(error, texts);
++    if (ok && IsCoverImage(art)) {
++      result.image.swap(art);
++      result.source = kMarketplaceSource;
++      result.error.clear();
++      return result;
++    }
++    if (result.error.empty()) result.error = error;
++  }
++  result.image.clear();
++  return result;
++}
++
++// Fetched with a source; without a cover when no server had one or a server answered with an HTTP
++// error (a title the marketplace does not know gives 404); failed otherwise.
++inline Outcome Classify(const Result& result, const Texts& texts) {
++  if (!result.source.empty()) return Outcome::kFetched;
++  if (result.error.empty() ||
++      (!texts.server_returned.empty() && result.error.rfind(texts.server_returned, 0) == 0))
++    return Outcome::kMissing;
++  return Outcome::kFailed;
++}
++
++// The rest of the run would fail the same way: neither server can be reached.
++inline bool Stop(const RunState& state) { return state.xboxunity_down && state.marketplace_down; }
++
++}  // namespace xbox360ps5::cover_fallback
+diff --git a/port/game_art.cpp b/port/game_art.cpp
+index b7e1efd..5feb3d0 100644
+--- a/port/game_art.cpp
++++ b/port/game_art.cpp
+@@ -1,5 +1,6 @@
+ // SPDX-License-Identifier: MIT
+ #include "game_art.hpp"
++#include "cover_fallback.hpp"  // fix 41: the image server's paths and picture check
+ #include "xenia/base/logging.h"
+ 
+ #include <arpa/inet.h>
+@@ -63,7 +64,7 @@ std::vector<uint8_t> Get(const std::string& path) {
+ }
+ 
+ bool IsPicture(const std::vector<uint8_t>& data) {
+-  return data.size() > 64 && ((data[0] == 0xFF && data[1] == 0xD8) || (data[0] == 0x89 && data[1] == 'P'));
++  return data.size() > 64 && xbox360ps5::cover_fallback::IsCoverImage(data);
+ }
+ 
+ // Saves through a temporary name, so a half-written picture is never loaded.
+@@ -84,13 +85,10 @@ void Run(std::vector<std::string> ids) {
+   fs::create_directories(kFolder, error);
+   bool saved = false;
+   for (const auto& id : ids) {
+-    std::string lower = id;
+-    for (auto& ch : lower) ch = char(std::tolower(static_cast<unsigned char>(ch)));
+-    const std::string base = "/content/images/66acd000-77fe-1000-9115-d802" + lower + "/1033/";
+     const std::pair<fs::path, const char*> wanted[] = {{Background(id), "background.jpg"}, {Tile(id), "tile.png"}};
+     for (const auto& [file, name] : wanted) {
+       if (fs::exists(file, error)) continue;
+-      const auto data = Get(base + name);
++      const auto data = Get(xbox360ps5::cover_fallback::MarketplaceImagePath(id, name));
+       const bool ok = IsPicture(data) && Save(file, data);
+       saved |= ok;
+       XELOGW("Home: game art {} {} for {} ({} bytes)", name, ok ? "saved" : "not found", id, data.size());
+diff --git a/src/covers.cpp b/src/covers.cpp
+index 328f01a..baaca27 100644
+--- a/src/covers.cpp
++++ b/src/covers.cpp
+@@ -1,6 +1,7 @@
+ // SPDX-License-Identifier: MIT
+ #include "xbox360ps5/i18n.hpp"
+ #include "xbox360ps5/covers.hpp"
++#include "cover_fallback.hpp"  // fix 41: Microsoft box art after XboxUnity
+ #include "xenia/base/logging.h"
+ #include "xenia/base/platform.h"
+ #include <algorithm>
+@@ -8,6 +9,8 @@
+ #include <cstdio>
+ #include <cstring>
+ #include <fstream>
++#include <map>
++#include <mutex>
+ #include <netdb.h>
+ #include <netinet/in.h>
+ #include <sys/socket.h>
+@@ -23,7 +26,6 @@ extern "C" int sceNetResolverDestroy(int resolver);
+ namespace xbox360ps5 {
+ namespace {
+ namespace fs = std::filesystem;
+-constexpr const char* kHost = "xboxunity.net";
+ 
+ uint32_t BE32(const uint8_t* p) { return uint32_t(p[0]) << 24 | uint32_t(p[1]) << 16 | uint32_t(p[2]) << 8 | p[3]; }
+ uint32_t LE32(const uint8_t* p) { return uint32_t(p[3]) << 24 | uint32_t(p[2]) << 16 | uint32_t(p[1]) << 8 | p[0]; }
+@@ -127,30 +129,36 @@ in_addr_t SystemResolve(const char* host) {
+   return address;
+ }
+ 
+-// Where to reach the cover server, best first: public DNS servers, then the
+-// console's DNS, then the address it had when this was written.
+-std::vector<in_addr_t> Candidates(const char* host) {
+-  static std::vector<in_addr_t> cached;
+-  if (!cached.empty()) return cached;
++// Where to reach a cover server, best first: public DNS servers, then the
++// console's DNS, then (xboxunity.net only, as 1.0.2) the address it had when this was written.
++std::vector<in_addr_t> Candidates(const std::string& host) {
++  static std::mutex mutex;
++  static std::map<std::string, std::vector<in_addr_t>> cached;
++  {
++    std::lock_guard<std::mutex> lock(mutex);
++    if (const auto known = cached.find(host); known != cached.end() && !known->second.empty())
++      return known->second;
++  }
+   std::vector<in_addr_t> list;
+   const auto add = [&](in_addr_t address) {
+     if (address && address != INADDR_NONE && std::find(list.begin(), list.end(), address) == list.end())
+       list.push_back(address);
+   };
+   for (const char* server : {"1.1.1.1", "8.8.8.8", "9.9.9.9"}) {
+-    add(QueryDns(server, host));
++    add(QueryDns(server, host.c_str()));
+     if (!list.empty()) break;
+   }
+-  add(SystemResolve(host));
+-  add(inet_addr("149.56.47.64"));  // xboxunity.net, October 2026.
+-  cached = list;
++  add(SystemResolve(host.c_str()));
++  if (const char* fixed = cover_fallback::FixedAddress(host)) add(inet_addr(fixed));  // October 2026
++  std::lock_guard<std::mutex> lock(mutex);
++  cached[host] = list;
+   return list;
+ }
+ 
+-// A GET over HTTP/1.1; the body, with chunked transfer decoded.
+-bool HttpGet(const std::string& path, std::vector<uint8_t>& body, std::string& error) {
++// A GET of http://<host><path> over HTTP/1.1; the body, with chunked transfer decoded.
++bool HttpGet(const std::string& host, const std::string& path, std::vector<uint8_t>& body, std::string& error) {
+   int stream = -1;
+-  for (const in_addr_t address : Candidates(kHost)) {
++  for (const in_addr_t address : Candidates(host)) {
+     stream = socket(AF_INET, SOCK_STREAM, 0);
+     if (stream < 0) { error = Tr("socket unavailable"); return false; }
+     timeval timeout{15, 0};
+@@ -164,8 +172,8 @@ bool HttpGet(const std::string& path, std::vector<uint8_t>& body, std::string& e
+     close(stream);
+     stream = -1;
+   }
+-  if (stream < 0) { error = Tr("no connection to ") + std::string(kHost) + Tr(" (is the PS5 online?)"); return false; }
+-  const std::string request = "GET " + path + " HTTP/1.1\r\nHost: " + kHost +
++  if (stream < 0) { error = Tr("no connection to ") + host + Tr(" (is the PS5 online?)"); return false; }
++  const std::string request = "GET " + path + " HTTP/1.1\r\nHost: " + host +
+                               "\r\nUser-Agent: Xbox360PS5\r\nAccept: */*\r\nConnection: close\r\n\r\n";
+   send(stream, request.data(), request.size(), 0);
+   std::vector<uint8_t> raw;
+@@ -179,6 +187,7 @@ bool HttpGet(const std::string& path, std::vector<uint8_t>& body, std::string& e
+   std::string head(raw.begin(), end);
+   std::transform(head.begin(), head.end(), head.begin(), [](unsigned char c) { return char(std::tolower(c)); });
+   if (head.compare(0, 12, "http/1.1 200") && head.compare(0, 12, "http/1.0 200")) {
++    if (head.size() < 12) { error = Tr("incomplete response"); return false; }  // substr(9) would throw
+     error = Tr("server returned ") + head.substr(9, 3);
+     return false;
+   }
+@@ -306,33 +315,37 @@ void CoverDownloader::Run(std::vector<std::string> title_ids) {
+   if (!title_ids.empty()) fs::create_directories(CoverFile(title_ids[0]).parent_path(), error);
+   int fetched = 0, missing = 0, failed = 0;
+   std::string problem;
++  // XboxUnity first, then Microsoft's box art (fix 41, cover_fallback.hpp).
++  const cover_fallback::Texts texts{Tr("invalid image"), Tr("server returned "), Tr("no connection to "),
++                                    Tr("socket unavailable")};
++  cover_fallback::RunState state;
++  const auto get = [](const std::string& host, const std::string& path, std::vector<uint8_t>& body,
++                      std::string& why) { return HttpGet(host, path, body, why); };
+   for (size_t n = 0; n < title_ids.size(); ++n) {
+     const std::string& id = title_ids[n];
+     set(Tr("Downloading covers: ") + std::to_string(n + 1) + Tr(" of ") + std::to_string(title_ids.size()));
+-    std::vector<uint8_t> info, image;
+-    std::string why;
+-    if (!HttpGet("/Resources/Lib/CoverInfo.php?titleid=" + id, info, why)) {
+-      ++failed;
+-      problem = why;
+-      // Without a connection, the rest would fail the same way.
+-      if (why.rfind(Tr("no connection to "), 0) == 0 || why == Tr("socket unavailable")) break;
+-      continue;
+-    }
+-    const std::string cover = ChooseCover(std::string(info.begin(), info.end()));
+-    if (cover.empty()) { ++missing; continue; }
+-    if (!HttpGet("/Resources/Lib/Cover.php?size=large&cid=" + cover, image, why) || image.size() < 4 ||
+-        !((image[0] == 0xFF && image[1] == 0xD8) || (image[0] == 0x89 && image[1] == 'P'))) {
+-      ++failed;
+-      problem = why.empty() ? Tr("invalid image") : why;
+-      continue;
++    const cover_fallback::Result result = cover_fallback::Fetch(id, state, texts, get, ChooseCover);
++    switch (cover_fallback::Classify(result, texts)) {
++      case cover_fallback::Outcome::kFetched: {
++        std::ofstream output(CoverFile(id), std::ios::trunc | std::ios::binary);
++        output.write(reinterpret_cast<const char*>(result.image.data()), std::streamsize(result.image.size()));
++        ++fetched;
++        XELOGI("Cover {} downloaded ({} bytes, {})", id, result.image.size(), result.source);
++        break;
++      }
++      case cover_fallback::Outcome::kMissing:
++        ++missing;
++        break;
++      case cover_fallback::Outcome::kFailed:
++        ++failed;
++        problem = result.error;
++        break;
+     }
+-    std::ofstream output(CoverFile(id), std::ios::trunc | std::ios::binary);
+-    output.write(reinterpret_cast<const char*>(image.data()), std::streamsize(image.size()));
+-    ++fetched;
+-    XELOGI("Cover {} downloaded ({} bytes, XboxUnity cover {})", id, image.size(), cover);
++    // Neither server can be reached: the rest would fail the same way.
++    if (cover_fallback::Stop(state)) break;
+   }
+   std::string summary = std::to_string(fetched) + (fetched == 1 ? Tr(" cover downloaded") : Tr(" covers downloaded"));
+-  if (missing) summary += ", " + std::to_string(missing) + Tr(" without a cover on XboxUnity");
++  if (missing) summary += ", " + std::to_string(missing) + Tr(" without a cover on XboxUnity or Microsoft");
+   if (failed) summary += ", " + std::to_string(failed) + Tr(" failed (") + problem + ")";
+   if (title_ids.empty()) summary = Tr("All identified games already have covers");
+   XELOGW("Covers: {}", summary);
