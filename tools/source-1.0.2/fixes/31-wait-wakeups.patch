@@ -1,0 +1,1750 @@
+diff --git a/.deps/xenia-canary/src/xenia/base/posix_conditions.h b/.deps/xenia-canary/src/xenia/base/posix_conditions.h
+new file mode 100644
+index 0000000..05e72a4
+--- /dev/null
++++ b/.deps/xenia-canary/src/xenia/base/posix_conditions.h
+@@ -0,0 +1,570 @@
++/**
++ ******************************************************************************
++ * Xenia : Xbox 360 Emulator Research Project                                 *
++ ******************************************************************************
++ * Copyright 2022 Ben Vanik. All rights reserved.                             *
++ * Released under the BSD license - see LICENSE in the root for more details. *
++ ******************************************************************************
++ */
++
++// Xbox360PS5 (fix 31): the wait objects of threading_posix.cc (the base, Event,
++// Semaphore and Mutant), moved here unchanged apart from fix 31 so that a host
++// check builds the same code. The includer defines
++// xe::threading::SuspensionDeferred first (threading_posix.cc: it blocks the
++// suspend signal for its lifetime).
++//
++// Fix 31, multi-object waits. 1.0.2 woke them with one global condition
++// variable: every Set, Release or thread exit, of any object, took the global
++// any_mutex_ and broadcast to every thread parked in WaitMultiple, and each of
++// those took any_mutex_ again and polled its objects. Minecraft keeps seven
++// threads parked there and hands guest critical sections between three others
++// thousands of times a frame, so each hand-off paid for that herd. Now a
++// thread in WaitMultiple registers with each object it waits on (under that
++// object's mutex_, where it checked them) and an object's state change wakes
++// only the threads registered with it. The 4 ms bound on each sleep stays, for
++// state that changes without a signal.
++//
++// Also: a semaphore's decrement no longer wakes anybody (it cannot satisfy a
++// wait), and an auto-reset event's signal kept for the threads that were
++// waiting when it was set is released to the others when the last of those
++// leaves without taking it (a timeout, or a wait for several objects that
++// took another one); 1.0.2 kept it from a later waiter until the next Set.
++//
++// XBOX360PS5_LEGACY_WAKES (defined before including) gives 1.0.2's behaviour,
++// for the check's comparison (and util/critical_section.h's 1.0.2 Enter).
++
++#ifndef XENIA_BASE_POSIX_CONDITIONS_H_
++#define XENIA_BASE_POSIX_CONDITIONS_H_
++
++#include <pthread.h>
++
++#include <algorithm>
++#include <atomic>
++#include <cerrno>
++#include <chrono>
++#include <condition_variable>
++#include <cstdint>
++#include <limits>
++#include <mutex>
++#include <thread>
++#include <utility>
++#include <vector>
++
++#include "xenia/base/assert.h"
++#include "xenia/base/threading.h"
++#include "xenia/base/wait_stats.h"
++
++namespace xe {
++namespace threading {
++
++#ifdef XBOX360PS5_LEGACY_WAKES
++inline constexpr bool kTargetedWakes = false;
++#else
++inline constexpr bool kTargetedWakes = true;
++#endif
++
++// Longest sleep of a multi-object wait between two looks at its objects
++// (the check raises it, so that a lost wake-up shows as a hang).
++#ifndef XBOX360PS5_MULTI_WAIT_BOUND_MS
++#define XBOX360PS5_MULTI_WAIT_BOUND_MS 4
++#endif
++inline constexpr std::chrono::milliseconds kMultiWaitBound{
++    XBOX360PS5_MULTI_WAIT_BOUND_MS};
++
++class PosixConditionBase {
++ public:
++  PosixConditionBase() {
++    // Initialize as robust mutex to handle thread termination gracefully
++    pthread_mutexattr_t attr;
++    pthread_mutexattr_init(&attr);
++    pthread_mutexattr_setrobust(&attr, PTHREAD_MUTEX_ROBUST);
++
++    // Get the native handle and set it as robust
++    auto native_mutex = static_cast<pthread_mutex_t*>(mutex_.native_handle());
++    pthread_mutex_destroy(native_mutex);      // Destroy default mutex
++    pthread_mutex_init(native_mutex, &attr);  // Reinit as robust
++    pthread_mutexattr_destroy(&attr);
++  }
++
++  virtual ~PosixConditionBase() = default;
++  virtual bool Signal() = 0;
++
++  WaitResult Wait(std::chrono::milliseconds timeout) {
++    SuspensionDeferred condition_suspend_guard;
++    bool executed;
++    auto predicate = [this] { return this->signaled(); };
++
++    // Handle robust mutex locking
++    auto native_mutex = static_cast<pthread_mutex_t*>(mutex_.native_handle());
++    int lock_result = pthread_mutex_lock(native_mutex);
++    if (lock_result == EOWNERDEAD) {
++      // Recover from dead owner
++      pthread_mutex_consistent(native_mutex);
++    } else if (lock_result != 0) {
++      return WaitResult::kFailed;
++    }
++
++    std::unique_lock<std::mutex> lock(mutex_, std::adopt_lock);
++
++    if (predicate()) {
++      executed = true;
++    } else {
++      // Xbox360PS5: a blocked wait holds a ticket, so that a signal set while
++      // it waits is kept for it (see PosixCondition<Event>).
++      wait_ticket_ = ++ticket_counter_;
++      begin_wait();
++      const uint64_t blocked_at = wait_stats::Ticks();
++      if (timeout == std::chrono::milliseconds::max()) {
++        cond_.wait(lock, predicate);
++        executed = true;  // Did not time out;
++      } else {
++        executed = cond_.wait_for(lock, timeout, predicate);
++      }
++      if (executed) {
++        post_execution();
++      }
++      end_wait();
++      wait_ticket_ = 0;
++      lock.unlock();
++      wait_stats::Add(wait_stats::kSingleBlocked,
++                      wait_stats::Ticks() - blocked_at);
++      return executed ? WaitResult::kSuccess : WaitResult::kTimeout;
++    }
++    if (executed) {
++      post_execution();
++      return WaitResult::kSuccess;
++    }
++    return WaitResult::kTimeout;
++  }
++
++  // Xbox360PS5 (fix 31): a thread blocked in WaitMultiple, registered with
++  // each object it waits on.
++  struct MultiWaiter {
++    std::mutex mutex;
++    std::condition_variable cond;
++    bool notified = false;  // guarded by mutex
++  };
++
++  static std::pair<WaitResult, size_t> WaitMultiple(
++      std::vector<PosixConditionBase*>&& handles, bool wait_all,
++      std::chrono::milliseconds timeout) {
++    SuspensionDeferred condition_suspend_guard;
++    assert_true(!handles.empty());
++
++    // For single handle, just use the normal Wait path
++    if (handles.size() == 1) {
++      auto result = handles[0]->Wait(timeout);
++      return std::make_pair(result, 0);
++    }
++
++    // For multiple handles, we need to poll since we can't wait on multiple
++    // condition variables simultaneously. This is a limitation of the POSIX
++    // condition variable API.
++    auto start_time = std::chrono::steady_clock::now();
++    auto end_time = (timeout == std::chrono::milliseconds::max())
++                        ? std::chrono::steady_clock::time_point::max()
++                        : start_time + timeout;
++
++    // Xbox360PS5: once the first poll fails, this thread counts as a waiter of
++    // every handle (with a ticket, as in Wait), and sleeps until any object
++    // is signaled rather than for a fixed millisecond.
++    bool registered = false;
++    MultiWaiter self;
++    const auto unregister = [&handles, &registered, &self](bool locked) {
++      if (!registered) {
++        return;
++      }
++      for (auto handle : handles) {
++        if (locked) {
++          handle->end_multi_wait(&self);
++        } else {
++          std::lock_guard<std::mutex> handle_lock(handle->mutex_);
++          handle->end_multi_wait(&self);
++        }
++      }
++      registered = false;
++      wait_ticket_ = 0;
++    };
++
++    while (true) {
++      const uint64_t generation = any_generation_.load();
++      // Check all handles to see if any/all are signaled
++      // Use try_lock to avoid deadlocks from lock ordering issues
++      size_t first_signaled = std::numeric_limits<size_t>::max();
++      bool condition_met = false;
++
++      // Try to acquire all locks without blocking
++      std::vector<std::unique_lock<std::mutex>> locks;
++      locks.reserve(handles.size());
++      bool all_locked = true;
++
++      for (size_t i = 0; i < handles.size(); ++i) {
++        // Try to lock, handling robust mutex EOWNERDEAD case
++        auto native_mutex =
++            static_cast<pthread_mutex_t*>(handles[i]->mutex_.native_handle());
++        int result = pthread_mutex_trylock(native_mutex);
++
++        if (result == 0 || result == EOWNERDEAD) {
++          // Successfully acquired lock or recovered from dead owner
++          if (result == EOWNERDEAD) {
++            // Make mutex consistent after previous owner died
++            pthread_mutex_consistent(native_mutex);
++          }
++          locks.emplace_back(handles[i]->mutex_, std::adopt_lock);
++        } else {
++          // Couldn't acquire lock
++          all_locked = false;
++          break;
++        }
++      }
++
++      // If we couldn't acquire all locks, release what we have and retry
++      if (!all_locked) {
++        locks.clear();
++        std::this_thread::yield();
++        continue;
++      }
++
++      // Now we have all locks, check the condition
++      if (wait_all) {
++        // For wait_all, check if ALL are signaled
++        bool all_signaled = true;
++        for (size_t i = 0; i < handles.size(); ++i) {
++          if (!handles[i]->signaled()) {
++            all_signaled = false;
++            break;
++          }
++          if (first_signaled == std::numeric_limits<size_t>::max()) {
++            first_signaled = i;
++          }
++        }
++        condition_met = all_signaled;
++      } else {
++        // For wait_any, check if ANY is signaled
++        for (size_t i = 0; i < handles.size(); ++i) {
++          if (handles[i]->signaled()) {
++            first_signaled = i;
++            condition_met = true;
++            break;
++          }
++        }
++      }
++
++      if (condition_met) {
++        // Execute post_execution for the signaled handle(s)
++        if (wait_all) {
++          for (size_t i = 0; i < handles.size(); ++i) {
++            handles[i]->post_execution();
++          }
++        } else {
++          handles[first_signaled]->post_execution();
++        }
++        unregister(true);
++        return std::make_pair(WaitResult::kSuccess, first_signaled);
++      }
++
++      // Check timeout
++      auto now = std::chrono::steady_clock::now();
++      if (now >= end_time) {
++        unregister(true);
++        return std::make_pair<WaitResult, size_t>(WaitResult::kTimeout, 0);
++      }
++
++      if (!registered) {
++        registered = true;
++        wait_ticket_ = ++ticket_counter_;
++        for (auto handle : handles) {
++          handle->begin_multi_wait(&self);
++        }
++      }
++      if (kTargetedWakes) {
++        // Every handle is locked: a state change after this is made under
++        // one of their locks, after this reset, and finds this thread
++        // registered.
++        std::lock_guard<std::mutex> self_lock(self.mutex);
++        self.notified = false;
++      }
++
++      // Release locks before sleeping
++      locks.clear();
++
++      // Sleep until something is signaled (with a short bound, in case a
++      // state change does not go through a signal).
++      auto remaining =
++          std::chrono::duration_cast<std::chrono::milliseconds>(end_time - now);
++      auto sleep_time = std::min(remaining, kMultiWaitBound);
++      const uint64_t slept_at = wait_stats::Ticks();
++      bool woken;
++      if (kTargetedWakes) {
++        std::unique_lock<std::mutex> self_lock(self.mutex);
++        woken = self.cond.wait_for(self_lock, sleep_time,
++                                   [&self] { return self.notified; });
++      } else {
++        std::unique_lock<std::mutex> any_lock(any_mutex_);
++        ++any_parked_;
++        woken = any_cond_.wait_for(any_lock, sleep_time, [generation] {
++          return any_generation_.load() != generation;
++        });
++        --any_parked_;
++      }
++      wait_stats::Add(wait_stats::kMultiSleep,
++                      wait_stats::Ticks() - slept_at);
++      if (!woken) {
++        wait_stats::Add(wait_stats::kMultiBound);
++      }
++    }
++  }
++
++  [[nodiscard]] virtual void* native_handle() const {
++    return const_cast<std::condition_variable&>(cond_).native_handle();
++  }
++
++  // For the check: the threads in WaitMultiple registered with this object.
++  size_t multi_waiter_count() {
++    std::lock_guard<std::mutex> lock(mutex_);
++    return multi_waiters_.size();
++  }
++
++ protected:
++  [[nodiscard]] inline virtual bool signaled() const = 0;
++  inline virtual void post_execution() = 0;
++  // Xbox360PS5: around the blocked part of a wait, with mutex_ held.
++  virtual void begin_wait() {}
++  virtual void end_wait() {}
++
++ public:
++  // Xbox360PS5 (fix 31): with mutex_ held, after a change that can satisfy a
++  // wait: wakes the threads in WaitMultiple registered with this object.
++  void NotifyMultiWaiters() {
++    if (!kTargetedWakes || multi_waiters_.empty()) {
++      return;
++    }
++    for (MultiWaiter* waiter : multi_waiters_) {
++      std::lock_guard<std::mutex> waiter_lock(waiter->mutex);
++      waiter->notified = true;
++      waiter->cond.notify_one();
++    }
++    wait_stats::Add(wait_stats::kTargetedNotify, 0, multi_waiters_.size());
++  }
++  // 1.0.2's wake of every multi-object wait, kept only with
++  // XBOX360PS5_LEGACY_WAKES.
++  static void NotifyAnyLegacy() {
++    if (!kTargetedWakes) {
++      NotifyAny();
++    }
++  }
++
++  // Xbox360PS5: wakes the waits on several objects, after a state change.
++  static void NotifyAny() {
++    const uint64_t started = wait_stats::Ticks();
++    uint64_t parked;
++    {
++      SuspensionDeferred condition_suspend_guard;
++      std::lock_guard<std::mutex> any_lock(any_mutex_);
++      ++any_generation_;
++      parked = any_parked_;
++    }
++    any_cond_.notify_all();
++    wait_stats::Add(wait_stats::kGlobalNotify,
++                    wait_stats::Ticks() - started, parked);
++  }
++
++ protected:
++  void begin_multi_wait(MultiWaiter* waiter) {
++    begin_wait();
++    if (kTargetedWakes) {
++      multi_waiters_.push_back(waiter);
++    }
++  }
++  void end_multi_wait(MultiWaiter* waiter) {
++    if (kTargetedWakes) {
++      auto it = std::find(multi_waiters_.begin(), multi_waiters_.end(), waiter);
++      if (it != multi_waiters_.end()) {
++        multi_waiters_.erase(it);
++      }
++    }
++    end_wait();
++  }
++
++  // The ticket of the wait this thread is blocked in, or zero. Tickets grow
++  // with time: one taken before a signal is not greater than the counter read
++  // when the signal is set.
++  static inline thread_local uint64_t wait_ticket_ = 0;
++  static inline std::atomic<uint64_t> ticket_counter_{0};
++  static inline std::atomic<uint64_t> any_generation_{0};
++  static inline std::mutex any_mutex_;
++  static inline std::condition_variable any_cond_;
++  static inline uint64_t any_parked_ = 0;  // guarded by any_mutex_
++  std::condition_variable cond_;
++  std::mutex mutex_;
++  std::vector<MultiWaiter*> multi_waiters_;  // guarded by mutex_
++};
++
++// There really is no native POSIX handle for a single wait/signal construct
++// pthreads is at a lower level with more handles for such a mechanism.
++// This simple wrapper class functions as our handle and uses conditional
++// variables for waits and signals.
++template <typename T>
++class PosixCondition {};
++
++template <>
++class PosixCondition<Event> : public PosixConditionBase {
++ public:
++  PosixCondition(bool manual_reset, bool initial_state)
++      : signal_(initial_state), manual_reset_(manual_reset) {}
++  ~PosixCondition() override = default;
++
++  bool Signal() override {
++    {
++      SuspensionDeferred condition_suspend_guard;
++      auto lock = std::unique_lock(mutex_);
++      signal_ = true;
++      // Xbox360PS5: with threads already waiting, the signal of an auto-reset
++      // event is theirs (see PosixConditionBase::wait_ticket_).
++      reserved_ = !manual_reset_ && waiters_ > 0;
++      reserved_ticket_ = ticket_counter_.load();
++      // Fix 31: every thread waiting now holds a ticket not above
++      // reserved_ticket_ (tickets are taken under mutex_).
++      eligible_ = reserved_ ? waiters_ : 0;
++      cond_.notify_all();
++      NotifyMultiWaiters();
++    }
++    NotifyAnyLegacy();
++    return true;
++  }
++
++  void Reset() {
++    SuspensionDeferred condition_suspend_guard;
++    auto lock = std::unique_lock(mutex_);
++    signal_ = false;
++    reserved_ = false;
++  }
++
++  EventInfo Query() {
++    SuspensionDeferred condition_suspend_guard;
++    auto lock = std::unique_lock(mutex_);
++    // EVENT_TYPE: NotificationEvent = 0, SynchronizationEvent = 1.
++    return EventInfo{manual_reset_ ? 0u : 1u, signal_ ? 1u : 0u};
++  }
++
++ private:
++  [[nodiscard]] bool signaled() const override {
++    return signal_ && (!reserved_ || (wait_ticket_ != 0 &&
++                                      wait_ticket_ <= reserved_ticket_));
++  }
++  void post_execution() override {
++    if (!manual_reset_) {
++      signal_ = false;
++      reserved_ = false;
++    }
++  }
++  void begin_wait() override { ++waiters_; }
++  void end_wait() override {
++    const bool was_eligible =
++        reserved_ && wait_ticket_ != 0 && wait_ticket_ <= reserved_ticket_;
++    // Nobody left of those the signal was kept for: anyone may take it.
++    if (--waiters_ == 0) {
++      reserved_ = false;
++    } else if (kTargetedWakes && was_eligible && --eligible_ == 0) {
++      // Fix 31: the threads still waiting came after the signal; it is
++      // theirs now, as if it had been set after they started waiting.
++      reserved_ = false;
++      cond_.notify_all();
++      NotifyMultiWaiters();
++    }
++  }
++  uint32_t waiters_ = 0;
++  uint32_t eligible_ = 0;  // waiters that may take the kept signal
++  bool reserved_ = false;
++  uint64_t reserved_ticket_ = 0;
++  bool signal_;
++  const bool manual_reset_;
++};
++
++template <>
++class PosixCondition<Semaphore> final : public PosixConditionBase {
++ public:
++  PosixCondition(uint32_t initial_count, uint32_t maximum_count)
++      : count_(initial_count), maximum_count_(maximum_count) {}
++
++  bool Signal() override { return Release(1, nullptr); }
++
++  bool Release(uint32_t release_count, int* out_previous_count) {
++    SuspensionDeferred condition_suspend_guard;
++    auto lock = std::unique_lock(mutex_);
++    // Validate that releasing would not exceed the maximum count
++    if (count_ + release_count > maximum_count_) {
++      return false;
++    }
++    if (out_previous_count) {
++      *out_previous_count = count_;
++    }
++    count_ += release_count;
++    cond_.notify_all();
++    NotifyMultiWaiters();
++    NotifyAnyLegacy();  // Xbox360PS5: wake waits on several objects.
++    return true;
++  }
++
++ private:
++  [[nodiscard]] bool signaled() const override { return count_ > 0; }
++  void post_execution() override {
++    count_--;
++    // Fix 31: a decrement satisfies no wait; 1.0.2 woke everybody here.
++    if (!kTargetedWakes) {
++      cond_.notify_all();
++      PosixConditionBase::NotifyAny();
++    }
++  }
++  uint32_t count_;
++  const uint32_t maximum_count_;
++};
++
++template <>
++class PosixCondition<Mutant> final : public PosixConditionBase {
++ public:
++  explicit PosixCondition(bool initial_owner) : count_(0) {
++    if (initial_owner) {
++      count_ = 1;
++      owner_ = std::this_thread::get_id();
++    }
++  }
++
++  bool Signal() override { return Release(); }
++
++  bool Release() {
++    if (owner_ == std::this_thread::get_id() && count_ > 0) {
++      SuspensionDeferred condition_suspend_guard;
++      auto lock = std::unique_lock(mutex_);
++      --count_;
++      // Free to be acquired by another thread
++      if (count_ == 0) {
++        cond_.notify_all();
++        NotifyMultiWaiters();
++        NotifyAnyLegacy();  // Xbox360PS5: wake waits on several objects.
++      }
++      return true;
++    }
++    return false;
++  }
++
++  [[nodiscard]] void* native_handle() const override {
++    return const_cast<std::mutex&>(mutex_).native_handle();
++  }
++
++ private:
++  [[nodiscard]] bool signaled() const override {
++    return count_ == 0 || owner_ == std::this_thread::get_id();
++  }
++  void post_execution() override {
++    count_++;
++    owner_ = std::this_thread::get_id();
++  }
++  uint32_t count_;
++  std::thread::id owner_;
++};
++
++}  // namespace threading
++}  // namespace xe
++
++#endif  // XENIA_BASE_POSIX_CONDITIONS_H_
+diff --git a/.deps/xenia-canary/src/xenia/base/threading_posix.cc b/.deps/xenia-canary/src/xenia/base/threading_posix.cc
+index bb07c33..ba2877e 100644
+--- a/.deps/xenia-canary/src/xenia/base/threading_posix.cc
++++ b/.deps/xenia-canary/src/xenia/base/threading_posix.cc
+@@ -13,6 +13,7 @@
+ #include "xenia/base/chrono_steady_cast.h"
+ #include "xenia/base/platform.h"
+ #include "xenia/base/threading_timer_queue.h"
++#include "xenia/base/wait_stats.h"
+ 
+ #include <pthread.h>
+ #include <sched.h>
+@@ -165,6 +166,7 @@ class SuspensionDeferred {
+   SuspensionDeferred() {
+     sigset_t previous;
+     pthread_sigmask(SIG_BLOCK, &Signals(), &previous);
++    wait_stats::Add(wait_stats::kSuspendMask);  // fix 31
+     was_deferred_ =
+         sigismember(&previous,
+                     GetSystemSignal(SignalType::kThreadSuspend)) == 1;
+@@ -288,394 +290,8 @@ bool SetTlsValue(TlsHandle handle, uintptr_t value) {
+   return pthread_setspecific(handle, reinterpret_cast<void*>(value)) == 0;
+ }
+ 
+-class PosixConditionBase {
+- public:
+-  PosixConditionBase() {
+-    // Initialize as robust mutex to handle thread termination gracefully
+-    pthread_mutexattr_t attr;
+-    pthread_mutexattr_init(&attr);
+-    pthread_mutexattr_setrobust(&attr, PTHREAD_MUTEX_ROBUST);
+-
+-    // Get the native handle and set it as robust
+-    auto native_mutex = static_cast<pthread_mutex_t*>(mutex_.native_handle());
+-    pthread_mutex_destroy(native_mutex);      // Destroy default mutex
+-    pthread_mutex_init(native_mutex, &attr);  // Reinit as robust
+-    pthread_mutexattr_destroy(&attr);
+-  }
+-
+-  virtual ~PosixConditionBase() = default;
+-  virtual bool Signal() = 0;
+-
+-  WaitResult Wait(std::chrono::milliseconds timeout) {
+-    SuspensionDeferred condition_suspend_guard;
+-    bool executed;
+-    auto predicate = [this] { return this->signaled(); };
+-
+-    // Handle robust mutex locking
+-    auto native_mutex = static_cast<pthread_mutex_t*>(mutex_.native_handle());
+-    int lock_result = pthread_mutex_lock(native_mutex);
+-    if (lock_result == EOWNERDEAD) {
+-      // Recover from dead owner
+-      pthread_mutex_consistent(native_mutex);
+-    } else if (lock_result != 0) {
+-      return WaitResult::kFailed;
+-    }
+-
+-    std::unique_lock<std::mutex> lock(mutex_, std::adopt_lock);
+-
+-    if (predicate()) {
+-      executed = true;
+-    } else {
+-      // Xbox360PS5: a blocked wait holds a ticket, so that a signal set while
+-      // it waits is kept for it (see PosixCondition<Event>).
+-      wait_ticket_ = ++ticket_counter_;
+-      begin_wait();
+-      if (timeout == std::chrono::milliseconds::max()) {
+-        cond_.wait(lock, predicate);
+-        executed = true;  // Did not time out;
+-      } else {
+-        executed = cond_.wait_for(lock, timeout, predicate);
+-      }
+-      if (executed) {
+-        post_execution();
+-      }
+-      end_wait();
+-      wait_ticket_ = 0;
+-      return executed ? WaitResult::kSuccess : WaitResult::kTimeout;
+-    }
+-    if (executed) {
+-      post_execution();
+-      return WaitResult::kSuccess;
+-    }
+-    return WaitResult::kTimeout;
+-  }
+-
+-  static std::pair<WaitResult, size_t> WaitMultiple(
+-      std::vector<PosixConditionBase*>&& handles, bool wait_all,
+-      std::chrono::milliseconds timeout) {
+-    SuspensionDeferred condition_suspend_guard;
+-    assert_true(!handles.empty());
+-
+-    // For single handle, just use the normal Wait path
+-    if (handles.size() == 1) {
+-      auto result = handles[0]->Wait(timeout);
+-      return std::make_pair(result, 0);
+-    }
+-
+-    // For multiple handles, we need to poll since we can't wait on multiple
+-    // condition variables simultaneously. This is a limitation of the POSIX
+-    // condition variable API.
+-    auto start_time = std::chrono::steady_clock::now();
+-    auto end_time = (timeout == std::chrono::milliseconds::max())
+-                        ? std::chrono::steady_clock::time_point::max()
+-                        : start_time + timeout;
+-
+-    // Xbox360PS5: once the first poll fails, this thread counts as a waiter of
+-    // every handle (with a ticket, as in Wait), and sleeps until any object
+-    // is signaled rather than for a fixed millisecond.
+-    bool registered = false;
+-    const auto unregister = [&handles, &registered](bool locked) {
+-      if (!registered) {
+-        return;
+-      }
+-      for (auto handle : handles) {
+-        if (locked) {
+-          handle->end_wait();
+-        } else {
+-          std::lock_guard<std::mutex> handle_lock(handle->mutex_);
+-          handle->end_wait();
+-        }
+-      }
+-      registered = false;
+-      wait_ticket_ = 0;
+-    };
+-
+-    while (true) {
+-      const uint64_t generation = any_generation_.load();
+-      // Check all handles to see if any/all are signaled
+-      // Use try_lock to avoid deadlocks from lock ordering issues
+-      size_t first_signaled = std::numeric_limits<size_t>::max();
+-      bool condition_met = false;
+-
+-      // Try to acquire all locks without blocking
+-      std::vector<std::unique_lock<std::mutex>> locks;
+-      locks.reserve(handles.size());
+-      bool all_locked = true;
+-
+-      for (size_t i = 0; i < handles.size(); ++i) {
+-        // Try to lock, handling robust mutex EOWNERDEAD case
+-        auto native_mutex =
+-            static_cast<pthread_mutex_t*>(handles[i]->mutex_.native_handle());
+-        int result = pthread_mutex_trylock(native_mutex);
+-
+-        if (result == 0 || result == EOWNERDEAD) {
+-          // Successfully acquired lock or recovered from dead owner
+-          if (result == EOWNERDEAD) {
+-            // Make mutex consistent after previous owner died
+-            pthread_mutex_consistent(native_mutex);
+-          }
+-          locks.emplace_back(handles[i]->mutex_, std::adopt_lock);
+-        } else {
+-          // Couldn't acquire lock
+-          all_locked = false;
+-          break;
+-        }
+-      }
+-
+-      // If we couldn't acquire all locks, release what we have and retry
+-      if (!all_locked) {
+-        locks.clear();
+-        std::this_thread::yield();
+-        continue;
+-      }
+-
+-      // Now we have all locks, check the condition
+-      if (wait_all) {
+-        // For wait_all, check if ALL are signaled
+-        bool all_signaled = true;
+-        for (size_t i = 0; i < handles.size(); ++i) {
+-          if (!handles[i]->signaled()) {
+-            all_signaled = false;
+-            break;
+-          }
+-          if (first_signaled == std::numeric_limits<size_t>::max()) {
+-            first_signaled = i;
+-          }
+-        }
+-        condition_met = all_signaled;
+-      } else {
+-        // For wait_any, check if ANY is signaled
+-        for (size_t i = 0; i < handles.size(); ++i) {
+-          if (handles[i]->signaled()) {
+-            first_signaled = i;
+-            condition_met = true;
+-            break;
+-          }
+-        }
+-      }
+-
+-      if (condition_met) {
+-        // Execute post_execution for the signaled handle(s)
+-        if (wait_all) {
+-          for (size_t i = 0; i < handles.size(); ++i) {
+-            handles[i]->post_execution();
+-          }
+-        } else {
+-          handles[first_signaled]->post_execution();
+-        }
+-        unregister(true);
+-        return std::make_pair(WaitResult::kSuccess, first_signaled);
+-      }
+-
+-      // Check timeout
+-      auto now = std::chrono::steady_clock::now();
+-      if (now >= end_time) {
+-        unregister(true);
+-        return std::make_pair<WaitResult, size_t>(WaitResult::kTimeout, 0);
+-      }
+-
+-      if (!registered) {
+-        registered = true;
+-        wait_ticket_ = ++ticket_counter_;
+-        for (auto handle : handles) {
+-          handle->begin_wait();
+-        }
+-      }
+-
+-      // Release locks before sleeping
+-      locks.clear();
+-
+-      // Sleep until something is signaled (with a short bound, in case a
+-      // state change does not go through NotifyAny).
+-      auto remaining =
+-          std::chrono::duration_cast<std::chrono::milliseconds>(end_time - now);
+-      auto sleep_time = std::min(remaining, std::chrono::milliseconds(4));
+-      std::unique_lock<std::mutex> any_lock(any_mutex_);
+-      any_cond_.wait_for(any_lock, sleep_time, [generation] {
+-        return any_generation_.load() != generation;
+-      });
+-    }
+-  }
+-
+-  [[nodiscard]] virtual void* native_handle() const {
+-    return const_cast<std::condition_variable&>(cond_).native_handle();
+-  }
+-
+- protected:
+-  [[nodiscard]] inline virtual bool signaled() const = 0;
+-  inline virtual void post_execution() = 0;
+-  // Xbox360PS5: around the blocked part of a wait, with mutex_ held.
+-  virtual void begin_wait() {}
+-  virtual void end_wait() {}
+- public:
+-  // Xbox360PS5: wakes the waits on several objects, after a state change.
+-  static void NotifyAny() {
+-    {
+-      SuspensionDeferred condition_suspend_guard;
+-      std::lock_guard<std::mutex> any_lock(any_mutex_);
+-      ++any_generation_;
+-    }
+-    any_cond_.notify_all();
+-  }
+-
+- protected:
+-  // The ticket of the wait this thread is blocked in, or zero. Tickets grow
+-  // with time: one taken before a signal is not greater than the counter read
+-  // when the signal is set.
+-  static inline thread_local uint64_t wait_ticket_ = 0;
+-  static inline std::atomic<uint64_t> ticket_counter_{0};
+-  static inline std::atomic<uint64_t> any_generation_{0};
+-  static inline std::mutex any_mutex_;
+-  static inline std::condition_variable any_cond_;
+-  std::condition_variable cond_;
+-  std::mutex mutex_;
+-};
+-
+-// There really is no native POSIX handle for a single wait/signal construct
+-// pthreads is at a lower level with more handles for such a mechanism.
+-// This simple wrapper class functions as our handle and uses conditional
+-// variables for waits and signals.
+-template <typename T>
+-class PosixCondition {};
+-
+-template <>
+-class PosixCondition<Event> : public PosixConditionBase {
+- public:
+-  PosixCondition(bool manual_reset, bool initial_state)
+-      : signal_(initial_state), manual_reset_(manual_reset) {}
+-  ~PosixCondition() override = default;
+-
+-  bool Signal() override {
+-    {
+-      SuspensionDeferred condition_suspend_guard;
+-      auto lock = std::unique_lock(mutex_);
+-      signal_ = true;
+-      // Xbox360PS5: with threads already waiting, the signal of an auto-reset
+-      // event is theirs (see PosixConditionBase::wait_ticket_).
+-      reserved_ = !manual_reset_ && waiters_ > 0;
+-      reserved_ticket_ = ticket_counter_.load();
+-      cond_.notify_all();
+-    }
+-    NotifyAny();
+-    return true;
+-  }
+-
+-  void Reset() {
+-    SuspensionDeferred condition_suspend_guard;
+-    auto lock = std::unique_lock(mutex_);
+-    signal_ = false;
+-    reserved_ = false;
+-  }
+-
+-  EventInfo Query() {
+-    SuspensionDeferred condition_suspend_guard;
+-    auto lock = std::unique_lock(mutex_);
+-    // EVENT_TYPE: NotificationEvent = 0, SynchronizationEvent = 1.
+-    return EventInfo{manual_reset_ ? 0u : 1u, signal_ ? 1u : 0u};
+-  }
+-
+- private:
+-  [[nodiscard]] bool signaled() const override {
+-    return signal_ && (!reserved_ || (wait_ticket_ != 0 &&
+-                                      wait_ticket_ <= reserved_ticket_));
+-  }
+-  void post_execution() override {
+-    if (!manual_reset_) {
+-      signal_ = false;
+-      reserved_ = false;
+-    }
+-  }
+-  void begin_wait() override { ++waiters_; }
+-  void end_wait() override {
+-    // Nobody left of those the signal was kept for: anyone may take it.
+-    if (--waiters_ == 0) {
+-      reserved_ = false;
+-    }
+-  }
+-  uint32_t waiters_ = 0;
+-  bool reserved_ = false;
+-  uint64_t reserved_ticket_ = 0;
+-  bool signal_;
+-  const bool manual_reset_;
+-};
+-
+-template <>
+-class PosixCondition<Semaphore> final : public PosixConditionBase {
+- public:
+-  PosixCondition(uint32_t initial_count, uint32_t maximum_count)
+-      : count_(initial_count), maximum_count_(maximum_count) {}
+-
+-  bool Signal() override { return Release(1, nullptr); }
+-
+-  bool Release(uint32_t release_count, int* out_previous_count) {
+-    SuspensionDeferred condition_suspend_guard;
+-    auto lock = std::unique_lock(mutex_);
+-    // Validate that releasing would not exceed the maximum count
+-    if (count_ + release_count > maximum_count_) {
+-      return false;
+-    }
+-    if (out_previous_count) {
+-      *out_previous_count = count_;
+-    }
+-    count_ += release_count;
+-    cond_.notify_all();
+-    PosixConditionBase::NotifyAny();  // Xbox360PS5: wake waits on several objects.
+-    return true;
+-  }
+-
+- private:
+-  [[nodiscard]] bool signaled() const override { return count_ > 0; }
+-  void post_execution() override {
+-    count_--;
+-    cond_.notify_all();
+-    PosixConditionBase::NotifyAny();  // Xbox360PS5: wake waits on several objects.
+-  }
+-  uint32_t count_;
+-  const uint32_t maximum_count_;
+-};
+-
+-template <>
+-class PosixCondition<Mutant> final : public PosixConditionBase {
+- public:
+-  explicit PosixCondition(bool initial_owner) : count_(0) {
+-    if (initial_owner) {
+-      count_ = 1;
+-      owner_ = std::this_thread::get_id();
+-    }
+-  }
+-
+-  bool Signal() override { return Release(); }
+-
+-  bool Release() {
+-    if (owner_ == std::this_thread::get_id() && count_ > 0) {
+-      SuspensionDeferred condition_suspend_guard;
+-      auto lock = std::unique_lock(mutex_);
+-      --count_;
+-      // Free to be acquired by another thread
+-      if (count_ == 0) {
+-        cond_.notify_all();
+-        PosixConditionBase::NotifyAny();  // Xbox360PS5: wake waits on several objects.
+-      }
+-      return true;
+-    }
+-    return false;
+-  }
+-
+-  [[nodiscard]] void* native_handle() const override {
+-    return const_cast<std::mutex&>(mutex_).native_handle();
+-  }
+-
+- private:
+-  [[nodiscard]] bool signaled() const override {
+-    return count_ == 0 || owner_ == std::this_thread::get_id();
+-  }
+-  void post_execution() override {
+-    count_++;
+-    owner_ = std::this_thread::get_id();
+-  }
+-  uint32_t count_;
+-  std::thread::id owner_;
+-};
++// Xbox360PS5 (fix 31): PosixConditionBase, Event, Semaphore and Mutant.
++#include "xenia/base/posix_conditions.h"
+ 
+ template <>
+ class PosixCondition<Timer> final : public PosixConditionBase {
+@@ -690,7 +306,8 @@ class PosixCondition<Timer> final : public PosixConditionBase {
+     std::lock_guard lock(mutex_);
+     signal_ = true;
+     cond_.notify_all();
+-    PosixConditionBase::NotifyAny();  // Xbox360PS5: wake waits on several objects.
++    NotifyMultiWaiters();  // fix 31
++    NotifyAnyLegacy();  // Xbox360PS5: wake waits on several objects.
+     return true;
+   }
+ 
+@@ -1151,7 +768,8 @@ class PosixCondition<Thread> final : public PosixConditionBase {
+       exit_code_ = exit_code;
+       signaled_ = true;
+       cond_.notify_all();
+-      PosixConditionBase::NotifyAny();  // Xbox360PS5: wake waits on several objects.
++      NotifyMultiWaiters();  // fix 31
++      NotifyAnyLegacy();  // Xbox360PS5: wake waits on several objects.
+     }
+     if (is_current_thread) {
+       // Xbox360PS5: cleanup may destroy this object. No member access after it.
+@@ -1596,7 +1214,8 @@ void* PosixCondition<Thread>::ThreadStartRoutine(void* parameter) {
+     thread->handle_.exit_code_ = 0;
+     thread->handle_.signaled_ = true;
+     thread->handle_.cond_.notify_all();
+-    PosixConditionBase::NotifyAny();  // Xbox360PS5: wake waits on several objects.
++    thread->handle_.NotifyMultiWaiters();  // fix 31
++    PosixConditionBase::NotifyAnyLegacy();  // Xbox360PS5: wake waits on several objects.
+   }
+ 
+   current_thread_ = nullptr;
+diff --git a/.deps/xenia-canary/src/xenia/base/wait_stats.h b/.deps/xenia-canary/src/xenia/base/wait_stats.h
+new file mode 100644
+index 0000000..e03a99f
+--- /dev/null
++++ b/.deps/xenia-canary/src/xenia/base/wait_stats.h
+@@ -0,0 +1,428 @@
++/**
++ ******************************************************************************
++ * Xenia : Xbox 360 Emulator Research Project                                 *
++ ******************************************************************************
++ * Released under the BSD license - see LICENSE in the root for more details. *
++ ******************************************************************************
++ */
++
++// Xbox360PS5 (fix 31): counts of the guest's waits and hand-offs, for the
++// "Waits:" lines the game loop logs every half minute.
++//
++// Each thread counts into a slot of its own, written by that thread alone and
++// read by the reporter, so counting adds no shared cache line to the fast paths
++// (RtlEnterCriticalSection is called hundreds of thousands of times a second by
++// some games). Time is taken with the TSC, and only on the slow paths. The
++// critical sections that blocked a thread are counted by guest address in a
++// shared table, on the slow path only.
++
++#ifndef XENIA_BASE_WAIT_STATS_H_
++#define XENIA_BASE_WAIT_STATS_H_
++
++#include <algorithm>
++#include <array>
++#include <atomic>
++#include <chrono>
++#include <cstdint>
++#include <cstdio>
++#include <cstring>
++#include <string>
++#include <vector>
++
++#if defined(__x86_64__) || defined(_M_X64)
++#include <immintrin.h>
++#if defined(_MSC_VER)
++#include <intrin.h>
++#else
++#include <x86intrin.h>
++#endif
++#endif
++#if __has_include(<pthread.h>)
++#include <pthread.h>
++#define XE_WAIT_STATS_HAVE_PTHREAD 1
++#endif
++
++namespace xe {
++namespace wait_stats {
++
++enum Counter : unsigned {
++  kCsEnter,         // RtlEnterCriticalSection, not counting recursion
++  kCsSpun,          // contended, then taken by the host spin (fix 31)
++  kCsBlocked,       // contended, waited on its event (ticks: blocked)
++  kCsHandoff,       // RtlLeaveCriticalSection with waiters (ticks: the Set)
++  kSingleBlocked,   // single-object waits that blocked (ticks: blocked)
++  kGlobalNotify,    // 1.0.2's NotifyAny broadcasts (ticks; extra: parked)
++  kTargetedNotify,  // signals that woke multi-object waits (extra: woken)
++  kMultiSleep,      // WaitMultiple sleeps (ticks: slept)
++  kMultiBound,      // of those, ended by the 4 ms bound, not by a signal
++  kSuspendMask,     // SuspensionDeferred signal-mask pairs
++  kPriority,        // host priority changes on a wake (BoostOnWake)
++  kCount
++};
++
++inline uint64_t Ticks() {
++#if defined(__x86_64__) || defined(_M_X64)
++  return __rdtsc();
++#else
++  return uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
++                      std::chrono::steady_clock::now().time_since_epoch())
++                      .count());
++#endif
++}
++
++inline void Pause() {
++#if defined(__x86_64__) || defined(_M_X64)
++  _mm_pause();
++#endif
++}
++
++struct Slot {
++  std::array<std::atomic<uint64_t>, kCount> count{};
++  std::array<std::atomic<uint64_t>, kCount> ticks{};
++  std::array<std::atomic<uint64_t>, kCount> extra{};
++  std::array<std::atomic<uint64_t>, 3> name{};  // 24 bytes, NUL-padded
++  std::atomic<uint32_t> name_epoch{~0u};
++};
++
++inline constexpr size_t kSlots = 192;
++inline std::array<Slot, kSlots> slots;
++inline std::atomic<size_t> next_slot{0};
++inline std::atomic<uint32_t> epoch{0};  // advanced by each report
++inline thread_local Slot* my_slot = nullptr;
++
++// The last slot is shared by the threads beyond the others: counted with
++// fetch_add, and with no name.
++inline bool IsShared(const Slot& slot) { return &slot == &slots[kSlots - 1]; }
++
++inline Slot& Mine() {
++  if (my_slot) {
++    return *my_slot;
++  }
++  size_t index = next_slot.fetch_add(1, std::memory_order_relaxed);
++  if (index >= kSlots - 1) {
++    index = kSlots - 1;
++  }
++  my_slot = &slots[index];
++  return *my_slot;
++}
++
++inline void Bump(std::atomic<uint64_t>& value, uint64_t by, bool shared) {
++  if (shared) {
++    value.fetch_add(by, std::memory_order_relaxed);
++  } else {
++    value.store(value.load(std::memory_order_relaxed) + by,
++                std::memory_order_relaxed);
++  }
++}
++
++// The thread's name, read by the thread itself once per report period.
++inline void RefreshName(Slot& slot) {
++  const uint32_t now = epoch.load(std::memory_order_relaxed);
++  if (IsShared(slot) || slot.name_epoch.load(std::memory_order_relaxed) == now) {
++    return;
++  }
++  slot.name_epoch.store(now, std::memory_order_relaxed);
++  char name[24] = {};
++#if XE_WAIT_STATS_HAVE_PTHREAD
++  pthread_getname_np(pthread_self(), name, sizeof(name) - 1);
++#endif
++  for (size_t i = 0; i < 3; ++i) {
++    uint64_t word = 0;
++    std::memcpy(&word, name + i * 8, 8);
++    slot.name[i].store(word, std::memory_order_relaxed);
++  }
++}
++
++inline void Add(Counter counter, uint64_t ticks = 0, uint64_t extra = 0) {
++  Slot& slot = Mine();
++  const bool shared = IsShared(slot);
++  Bump(slot.count[counter], 1, shared);
++  if (ticks) {
++    Bump(slot.ticks[counter], ticks, shared);
++  }
++  if (extra) {
++    Bump(slot.extra[counter], extra, shared);
++  }
++  if (counter == kCsBlocked || counter == kSingleBlocked) {
++    RefreshName(slot);
++  }
++}
++
++// Critical sections by guest address (slow paths only).
++struct CsEntry {
++  std::atomic<uint32_t> address{0};
++  std::atomic<uint32_t> spin{0};  // the guest's spin count / 256
++  std::atomic<uint64_t> blocked{0}, blocked_ticks{0}, handoffs{0},
++      handoff_ticks{0}, spun{0};
++};
++inline constexpr size_t kCsEntries = 1024;
++inline std::array<CsEntry, kCsEntries> cs_entries;
++
++inline CsEntry* FindCs(uint32_t address) {
++  if (!address) {
++    return nullptr;
++  }
++  size_t index = (uint32_t(address >> 2) * 2654435761u) % kCsEntries;
++  for (size_t probe = 0; probe < 32; ++probe) {
++    CsEntry& entry = cs_entries[(index + probe) % kCsEntries];
++    uint32_t seen = entry.address.load(std::memory_order_acquire);
++    if (seen == address) {
++      return &entry;
++    }
++    if (seen == 0) {
++      uint32_t expected = 0;
++      if (entry.address.compare_exchange_strong(expected, address,
++                                                std::memory_order_acq_rel) ||
++          expected == address) {
++        return &entry;
++      }
++    }
++  }
++  return nullptr;  // table full around there: not counted by address
++}
++
++inline void CsBlocked(uint32_t address, uint32_t spin, uint64_t ticks) {
++  if (CsEntry* entry = FindCs(address)) {
++    entry->spin.store(spin, std::memory_order_relaxed);
++    entry->blocked.fetch_add(1, std::memory_order_relaxed);
++    entry->blocked_ticks.fetch_add(ticks, std::memory_order_relaxed);
++  }
++}
++inline void CsSpun(uint32_t address) {
++  if (CsEntry* entry = FindCs(address)) {
++    entry->spun.fetch_add(1, std::memory_order_relaxed);
++  }
++}
++inline void CsHandoff(uint32_t address, uint64_t ticks) {
++  if (CsEntry* entry = FindCs(address)) {
++    entry->handoffs.fetch_add(1, std::memory_order_relaxed);
++    entry->handoff_ticks.fetch_add(ticks, std::memory_order_relaxed);
++  }
++}
++
++// --- Reporting (one caller, the game loop) -----------------------------------
++
++struct Totals {
++  std::array<uint64_t, kCount> count{}, ticks{}, extra{};
++};
++
++struct Reporter {
++  struct ThreadTotals {
++    uint64_t cs_ticks = 0, single_ticks = 0;
++  };
++  std::chrono::steady_clock::time_point at{};
++  uint64_t at_ticks = 0;
++  Totals totals;
++  std::array<ThreadTotals, kSlots> threads{};
++  std::vector<std::array<uint64_t, 5>> cs;  // address, blocked, ticks, handoffs, spun
++  bool started = false;
++};
++
++inline std::string Micro(double value) {
++  char text[32];
++  std::snprintf(text, sizeof(text), value < 10 ? "%.1f" : "%.0f", value);
++  return text;
++}
++
++// Lines describing what happened since the previous call. `frames` is the
++// number of frames the game submitted meanwhile. The first call only starts
++// the count and returns nothing.
++inline std::vector<std::string> Report(
++    Reporter& reporter, double frames,
++    std::chrono::steady_clock::time_point now =
++        std::chrono::steady_clock::now(),
++    uint64_t now_ticks = Ticks()) {
++  std::vector<std::string> lines;
++  Totals totals;
++  std::array<Reporter::ThreadTotals, kSlots> threads{};
++  const size_t used = std::min(next_slot.load(std::memory_order_acquire), kSlots);
++  for (size_t i = 0; i < used; ++i) {
++    const Slot& slot = slots[i];
++    for (unsigned c = 0; c < kCount; ++c) {
++      totals.count[c] += slot.count[c].load(std::memory_order_relaxed);
++      totals.ticks[c] += slot.ticks[c].load(std::memory_order_relaxed);
++      totals.extra[c] += slot.extra[c].load(std::memory_order_relaxed);
++    }
++    threads[i].cs_ticks = slot.ticks[kCsBlocked].load(std::memory_order_relaxed);
++    threads[i].single_ticks =
++        slot.ticks[kSingleBlocked].load(std::memory_order_relaxed);
++  }
++  std::vector<std::array<uint64_t, 5>> cs;
++  for (const CsEntry& entry : cs_entries) {
++    const uint32_t address = entry.address.load(std::memory_order_acquire);
++    if (address) {
++      cs.push_back({address, entry.blocked.load(std::memory_order_relaxed),
++                    entry.blocked_ticks.load(std::memory_order_relaxed),
++                    entry.handoffs.load(std::memory_order_relaxed),
++                    entry.spun.load(std::memory_order_relaxed)});
++    }
++  }
++  epoch.fetch_add(1, std::memory_order_relaxed);
++  if (!reporter.started) {
++    reporter.started = true;
++    reporter.at = now;
++    reporter.at_ticks = now_ticks;
++    reporter.totals = totals;
++    reporter.threads = threads;
++    reporter.cs = std::move(cs);
++    return lines;
++  }
++  const double seconds =
++      std::chrono::duration<double>(now - reporter.at).count();
++  const uint64_t tick_span = now_ticks - reporter.at_ticks;
++  if (seconds <= 0 || tick_span == 0) {
++    return lines;
++  }
++  const double us_per_tick = seconds * 1e6 / double(tick_span);
++  const auto delta = [&](Counter c) {
++    return double(totals.count[c] - reporter.totals.count[c]);
++  };
++  const auto delta_us = [&](Counter c) {
++    return double(totals.ticks[c] - reporter.totals.ticks[c]) * us_per_tick;
++  };
++  const auto delta_extra = [&](Counter c) {
++    return double(totals.extra[c] - reporter.totals.extra[c]);
++  };
++  const auto average = [&](Counter c) {
++    const double n = delta(c);
++    return n > 0 ? delta_us(c) / n : 0.0;
++  };
++  const double per = frames >= 1 ? frames : seconds;
++  const char* unit = frames >= 1 ? "frame" : "second";
++  char text[1024];
++  std::snprintf(
++      text, sizeof(text),
++      "Waits: %.0f frames in %.0f s; per %s: %.0f critical-section entries, "
++      "%.0f contended ones taken by spinning, %.0f blocked (%s us each, "
++      "%.1f ms in all), %.0f hand-offs (%s us to signal); %.0f other blocked "
++      "waits (%s us each); %.0f global wake-ups of multi-object waits (%s us, "
++      "%.1f threads each), %.0f targeted (%.1f threads each); %.0f "
++      "multi-object sleeps (%.0f ended by the 4 ms bound); %.0f signal-mask "
++      "pairs; %.0f priority changes",
++      frames, seconds, unit, delta(kCsEnter) / per, delta(kCsSpun) / per,
++      delta(kCsBlocked) / per, Micro(average(kCsBlocked)).c_str(),
++      delta_us(kCsBlocked) / per / 1000.0, delta(kCsHandoff) / per,
++      Micro(average(kCsHandoff)).c_str(),
++      (delta(kSingleBlocked) - delta(kCsBlocked)) / per,
++      Micro(delta(kSingleBlocked) > delta(kCsBlocked)
++                ? (delta_us(kSingleBlocked) - delta_us(kCsBlocked)) /
++                      (delta(kSingleBlocked) - delta(kCsBlocked))
++                : 0.0)
++          .c_str(),
++      delta(kGlobalNotify) / per, Micro(average(kGlobalNotify)).c_str(),
++      delta(kGlobalNotify) > 0
++          ? delta_extra(kGlobalNotify) / delta(kGlobalNotify)
++          : 0.0,
++      delta(kTargetedNotify) / per,
++      delta(kTargetedNotify) > 0
++          ? delta_extra(kTargetedNotify) / delta(kTargetedNotify)
++          : 0.0,
++      delta(kMultiSleep) / per, delta(kMultiBound) / per,
++      delta(kSuspendMask) / per, delta(kPriority) / per);
++  lines.push_back(text);
++
++  // The critical sections that blocked threads most in this period.
++  struct CsDelta {
++    uint32_t address;
++    uint64_t blocked, ticks, handoffs, spun;
++  };
++  std::vector<CsDelta> cs_delta;
++  for (const auto& now_entry : cs) {
++    std::array<uint64_t, 5> before{now_entry[0], 0, 0, 0, 0};
++    for (const auto& old : reporter.cs) {
++      if (old[0] == now_entry[0]) {
++        before = old;
++        break;
++      }
++    }
++    CsDelta d{uint32_t(now_entry[0]), now_entry[1] - before[1],
++              now_entry[2] - before[2], now_entry[3] - before[3],
++              now_entry[4] - before[4]};
++    if (d.blocked || d.handoffs || d.spun) {
++      cs_delta.push_back(d);
++    }
++  }
++  std::sort(cs_delta.begin(), cs_delta.end(),
++            [](const CsDelta& a, const CsDelta& b) {
++              return a.ticks != b.ticks ? a.ticks > b.ticks
++                                        : a.address < b.address;
++            });
++  if (!cs_delta.empty()) {
++    std::string line = "Waits: critical sections that blocked most:";
++    for (size_t i = 0; i < std::min<size_t>(cs_delta.size(), 4); ++i) {
++      const CsDelta& d = cs_delta[i];
++      uint32_t spin = 0;
++      for (const CsEntry& entry : cs_entries) {
++        if (entry.address.load(std::memory_order_relaxed) == d.address) {
++          spin = entry.spin.load(std::memory_order_relaxed);
++          break;
++        }
++      }
++      std::snprintf(text, sizeof(text),
++                    "%s %08X (spin %u): %.0f blocked/%s (%s us each), %.0f "
++                    "hand-offs, %.0f spun",
++                    i ? ";" : "", d.address, spin * 256, double(d.blocked) / per,
++                    unit,
++                    Micro(d.blocked ? double(d.ticks) * us_per_tick /
++                                          double(d.blocked)
++                                    : 0.0)
++                        .c_str(),
++                    double(d.handoffs) / per, double(d.spun) / per);
++      line += text;
++    }
++    lines.push_back(line);
++  }
++
++  // The threads that spent most of the period blocked.
++  struct ThreadDelta {
++    size_t index;
++    double cs, single;
++  };
++  std::vector<ThreadDelta> thread_delta;
++  for (size_t i = 0; i < used; ++i) {
++    const double cs_us =
++        double(threads[i].cs_ticks - reporter.threads[i].cs_ticks) * us_per_tick;
++    const double single_us =
++        double(threads[i].single_ticks - reporter.threads[i].single_ticks) *
++        us_per_tick;
++    if (cs_us > 0 || single_us > 0) {
++      thread_delta.push_back({i, cs_us, single_us});
++    }
++  }
++  std::sort(thread_delta.begin(), thread_delta.end(),
++            [](const ThreadDelta& a, const ThreadDelta& b) {
++              return a.cs != b.cs ? a.cs > b.cs : a.index < b.index;
++            });
++  if (!thread_delta.empty() && thread_delta.front().cs > 0) {
++    std::string line =
++        "Waits: share of the period blocked in critical sections (and in all "
++        "single waits):";
++    for (size_t i = 0; i < std::min<size_t>(thread_delta.size(), 5); ++i) {
++      const ThreadDelta& d = thread_delta[i];
++      char name[25] = {};
++      for (size_t w = 0; w < 3; ++w) {
++        const uint64_t word = slots[d.index].name[w].load(std::memory_order_relaxed);
++        std::memcpy(name + w * 8, &word, 8);
++      }
++      if (!name[0]) {
++        std::snprintf(name, sizeof(name), "thread %zu", d.index);
++      }
++      std::snprintf(text, sizeof(text), "%s '%s' %.0f%% (%.0f%%)", i ? "," : "",
++                    name, d.cs / (seconds * 1e4), d.single / (seconds * 1e4));
++      line += text;
++    }
++    lines.push_back(line);
++  }
++
++  reporter.at = now;
++  reporter.at_ticks = now_ticks;
++  reporter.totals = totals;
++  reporter.threads = threads;
++  reporter.cs = std::move(cs);
++  return lines;
++}
++
++}  // namespace wait_stats
++}  // namespace xe
++
++#endif  // XENIA_BASE_WAIT_STATS_H_
+diff --git a/.deps/xenia-canary/src/xenia/kernel/util/critical_section.h b/.deps/xenia-canary/src/xenia/kernel/util/critical_section.h
+new file mode 100644
+index 0000000..a7207f5
+--- /dev/null
++++ b/.deps/xenia-canary/src/xenia/kernel/util/critical_section.h
+@@ -0,0 +1,133 @@
++/**
++ ******************************************************************************
++ * Xenia : Xbox 360 Emulator Research Project                                 *
++ ******************************************************************************
++ * Released under the BSD license - see LICENSE in the root for more details. *
++ ******************************************************************************
++ */
++
++// Xbox360PS5 (fix 31): RtlEnterCriticalSection and RtlLeaveCriticalSection
++// (xboxkrnl_rtl.cc), as templates over the section and the event wait/set so
++// that a host check runs the same code.
++//
++// Xenia's critical section hands the section to the thread it wakes: Leave
++// keeps lock_count at 0 or above and the woken thread becomes the owner, so
++// nobody else can take the section until that thread has been woken. When
++// threads that take one section briefly and often (Minecraft's Main, Chunk
++// update and Server threads) block on it, every Leave becomes a wake-up and
++// every following Enter a wait for one: a convoy whose speed is that of the
++// host's wake-ups. Fix 31 spins before blocking, for a bounded time
++// (kHostSpinTicks), as long as the section is held; a section held briefly is
++// then taken without sleeping, and no hand-off is ever needed for it. A
++// section that stays held longer is waited for as in 1.0.2. Mutual exclusion,
++// recursion and the hand-off to a thread that did block are unchanged.
++
++#ifndef XENIA_KERNEL_UTIL_CRITICAL_SECTION_H_
++#define XENIA_KERNEL_UTIL_CRITICAL_SECTION_H_
++
++#include <cstdint>
++
++#include "xenia/base/atomic.h"
++#include "xenia/base/wait_stats.h"
++
++namespace xe {
++namespace kernel {
++namespace critical_section {
++
++#ifdef XBOX360PS5_LEGACY_WAKES
++inline constexpr uint64_t kHostSpinTicks = 0;
++#else
++// TSC ticks: some 10-25 us at the TSC rates of x86-64 hosts (1.6-4 GHz).
++inline constexpr uint64_t kHostSpinTicks = 40000;
++#endif
++
++enum class Entered {
++  kRecursive,  // already the owner
++  kFree,       // taken at once or by the guest's own spin count
++  kSpun,       // taken by the host spin (fix 31)
++  kBlocked,    // waited on the section's event, then handed the section
++};
++
++inline int32_t LoadLockCount(const int32_t* lock_count) {
++#if defined(__GNUC__) || defined(__clang__)
++  return __atomic_load_n(lock_count, __ATOMIC_RELAXED);
++#else
++  return *static_cast<const volatile int32_t*>(lock_count);
++#endif
++}
++
++// `wait()` blocks on the section's event (KeWaitForSingleObject).
++template <typename Cs, typename Wait>
++Entered Enter(Cs* cs, uint32_t cur_thread, uint32_t spin_count, Wait&& wait) {
++  if (cs->owning_thread == cur_thread) {
++    // We already own the lock.
++    xe::atomic_inc(&cs->lock_count);
++    cs->recursion_count++;
++    return Entered::kRecursive;
++  }
++
++  // Spin loop
++  while (spin_count--) {
++    if (xe::atomic_cas(-1, 0, &cs->lock_count)) {
++      // Acquired.
++      cs->owning_thread = cur_thread;
++      cs->recursion_count = 1;
++      return Entered::kFree;
++    }
++  }
++
++  if (kHostSpinTicks) {
++    // Fix 31: wait for a brief holder without sleeping. Only a free section
++    // (no owner, nobody waiting) is taken, exactly as the guest's spin does.
++    const uint64_t started = xe::wait_stats::Ticks();
++    for (bool first = true;; first = false) {
++      if (LoadLockCount(&cs->lock_count) == -1 &&
++          xe::atomic_cas(-1, 0, &cs->lock_count)) {
++        cs->owning_thread = cur_thread;
++        cs->recursion_count = 1;
++        return first ? Entered::kFree : Entered::kSpun;
++      }
++      if (xe::wait_stats::Ticks() - started >= kHostSpinTicks) {
++        break;
++      }
++      xe::wait_stats::Pause();
++    }
++  }
++
++  Entered entered = Entered::kFree;
++  if (xe::atomic_inc(&cs->lock_count) != 0) {
++    // Create a full waiter.
++    wait();
++    entered = Entered::kBlocked;
++  }
++
++  cs->owning_thread = cur_thread;
++  cs->recursion_count = 1;
++  return entered;
++}
++
++// `signal()` sets the section's event (KeSetEvent) for the next owner. Returns
++// whether it did (the section was handed to a waiting thread).
++template <typename Cs, typename Signal>
++bool Leave(Cs* cs, Signal&& signal) {
++  // Drop recursion count - if it isn't zero we still have the lock.
++  if (--cs->recursion_count != 0) {
++    xe::atomic_dec(&cs->lock_count);
++    return false;
++  }
++
++  // Not owned - unlock!
++  cs->owning_thread = 0;
++  if (xe::atomic_dec(&cs->lock_count) != -1) {
++    // There were waiters - wake one of them.
++    signal();
++    return true;
++  }
++  return false;
++}
++
++}  // namespace critical_section
++}  // namespace kernel
++}  // namespace xe
++
++#endif  // XENIA_KERNEL_UTIL_CRITICAL_SECTION_H_
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_rtl.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_rtl.cc
+index d4d8f4f..bf021d6 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_rtl.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_rtl.cc
+@@ -13,8 +13,10 @@
+ 
+ #include "xenia/base/atomic.h"
+ #include "xenia/base/pe_image.h"
++#include "xenia/base/wait_stats.h"
+ #include "xenia/kernel/kernel_state.h"
+ #include "xenia/kernel/user_module.h"
++#include "xenia/kernel/util/critical_section.h"
+ #include "xenia/kernel/util/shim_utils.h"
+ #include "xenia/kernel/xboxkrnl/xboxkrnl_private.h"
+ #include "xenia/kernel/xboxkrnl/xboxkrnl_threading.h"
+@@ -602,32 +604,36 @@ void RtlEnterCriticalSection_entry(pointer_t<X_RTL_CRITICAL_SECTION> cs) {
+   uint32_t cur_thread = XThread::GetCurrentThread()->guest_object();
+   uint32_t spin_count = cs->header.absolute * 256;
+ 
+-  if (cs->owning_thread == cur_thread) {
+-    // We already own the lock.
+-    xe::atomic_inc(&cs->lock_count);
+-    cs->recursion_count++;
+-    return;
+-  }
+-
+-  // Spin loop
+-  while (spin_count--) {
+-    if (xe::atomic_cas(-1, 0, &cs->lock_count)) {
+-      // Acquired.
+-      cs->owning_thread = cur_thread;
+-      cs->recursion_count = 1;
+-      return;
++  // Xbox360PS5 (fix 31): the logic is in util/critical_section.h (a bounded
++  // host spin before blocking); counted for the "Waits:" lines.
++  uint64_t blocked_at = 0;
++  const auto entered = xe::kernel::critical_section::Enter(
++      static_cast<X_RTL_CRITICAL_SECTION*>(cs), cur_thread, spin_count, [&] {
++        blocked_at = xe::wait_stats::Ticks();
++        xeKeWaitForSingleObject(reinterpret_cast<void*>(cs.host_address()), 8,
++                                0, 0, nullptr);
++      });
++  using xe::kernel::critical_section::Entered;
++  switch (entered) {
++    case Entered::kRecursive:
++      break;
++    case Entered::kFree:
++      xe::wait_stats::Add(xe::wait_stats::kCsEnter);
++      break;
++    case Entered::kSpun:
++      xe::wait_stats::Add(xe::wait_stats::kCsEnter);
++      xe::wait_stats::Add(xe::wait_stats::kCsSpun);
++      xe::wait_stats::CsSpun(cs.guest_address());
++      break;
++    case Entered::kBlocked: {
++      const uint64_t blocked = xe::wait_stats::Ticks() - blocked_at;
++      xe::wait_stats::Add(xe::wait_stats::kCsEnter);
++      xe::wait_stats::Add(xe::wait_stats::kCsBlocked, blocked);
++      xe::wait_stats::CsBlocked(cs.guest_address(), cs->header.absolute,
++                                blocked);
++      break;
+     }
+   }
+-
+-  if (xe::atomic_inc(&cs->lock_count) != 0) {
+-    // Create a full waiter.
+-    xeKeWaitForSingleObject(reinterpret_cast<void*>(cs.host_address()), 8, 0, 0,
+-                            nullptr);
+-  }
+-
+-  assert_true(cs->owning_thread == 0);
+-  cs->owning_thread = cur_thread;
+-  cs->recursion_count = 1;
+ }
+ DECLARE_XBOXKRNL_EXPORT2(RtlEnterCriticalSection, kNone, kImplemented,
+                          kHighFrequency);
+@@ -668,18 +674,16 @@ void RtlLeaveCriticalSection_entry(pointer_t<X_RTL_CRITICAL_SECTION> cs) {
+ 
+   // Drop recursion count - if it isn't zero we still have the lock.
+   assert_true(cs->recursion_count > 0);
+-  if (--cs->recursion_count != 0) {
+-    assert_true(cs->recursion_count >= 0);
+-
+-    xe::atomic_dec(&cs->lock_count);
+-    return;
+-  }
+-
+-  // Not owned - unlock!
+-  cs->owning_thread = 0;
+-  if (xe::atomic_dec(&cs->lock_count) != -1) {
+-    // There were waiters - wake one of them.
+-    xeKeSetEvent(reinterpret_cast<X_KEVENT*>(cs.host_address()), 1, 0);
++  // Xbox360PS5 (fix 31): the logic is in util/critical_section.h.
++  uint64_t set_at = 0;
++  if (xe::kernel::critical_section::Leave(
++          static_cast<X_RTL_CRITICAL_SECTION*>(cs), [&] {
++        set_at = xe::wait_stats::Ticks();
++        xeKeSetEvent(reinterpret_cast<X_KEVENT*>(cs.host_address()), 1, 0);
++      })) {
++    const uint64_t spent = xe::wait_stats::Ticks() - set_at;
++    xe::wait_stats::Add(xe::wait_stats::kCsHandoff, spent);
++    xe::wait_stats::CsHandoff(cs.guest_address(), spent);
+   }
+ }
+ DECLARE_XBOXKRNL_EXPORT2(RtlLeaveCriticalSection, kNone, kImplemented,
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xthread.cc b/.deps/xenia-canary/src/xenia/kernel/xthread.cc
+index 0e077d2..da36f2e 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xthread.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xthread.cc
+@@ -25,6 +25,7 @@
+ #include "xenia/base/platform.h"
+ #include "xenia/base/profiling.h"
+ #include "xenia/base/threading.h"
++#include "xenia/base/wait_stats.h"
+ #include "xenia/cpu/processor.h"
+ #include "xenia/emulator.h"
+ #include "xenia/kernel/kernel_state.h"
+@@ -977,6 +978,7 @@ void XThread::BoostOnWake(int32_t increment) {
+         guest_object<X_KTHREAD>()->priority = static_cast<uint8_t>(priority_);
+       }
+       thread_->set_priority(GuestPriorityToHost(priority_));
++      xe::wait_stats::Add(xe::wait_stats::kPriority);  // fix 31
+     }
+   }
+ 
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+index 3daaf57..d81b1c5 100644
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -102,6 +102,7 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
+ #include "xbox360ps5/dashboard_mode.hpp"
+ #include "xenia/base/cvar.h"
+ #include "xenia/base/string.h"
++#include "xenia/base/wait_stats.h"
+ #include "xenia/kernel/kernel_state.h"
+ #include "xenia/kernel/user_module.h"
+ #include "xenia/kernel/xam/profile_manager.h"
+@@ -2771,6 +2772,16 @@ int main(int argc, char** argv) {
+                        double(open_time - open_spent) / (summary_samples * 1e6), double(fault - faults) / summary_samples);
+                 closes = all - open; opens = open; spent = time - open_time; open_spent = open_time; faults = fault;
+               }
++              // Xbox360PS5 (fix 31): the guest's waits and critical-section hand-offs
++              // in the same half minute (xenia/base/wait_stats.h).
++              {
++                static xe::wait_stats::Reporter wait_reporter;
++                static uint64_t wait_swaps = 0;
++                for (const auto& line : xe::wait_stats::Report(wait_reporter, double(swaps - wait_swaps))) {
++                  XELOGW("{}", line);
++                }
++                wait_swaps = swaps;
++              }
+               // Draws made while their shader was still being compiled show
+               // a stand-in: brief gaps in a frame, lasting ones in what a game
+               // draws once and keeps.

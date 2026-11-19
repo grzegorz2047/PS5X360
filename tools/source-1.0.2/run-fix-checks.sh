@@ -4,6 +4,7 @@
 # Each tools/check-*.cpp listed below is copied into <tree>/tools and built from the tree's root
 # with the host's clang++-18 and the same flags as tools/source-checks/run.py (Zen 2, the
 # tree's include/ and reconstructed/ and the core's include roots), then run with its arguments.
+# check-wait-wakeups.cpp (fix 31) is built four ways (see below).
 # Then tools/check-assemble-skip.py (the switch that leaves fixes out) and tools/check-english-source.py
 # (fix 25, English keys) run with python3, and tools/check-gdfx-names.sh (fix 26: GDFX names and
 # guest paths, linked with the tree's xenia/base and disc image device) with bash.
@@ -42,6 +43,35 @@ for name in "${checks[@]}"; do
     echo "pass $name"
   else
     echo "FAIL $name"
+    status=1
+  fi
+done
+# Fix 31 (Minecraft at ~1 FPS): the core's wait objects and critical sections, built
+# four ways: fix 31 and 1.0.2's wake-ups (XBOX360PS5_LEGACY_WAKES) with the multi-object
+# poll bound raised to 60 s (a lost wake-up then hangs and the check's watchdog fails it),
+# fix 31 under ThreadSanitizer, and with the real 4 ms bound under Address- and
+# UndefinedBehaviorSanitizer. Sanitized runs go without address randomization (setarch -R):
+# TSan in clang 18 does not start under the runners' 32-bit mmap randomization.
+cp "$repo/tools/check-wait-wakeups.cpp" "$tree/tools/check-wait-wakeups.cpp"
+wait_variants=(
+  "fix31|-O1 -DXBOX360PS5_MULTI_WAIT_BOUND_MS=60000"
+  "legacy|-O1 -DXBOX360PS5_LEGACY_WAKES -DXBOX360PS5_MULTI_WAIT_BOUND_MS=60000"
+  "tsan|-O1 -fsanitize=thread -DXBOX360PS5_MULTI_WAIT_BOUND_MS=60000"
+  "asan|-O1 -fsanitize=address,undefined -fno-sanitize-recover=all"
+)
+for variant in "${wait_variants[@]}"; do
+  label=${variant%%|*}
+  read -r -a flags <<< "${variant#*|}"
+  exe="$tree/build/fix-checks/check-wait-wakeups-$label"
+  run=("$exe")
+  if [[ $label == tsan || $label == asan ]]; then run=(setarch "$(uname -m)" -R "$exe"); fi
+  echo "=== check-wait-wakeups.cpp ($label)"
+  if (cd "$tree" && "$cxx" -std=c++20 -g -pthread -march=znver2 -Wall -Wno-unused-function \
+        "${flags[@]}" -Iinclude -Ireconstructed -I.deps/xenia-canary/src -I.deps/xenia-canary \
+        tools/check-wait-wakeups.cpp -o "$exe" && "${run[@]}"); then
+    echo "pass check-wait-wakeups.cpp ($label)"
+  else
+    echo "FAIL check-wait-wakeups.cpp ($label)"
     status=1
   fi
 done
