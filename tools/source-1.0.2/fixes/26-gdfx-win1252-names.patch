@@ -126,6 +126,32 @@ index dbd6b5f..147ce92 100644
    return output_str;
  #endif
  }
+diff --git a/.deps/xenia-canary/src/xenia/kernel/kernel_state.cc b/.deps/xenia-canary/src/xenia/kernel/kernel_state.cc
+index 9d80ad8..c7c4c8c 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/kernel_state.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/kernel_state.cc
+@@ -10,6 +10,7 @@
+ #include <ranges>
+ 
+ #include "xenia/kernel/kernel_state.h"
++#include "xenia/kernel/xam/call_trace.h"
+ 
+ #include "xenia/base/byte_stream.h"
+ #include "xenia/base/logging.h"
+@@ -1179,6 +1180,13 @@ void KernelState::UnregisterNotifyListener(XNotifyListener* listener) {
+ 
+ void KernelState::BroadcastNotification(XNotificationID id, uint32_t data) {
+   auto global_lock = global_critical_region_.Acquire();
++  // Xbox360PS5 (fix 26, diagnostic): what the system sends (key: the id), as it changes.
++  {
++    const auto line = xam::call_trace::Changes::Get().Note(
++        "BroadcastNotification", uint32_t(id),
++        fmt::format("data {:08X} to {} listeners", data, notify_listeners_.size()));
++    if (!line.empty()) XELOGW("{}", line);
++  }
+   for (const auto& notify_listener : notify_listeners_) {
+     notify_listener->EnqueueNotification(id, data);
+   }
 diff --git a/.deps/xenia-canary/src/xenia/kernel/util/guest_path.h b/.deps/xenia-canary/src/xenia/kernel/util/guest_path.h
 new file mode 100644
 index 0000000..ffa1318
@@ -366,6 +392,331 @@ index de4b758..f34dec2 100644
  }
  
  inline std::string_view TranslateAnsiStringAddress(const Memory* memory,
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/call_trace.h b/.deps/xenia-canary/src/xenia/kernel/xam/call_trace.h
+new file mode 100644
+index 0000000..653cf48
+--- /dev/null
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/call_trace.h
+@@ -0,0 +1,117 @@
++/**
++ ******************************************************************************
++ * Xenia : Xbox 360 Emulator Research Project                                 *
++ ******************************************************************************
++ * Released under the BSD license - see LICENSE in the root for more details. *
++ ******************************************************************************
++ */
++
++#ifndef XENIA_KERNEL_XAM_CALL_TRACE_H_
++#define XENIA_KERNEL_XAM_CALL_TRACE_H_
++
++// Xbox360PS5 (fix 26, diagnostic for Handball 16, 573607E4): after the storage prompt the game
++// shows its screen at 60 frames a second and ignores START. What the game asks of input,
++// sign-in, content and notifications is logged here, each call and argument (the "key") when
++// its answer first appears and whenever it changes, not on every poll: "Calls: <call>[<key>]
++// <answer> (+<ms> after the storage prompt)". Lines are capped per key and in all. The storage
++// prompt's answer sets the time; canary_game_main.cpp dumps the threads at +20 s and +45 s.
++
++#include <atomic>
++#include <chrono>
++#include <cstdint>
++#include <cstdio>
++#include <map>
++#include <mutex>
++#include <string>
++#include <string_view>
++#include <utility>
++
++namespace xe {
++namespace kernel {
++namespace xam {
++namespace call_trace {
++
++inline uint64_t NowMs() {
++  return uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(
++                      std::chrono::steady_clock::now().time_since_epoch())
++                      .count());
++}
++
++// When the storage prompt was last answered (NowMs), 0 before.
++inline std::atomic<uint64_t>& PromptMs() {
++  static std::atomic<uint64_t> at{0};
++  return at;
++}
++inline void MarkPrompt(uint64_t now = NowMs()) { PromptMs().store(now ? now : 1); }
++
++// "(+1234 ms after the storage prompt)", or "(before the storage prompt)".
++inline std::string When(uint64_t now, uint64_t prompt) {
++  if (!prompt) return "(before the storage prompt)";
++  char text[64];
++  std::snprintf(text, sizeof(text), "(+%llu ms after the storage prompt)",
++                static_cast<unsigned long long>(now >= prompt ? now - prompt : 0));
++  return text;
++}
++
++class Changes {
++ public:
++  static constexpr uint32_t kPerKey = 24;   // lines for one call and key
++  static constexpr uint32_t kTotal = 600;   // lines in all
++
++  static Changes& Get() {
++    static Changes changes;
++    return changes;
++  }
++
++  // The line to log for this answer, or "" when it is the same as the key's last one, or the
++  // key or the whole trace has used its lines (the first line past a key's cap says so).
++  std::string Note(std::string_view call, uint32_t key, std::string_view answer,
++                   uint64_t now = NowMs()) {
++    std::lock_guard<std::mutex> lock(mutex_);
++    auto& entry = last_[{std::string(call), key}];
++    if (entry.seen && entry.answer == answer) return {};
++    entry.seen = true;
++    entry.answer = std::string(answer);
++    if (total_ >= kTotal) return {};
++    if (entry.lines >= kPerKey) return {};
++    ++total_;
++    ++entry.lines;
++    char head[96];
++    std::snprintf(head, sizeof(head), "Calls: %.*s[%08X] ", int(call.size()), call.data(), key);
++    std::string line = head;
++    line += answer;
++    line += ' ';
++    line += When(now, PromptMs().load());
++    if (entry.lines == kPerKey) line += "; no more changes of this one are logged";
++    if (total_ == kTotal) line += "; the trace has used its lines";
++    return line;
++  }
++
++ private:
++  struct Entry {
++    bool seen = false;
++    std::string answer;
++    uint32_t lines = 0;
++  };
++  std::mutex mutex_;
++  std::map<std::pair<std::string, uint32_t>, Entry> last_;
++  uint32_t total_ = 0;
++};
++
++// The answer to XInputGetState as text: result, buttons (START 0010, BACK 0020, A 1000, ...),
++// and what could have blanked them (a system dialog, the controller keyboard).
++inline std::string InputAnswer(uint32_t result, uint16_t buttons, bool ui_active,
++                               bool keyboard_suppressed) {
++  char text[128];
++  std::snprintf(text, sizeof(text), "result %08X buttons %04X%s%s%s", result, buttons,
++                (buttons & 0x0010) ? " START" : "", ui_active ? ", system UI active (state discarded)" : "",
++                keyboard_suppressed ? ", controller keyboard suppressing" : "");
++  return text;
++}
++
++}  // namespace call_trace
++}  // namespace xam
++}  // namespace kernel
++}  // namespace xe
++
++#endif  // XENIA_KERNEL_XAM_CALL_TRACE_H_
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_content.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_content.cc
+index 0585f80..03a14e3 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_content.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_content.cc
+@@ -21,6 +21,7 @@
+ #include "xenia/kernel/xam/xam_content_device.h"
+ #include "xenia/kernel/xam/xam_module.h"
+ #include "xenia/kernel/xam/xam_private.h"
++#include "xenia/kernel/xam/call_trace.h"
+ #include "xenia/kernel/xboxkrnl/xboxkrnl_module.h"
+ #include "xenia/kernel/xboxkrnl/xboxkrnl_threading.h"
+ #include "xenia/kernel/xenumerator.h"
+@@ -460,7 +461,7 @@ dword_result_t xeXamContentCreate(dword_t user_index, lpstring_t root_name,
+   }
+ }
+ 
+-dword_result_t XamContentCreateEx_entry(
++static uint32_t XamContentCreateEx_traced(
+     dword_t user_index, lpstring_t root_name, lpvoid_t content_data_ptr,
+     dword_t flags, lpdword_t disposition_ptr, lpdword_t license_mask_ptr,
+     dword_t cache_size, qword_t content_size,
+@@ -474,6 +475,27 @@ dword_result_t XamContentCreateEx_entry(
+                             license_mask_ptr, cache_size, content_size,
+                             overlapped_ptr);
+ }
++// Xbox360PS5 (fix 26, diagnostic): each content the game opens or creates, and the answer.
++dword_result_t XamContentCreateEx_entry(
++    dword_t user_index, lpstring_t root_name, lpvoid_t content_data_ptr,
++    dword_t flags, lpdword_t disposition_ptr, lpdword_t license_mask_ptr,
++    dword_t cache_size, qword_t content_size,
++    pointer_t<XAM_OVERLAPPED> overlapped_ptr) {
++  const std::string root = root_name ? std::string(root_name.value()) : std::string();
++  const auto content = content_data_ptr ? *content_data_ptr.as<XCONTENT_DATA*>()
++                                        : XCONTENT_DATA{};
++  const uint32_t result = XamContentCreateEx_traced(
++      user_index, root_name, content_data_ptr, flags, disposition_ptr,
++      license_mask_ptr, cache_size, content_size, overlapped_ptr);
++  const auto line = call_trace::Changes::Get().Note(
++      "XamContentCreate", uint32_t(user_index),
++      fmt::format("root '{}' device {:08X} type {:08X} file '{}' flags {:08X} -> {:08X}{}",
++                  root, uint32_t(content.device_id), static_cast<uint32_t>(XContentType(content.content_type)),
++                  content.file_name(), uint32_t(flags), result,
++                  overlapped_ptr ? " (overlapped)" : ""));
++  if (!line.empty()) XELOGW("{}", line);
++  return result;
++}
+ DECLARE_XAM_EXPORT1(XamContentCreateEx, kContent, kImplemented);
+ 
+ dword_result_t XamContentCreate_entry(
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_content_device.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_content_device.cc
+index 550be0a..045e9ea 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_content_device.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_content_device.cc
+@@ -14,6 +14,7 @@
+ #include "xenia/kernel/kernel_state.h"
+ #include "xenia/kernel/util/shim_utils.h"
+ #include "xenia/kernel/xam/xam_private.h"
++#include "xenia/kernel/xam/call_trace.h"
+ #include "xenia/kernel/xenumerator.h"
+ #include "xenia/vfs/devices/stfs_xbox.h"
+ #include "xenia/xbox.h"
+@@ -94,8 +95,8 @@ dword_result_t XamContentGetDeviceName_entry(dword_t device_id,
+ }
+ DECLARE_XAM_EXPORT1(XamContentGetDeviceName, kContent, kImplemented);
+ 
+-dword_result_t XamContentGetDeviceState_entry(dword_t device_id,
+-                                              lpunknown_t overlapped_ptr) {
++static uint32_t XamContentGetDeviceState_traced(dword_t device_id,
++                                                lpunknown_t overlapped_ptr) {
+   auto device_info = GetDummyDeviceInfo(device_id);
+   if (device_info == nullptr) {
+     if (overlapped_ptr) {
+@@ -115,6 +116,16 @@ dword_result_t XamContentGetDeviceState_entry(dword_t device_id,
+     return X_ERROR_SUCCESS;
+   }
+ }
++// Xbox360PS5 (fix 26, diagnostic): the device states the game sees, as they change.
++dword_result_t XamContentGetDeviceState_entry(dword_t device_id,
++                                              lpunknown_t overlapped_ptr) {
++  const uint32_t result = XamContentGetDeviceState_traced(device_id, overlapped_ptr);
++  const auto line = call_trace::Changes::Get().Note(
++      "XamContentGetDeviceState", uint32_t(device_id),
++      fmt::format("result {:08X}{}", result, overlapped_ptr ? " (overlapped)" : ""));
++  if (!line.empty()) XELOGW("{}", line);
++  return result;
++}
+ DECLARE_XAM_EXPORT1(XamContentGetDeviceState, kContent, kStub);
+ 
+ typedef struct {
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_input.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_input.cc
+index 023942e..037b310 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_input.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_input.cc
+@@ -14,6 +14,8 @@
+ #include "xenia/kernel/kernel_state.h"
+ #include "xenia/kernel/util/shim_utils.h"
+ #include "xenia/kernel/xam/xam_private.h"
++#include "xenia/kernel/xam/call_trace.h"
++#include "xenia/ui/controller_keyboard.h"
+ #include "xenia/xbox.h"
+ 
+ DECLARE_bool(allow_mic_initialization);
+@@ -52,7 +54,7 @@ dword_result_t XamEnableInactivityProcessing_entry(dword_t inactivity_index,
+ }
+ DECLARE_XAM_EXPORT1(XamEnableInactivityProcessing, kInput, kStub);
+ 
+-dword_result_t XamInputGetCapabilitiesEx_entry(
++static uint32_t XamInputGetCapabilitiesEx_traced(
+     dword_t unk, dword_t user_index, dword_t flags,
+     pointer_t<X_INPUT_CAPABILITIES_EX> caps) {
+   if (unk > 1) {
+@@ -91,6 +93,23 @@ dword_result_t XamInputGetCapabilitiesEx_entry(
+   auto lock = input_system->lock();
+   return input_system->GetCapabilities(actual_user_index, actual_flags, caps);
+ }
++// Xbox360PS5 (fix 26, diagnostic): the answers, as they change (call_trace.h).
++dword_result_t XamInputGetCapabilitiesEx_entry(
++    dword_t unk, dword_t user_index, dword_t flags,
++    pointer_t<X_INPUT_CAPABILITIES_EX> caps) {
++  const uint32_t result =
++      XamInputGetCapabilitiesEx_traced(unk, user_index, flags, caps);
++  char answer[96];
++  std::snprintf(answer, sizeof(answer), "result %08X type %u sub_type %u flags %04X",
++                result, caps ? uint32_t(caps->type) : 0u,
++                caps ? uint32_t(caps->sub_type) : 0u,
++                caps ? uint32_t(caps->flags) : 0u);
++  const auto line = call_trace::Changes::Get().Note(
++      "XamInputGetCapabilities", (uint32_t(user_index) & 0xFF) | (uint32_t(flags) << 8),
++      answer);
++  if (!line.empty()) XELOGW("{}", line);
++  return result;
++}
+ DECLARE_XAM_EXPORT1(XamInputGetCapabilitiesEx, kInput, kSketchy);
+ 
+ // https://learn.microsoft.com/en-gb/windows/win32/api/xinput/nf-xinput-xinputgetcapabilities
+@@ -122,9 +141,17 @@ dword_result_t XamInputGetState_entry(dword_t user_index, dword_t flags,
+     X_INPUT_STATE discarded_state = {};
+     auto input_system = kernel_state()->emulator()->input_system();
+     auto lock = input_system->lock();
+-    return input_system->GetState(
++    const X_RESULT discarded_result = input_system->GetState(
+         user_index, !flags ? X_INPUT_FLAG::X_INPUT_FLAG_GAMEPAD : flags,
+         &discarded_state);
++    // Xbox360PS5 (fix 26, diagnostic): the buttons the game did not get.
++    const auto line = call_trace::Changes::Get().Note(
++        "XamInputGetState", (uint32_t(user_index) & 0xFF) | (uint32_t(flags) << 8),
++        call_trace::InputAnswer(discarded_result,
++                                uint16_t(discarded_state.gamepad.buttons), true,
++                                xe::ui::controller_keyboard::Suppressed(user_index)));
++    if (!line.empty()) XELOGW("{}", line);
++    return discarded_result;
+   }
+ 
+   // Games call this with a NULL state ptr, probably as a query.
+@@ -152,6 +179,13 @@ dword_result_t XamInputGetState_entry(dword_t user_index, dword_t flags,
+     }
+   }
+ 
++  // Xbox360PS5 (fix 26, diagnostic): what the game got, as it changes.
++  const auto line = call_trace::Changes::Get().Note(
++      "XamInputGetState", (uint32_t(user_index) & 0xFF) | (uint32_t(flags) << 8),
++      call_trace::InputAnswer(
++          result, input_state ? uint16_t(input_state->gamepad.buttons) : 0, false,
++          xe::ui::controller_keyboard::Suppressed(user_index)));
++  if (!line.empty()) XELOGW("{}", line);
+   return result;
+ }
+ DECLARE_XAM_EXPORT2(XamInputGetState, kInput, kImplemented, kHighFrequency);
+@@ -176,7 +210,7 @@ DECLARE_XAM_EXPORT1(XamInputSetState, kInput, kImplemented);
+ 
+ // https://learn.microsoft.com/en-gb/windows/win32/api/xinput/nf-xinput-xinputgetkeystroke
+ // Same as non-ex, just takes a pointer to user index.
+-dword_result_t XamInputGetKeystrokeEx_entry(
++static uint32_t XamInputGetKeystrokeEx_traced(
+     lpdword_t user_index_ptr, dword_t flags,
+     pointer_t<X_INPUT_KEYSTROKE> keystroke) {
+   // user index = index or XUSER_INDEX_ANY
+@@ -231,6 +265,24 @@ dword_result_t XamInputGetKeystrokeEx_entry(
+   }
+   return result;
+ }
++// Xbox360PS5 (fix 26, diagnostic): the keystrokes and empty answers, as they change.
++dword_result_t XamInputGetKeystrokeEx_entry(
++    lpdword_t user_index_ptr, dword_t flags,
++    pointer_t<X_INPUT_KEYSTROKE> keystroke) {
++  const uint32_t asked = user_index_ptr ? uint32_t(*user_index_ptr) : 0xFFFFFFFFu;
++  const uint32_t result =
++      XamInputGetKeystrokeEx_traced(user_index_ptr, flags, keystroke);
++  char answer[112];
++  std::snprintf(answer, sizeof(answer), "result %08X key %04X flags %04X user %u%s", result,
++                keystroke ? uint32_t(keystroke->virtual_key) : 0u,
++                keystroke ? uint32_t(keystroke->flags) : 0u,
++                keystroke ? uint32_t(keystroke->user_index) : 0u,
++                kernel_state()->xam_state()->IsUIActive() ? ", system UI active" : "");
++  const auto line = call_trace::Changes::Get().Note(
++      "XamInputGetKeystroke", (asked & 0xFF) | (uint32_t(flags) << 8), answer);
++  if (!line.empty()) XELOGW("{}", line);
++  return result;
++}
+ DECLARE_XAM_EXPORT1(XamInputGetKeystrokeEx, kInput, kImplemented);
+ 
+ dword_result_t XamInputGetKeystroke_entry(
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_locale.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_locale.cc
 index 540fab6..6ebd226 100644
 --- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_locale.cc
@@ -575,6 +926,121 @@ index 0000000..72d2311
 +}  // namespace xe
 +
 +#endif  // XENIA_KERNEL_XAM_XAM_LOCALE_V1_H_
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_notify.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_notify.cc
+index 349379b..189032c 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_notify.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_notify.cc
+@@ -10,6 +10,7 @@
+ #include "xenia/kernel/kernel_state.h"
+ #include "xenia/kernel/util/shim_utils.h"
+ #include "xenia/kernel/xam/xam_private.h"
++#include "xenia/kernel/xam/call_trace.h"
+ #include "xenia/kernel/xboxkrnl/xboxkrnl_threading.h"
+ #include "xenia/kernel/xnotifylistener.h"
+ #include "xenia/kernel/xthread.h"
+@@ -84,6 +85,13 @@ dword_result_t XNotifyGetNext_entry(dword_t handle, dword_t match_id,
+   }
+ 
+   *id_ptr = dequeued ? id : 0;
++  // Xbox360PS5 (fix 26, diagnostic): each notification the game takes (key: its id).
++  if (dequeued) {
++    const auto line = call_trace::Changes::Get().Note(
++        "XNotifyGetNext", id,
++        fmt::format("param {:08X} listener {:08X}", param, uint32_t(handle)));
++    if (!line.empty()) XELOGW("{}", line);
++  }
+   // param_ptr may be null - 555307F0 Demo explicitly passes nullptr in the
+   // code.
+   // https://github.com/xenia-project/xenia/pull/1577
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
+index bf19396..d0585ad 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
+@@ -28,6 +28,7 @@
+ #include "xenia/kernel/util/shim_utils.h"
+ #include "xenia/kernel/xam/xam_content_device.h"
+ #include "xenia/kernel/xam/xam_private.h"
++#include "xenia/kernel/xam/call_trace.h"
+ #include "xenia/ui/file_picker.h"
+ #include "xenia/ui/imgui_dialog.h"
+ #include "xenia/ui/imgui_drawer.h"
+@@ -723,6 +724,7 @@ dword_result_t XamShowDeviceSelectorUI_entry(
+     if (button >= devices.size()) {
+       XELOGW("Storage: the game asked where to save (user {}); cancelled",
+              user);
++      call_trace::MarkPrompt();  // fix 26, diagnostic
+       return X_ERROR_CANCELLED;
+     }
+ 
+@@ -730,6 +732,7 @@ dword_result_t XamShowDeviceSelectorUI_entry(
+     *device_id_ptr = static_cast<uint32_t>(device_info->device_id);
+     XELOGW("Storage: the game asked where to save (user {}); {} chosen", user,
+            to_utf8(device_info->name));
++    call_trace::MarkPrompt();  // fix 26, diagnostic
+     return X_ERROR_SUCCESS;
+   };
+ 
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_user.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_user.cc
+index c215940..3399546 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_user.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_user.cc
+@@ -18,6 +18,7 @@
+ #include "xenia/kernel/xam/user_profile.h"
+ #include "xenia/kernel/xam/user_settings.h"
+ #include "xenia/kernel/xam/xam_private.h"
++#include "xenia/kernel/xam/call_trace.h"
+ #include "xenia/kernel/xboxkrnl/xboxkrnl_modules.h"
+ #include "xenia/kernel/xenumerator.h"
+ #include "xenia/kernel/xsession.h"
+@@ -98,7 +99,7 @@ dword_result_t XamUserGetIndexFromXUID_entry(qword_t xuid, dword_t flags,
+ }
+ DECLARE_XAM_EXPORT1(XamUserGetIndexFromXUID, kUserProfiles, kImplemented);
+ 
+-dword_result_t XamUserGetSigninState_entry(dword_t user_index) {
++static uint32_t XamUserGetSigninState_traced(dword_t user_index) {
+   X_USER_SIGNIN_STATE signin_state = X_USER_SIGNIN_STATE::NotSignedIn;
+   if (user_index >= XUserMaxUserCount) {
+     return static_cast<uint32_t>(signin_state);
+@@ -112,10 +113,18 @@ dword_result_t XamUserGetSigninState_entry(dword_t user_index) {
+ 
+   return static_cast<uint32_t>(signin_state);
+ }
++// Xbox360PS5 (fix 26, diagnostic): the sign-in state the game sees, as it changes.
++dword_result_t XamUserGetSigninState_entry(dword_t user_index) {
++  const uint32_t state = XamUserGetSigninState_traced(user_index);
++  const auto line = call_trace::Changes::Get().Note(
++      "XamUserGetSigninState", uint32_t(user_index), fmt::format("state {}", state));
++  if (!line.empty()) XELOGW("{}", line);
++  return state;
++}
+ DECLARE_XAM_EXPORT2(XamUserGetSigninState, kUserProfiles, kImplemented,
+                     kHighFrequency);
+ 
+-X_HRESULT_result_t XamUserGetSigninInfo_entry(
++static X_HRESULT XamUserGetSigninInfo_traced(
+     dword_t user_index, dword_t flags, pointer_t<X_USER_SIGNIN_INFO> info_ptr) {
+   if (!info_ptr) {
+     return X_E_INVALIDARG;
+@@ -162,6 +171,19 @@ X_HRESULT_result_t XamUserGetSigninInfo_entry(
+ 
+   return X_E_SUCCESS;
+ }
++// Xbox360PS5 (fix 26, diagnostic): the sign-in info the game sees, as it changes.
++X_HRESULT_result_t XamUserGetSigninInfo_entry(
++    dword_t user_index, dword_t flags, pointer_t<X_USER_SIGNIN_INFO> info_ptr) {
++  const X_HRESULT result = XamUserGetSigninInfo_traced(user_index, flags, info_ptr);
++  const auto line = call_trace::Changes::Get().Note(
++      "XamUserGetSigninInfo", (uint32_t(user_index) & 0xFF) | (uint32_t(flags) << 8),
++      fmt::format("result {:08X} xuid {:016X} state {} flags {:08X}", uint32_t(result),
++                  info_ptr ? uint64_t(info_ptr->xuid) : 0ull,
++                  info_ptr ? uint32_t(info_ptr->signin_state) : 0u,
++                  info_ptr ? uint32_t(info_ptr->flags) : 0u));
++  if (!line.empty()) XELOGW("{}", line);
++  return result;
++}
+ DECLARE_XAM_EXPORT1(XamUserGetSigninInfo, kUserProfiles, kImplemented);
+ 
+ dword_result_t XamUserGetName_entry(dword_t user_index, dword_t buffer,
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io.cc
 index 48119ec..d01746d 100644
 --- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io.cc
@@ -859,3 +1325,42 @@ index ef83058..213d7d2 100644
  
    typedef struct {
      size_t size;         // Size (bytes) of total image.
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+index bec0d5f..33e0cda 100644
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -75,6 +75,7 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
+ #include <map>
+ #include <set>
+ #include "xenia/kernel/object_history.h"
++#include "xenia/kernel/xam/call_trace.h"  // fix 26, diagnostic
+ #include "xenia/kernel/user_module.h"
+ #include "xenia/base/memory.h"
+ #include "xbox360ps5/session_log.hpp"
+@@ -2559,6 +2560,26 @@ int main(int argc, char** argv) {
+             swaps_sum += float(swaps - sampled_swaps) / elapsed;
+             sampled_swaps = swaps;
+             sample_at = at; sampled_frames = frames;
++            // Fix 26 (diagnostic, Handball 16): the threads 20 s and 45 s after the storage
++            // prompt, as the STALL report shows them, while the game keeps drawing (a game
++            // that ignores its buttons is not stalled, so the report would not come).
++            {
++              namespace ct = xe::kernel::xam::call_trace;
++              static uint64_t dumped_for = 0;
++              static int dumps = 0;
++              const uint64_t prompt = ct::PromptMs().load();
++              if (prompt && prompt != dumped_for) { dumped_for = prompt; dumps = 0; }
++              const uint64_t since = prompt ? ct::NowMs() - prompt : 0;
++              if (prompt && dumps < 2 && since >= (dumps ? 45000u : 20000u)) {
++                ++dumps;
++                XELOGW("STALL dump {} of 2 without a stall: {} ms after the storage prompt, output {:.1f}/s",
++                       dumps, since, fps);
++                ReportStall(emulator, 10 + dumps);
++                XELOGW("STALL recent lines, oldest first:");
++                xe::logging::WriteRecentLines();
++                XELOGW("STALL recent lines end");
++              }
++            }
+             const double watch_seconds=std::chrono::duration<double>(at-watch_started).count();
+             switch(frame_watch.Observe(frames,watch_seconds)) {
+               case xbox360ps5::FrameWatch::capture:
