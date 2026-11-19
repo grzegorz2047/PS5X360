@@ -21,6 +21,10 @@ on:
         description: thin for ThinLTO of the core and the title (GitHub issue 2), empty for none
         required: false
         default: ''
+      title_opt:
+        description: Optimization level of the title objects (default -O3; -O2 as 1.0.2), for a comparison build
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -138,6 +142,7 @@ jobs:
           set -o pipefail
           export CCACHE_DIR=$HOME/.cache/ccache CCACHE_MAXSIZE=2G CCACHE_BASEDIR=$GITHUB_WORKSPACE CCACHE_COMPILERCHECK=content
           export PS5X360_LTO='${{ inputs.lto }}'
+          export PS5X360_TITLE_OPT='${{ inputs.title_opt }}'
           bash tools/source-1.0.2/build.sh build/src102 build/src102-out 2>&1 | tee build/src102-build.log
           ccache -s || true
 

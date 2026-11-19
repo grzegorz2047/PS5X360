@@ -34,6 +34,8 @@ elif [[ -n $lto ]]; then
   echo "PS5X360_LTO=$lto: only thin is known" >&2
   exit 1
 fi
+# PS5X360_TITLE_OPT=-O2: the title objects at 1.0.2's level (default -O3), for a comparison build.
+if [[ -n ${PS5X360_TITLE_OPT:-} ]]; then cmake_lto+=("-DPS5X360_TITLE_OPT=$PS5X360_TITLE_OPT"); fi
 
 log 'AGC import stubs'
 for pair in 'libSceAgc:agc_canary_link_stub.c' 'libSceAgcDriver:agc_driver_canary_link_stub.c'; do
