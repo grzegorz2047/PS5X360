@@ -26,6 +26,7 @@ checks=(
   check-system-ui.cpp              # fix 26
   check-fix26-tree.cpp             # fix 26
   check-save-devices.cpp           # fix 27
+  check-kinect-usb.cpp             # fix 44
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"

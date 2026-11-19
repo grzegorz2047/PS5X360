@@ -26,6 +26,9 @@ FEATURES = {
     'title updates / DLC manager': ['title update', 'DLC'],
     'per-game accurate render targets (FSI)': ['render-target-fsi'],
     'disc drive helper': ['disc-helper.elf'],
+    'physical USB Kinect and its relay': ['Kinect USB: camera {} opened directly',
+                                          'Kinect USB: receiving camera frames from the relay on 127.0.0.1:{}',
+                                          '/data/kinect-tracker/calibration.bin'],
     'game information archive (x360db)': ['x360db'],
 }
 
