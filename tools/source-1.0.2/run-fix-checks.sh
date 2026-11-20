@@ -75,9 +75,7 @@ checks=(
   check-native-mutant.cpp          # fix 64
   check-phone-latency.cpp          # fix 66
   check-xma-unwatch.cpp            # fix 67
-  check-deferred-watches.cpp       # fix 68
   check-suspend-trace.cpp          # fix 69
-  check-deferred-checks.cpp        # fix 70
   check-pending-resume.cpp         # fix 71
   check-page-version.cpp           # fix 72
 )
@@ -119,9 +117,7 @@ declare -A fix_of=(
   [check-native-mutant.cpp]=64
   [check-phone-latency.cpp]=66
   [check-xma-unwatch.cpp]=67
-  [check-deferred-watches.cpp]=68
   [check-suspend-trace.cpp]=69
-  [check-deferred-checks.cpp]=70
   [check-pending-resume.cpp]=71
   [check-page-version.cpp]=72
 )

@@ -127,7 +127,6 @@ DLC\sscan\slimit\sreached. = 已达到\sDLC\s扫描上限。
 DLCs = DLC
 Dark\stheme\son.\sThe\semulator\swill\srestart. = 已开启深色主题。模拟器将重新启动。
 Decal\sfix = 贴花修正
-Deferred\smemory\swatches = 延迟内存保护
 Delete = 删除
 Delete\sletters\sfrom\sthe\ssearch\sor\schange\sthe\sfilter\swith\sL1\sand\sR1. = 删除搜索中的文字，或用\sL1\s和\sR1\s切换筛选。
 Depth\sprecision = 深度精度
@@ -350,7 +349,6 @@ Press\sSquare\sagain\sto\sremove.\sSaves\sand\sachievements\sremain\sin\sremoved
 Profile\sremoved.\sSaves\sand\sachievements\sretained\sin\sthe\sbackup. = 配置文件已移除。存档和成就保留在备份中。
 Profiles = 配置文件
 Profiles\sand\splayers = 个人资料和玩家
-Protects\sthe\smemory\sjust\scopied\sto\svideo\sonce\sper\sbatch\sof\swork\sinstead\sof\safter\severy\scopy,\sand\schecks\sit\sby\scontent.\sFar\sfewer\ssystem\scalls\sin\sgames\sthat\srewrite\stheir\sdata\severy\sframe\s(Call\sof\sDuty:\sModern\sWarfare\s2).\sSwitch\sit\soff\sif\sa\sgame\sshows\sflickering\sor\swrong\sobjects. = 对刚复制到显存的内存按每批工作保护一次，而不是每次复制后都保护，并按内容检查。在每帧都重写数据的游戏中大幅减少系统调用（Call\sof\sDuty:\sModern\sWarfare\s2）。如果游戏出现闪烁或错误的物体，请关闭。
 Publisher = 发行商
 Puts\severy\sVideo,\sPerformance,\sAudio,\sControls\sand\sSystem\soption\sback\sto\sits\srecommended\svalue.\sEach\sgame's\sown\ssettings\sstay\sas\sthey\sare. = 将视频、性能、音频、控制和系统的所有选项恢复为推荐值。每个游戏的自有设置保持不变。
 RADV\sgraphics\s(PS5_Vulkan),\sXMA\saudio\s(FFmpeg)\sand\sXenia\sCanary\spatches.\sNo\sgames,\sBIOS\sor\skeys\sare\sincluded. = RADV\s图形（PS5_Vulkan）、XMA\s音频（FFmpeg）和\sXenia\sCanary\s补丁。不包含任何游戏、BIOS\s或密钥。

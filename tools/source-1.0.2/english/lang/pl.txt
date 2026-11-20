@@ -127,7 +127,6 @@ DLC\sscan\slimit\sreached. = Osiągnięto\slimit\swyszukiwania\sDLC.
 DLCs = DLC
 Dark\stheme\son.\sThe\semulator\swill\srestart. = Ciemny\smotyw\swłączony.\sEmulator\suruchomi\ssię\sponownie.
 Decal\sfix = Poprawka\snaklejek
-Deferred\smemory\swatches = Odroczona\sochrona\spamięci
 Delete = Usuń
 Delete\sletters\sfrom\sthe\ssearch\sor\schange\sthe\sfilter\swith\sL1\sand\sR1. = Usuń\slitery\sz\swyszukiwania\slub\szmień\sfiltr\sprzyciskami\sL1\si\sR1.
 Depth\sprecision = Dokładność\sgłębi
@@ -350,7 +349,6 @@ Press\sSquare\sagain\sto\sremove.\sSaves\sand\sachievements\sremain\sin\sremoved
 Profile\sremoved.\sSaves\sand\sachievements\sretained\sin\sthe\sbackup. = Profil\susunięty.\sZapisy\si\sosiągnięcia\szachowane\sw\skopii\szapasowej.
 Profiles = Profile
 Profiles\sand\splayers = Profile\si\sgracze
-Protects\sthe\smemory\sjust\scopied\sto\svideo\sonce\sper\sbatch\sof\swork\sinstead\sof\safter\severy\scopy,\sand\schecks\sit\sby\scontent.\sFar\sfewer\ssystem\scalls\sin\sgames\sthat\srewrite\stheir\sdata\severy\sframe\s(Call\sof\sDuty:\sModern\sWarfare\s2).\sSwitch\sit\soff\sif\sa\sgame\sshows\sflickering\sor\swrong\sobjects. = Chroni\spamięć\swłaśnie\sskopiowaną\sdo\swideo\sraz\sna\sporcję\spracy\szamiast\spo\skażdej\skopii\si\ssprawdza\sją\spo\szawartości.\sZnacznie\smniej\swywołań\ssystemowych\sw\sgrach,\sktóre\sw\skażdej\sklatce\szapisują\sdane\sod\snowa\s(Call\sof\sDuty:\sModern\sWarfare\s2).\sWyłącz,\sjeśli\sgra\spokazuje\smigające\slub\sbłędne\sobiekty.
 Publisher = Wydawca
 Puts\severy\sVideo,\sPerformance,\sAudio,\sControls\sand\sSystem\soption\sback\sto\sits\srecommended\svalue.\sEach\sgame's\sown\ssettings\sstay\sas\sthey\sare. = Przywraca\skażdą\sopcję\sObrazu,\sWydajności,\sDźwięku,\sSterowania\si\sSystemu\sdo\swartości\szalecanej.\sWłasne\sustawienia\skażdej\sgry\spozostają\sbez\szmian.
 RADV\sgraphics\s(PS5_Vulkan),\sXMA\saudio\s(FFmpeg)\sand\sXenia\sCanary\spatches.\sNo\sgames,\sBIOS\sor\skeys\sare\sincluded. = Grafika\sRADV\s(PS5_Vulkan),\sdźwięk\sXMA\s(FFmpeg)\si\słatki\sXenia\sCanary.\sNie\szawiera\sgier,\sBIOS-u\sani\skluczy.

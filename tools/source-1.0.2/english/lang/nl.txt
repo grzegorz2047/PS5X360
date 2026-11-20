@@ -127,7 +127,6 @@ DLC\sscan\slimit\sreached. = Zoeklimiet\svoor\sDLC's\sbereikt.
 DLCs = DLC's
 Dark\stheme\son.\sThe\semulator\swill\srestart. = Donker\sthema\saan.\sDe\semulator\sstart\sopnieuw.
 Decal\sfix = Decal-correctie
-Deferred\smemory\swatches = Uitgestelde\sgeheugenbewaking
 Delete = Wissen
 Delete\sletters\sfrom\sthe\ssearch\sor\schange\sthe\sfilter\swith\sL1\sand\sR1. = Wis\sletters\suit\sde\szoekopdracht\sof\swissel\svan\sfilter\smet\sL1\sen\sR1.
 Depth\sprecision = Dieptenauwkeurigheid
@@ -350,7 +349,6 @@ Press\sSquare\sagain\sto\sremove.\sSaves\sand\sachievements\sremain\sin\sremoved
 Profile\sremoved.\sSaves\sand\sachievements\sretained\sin\sthe\sbackup. = Profiel\sverwijderd.\sOpgeslagen\sgames\sen\sprestaties\sbewaard\sin\sde\sback-up.
 Profiles = Profielen
 Profiles\sand\splayers = Profielen\sen\sspelers
-Protects\sthe\smemory\sjust\scopied\sto\svideo\sonce\sper\sbatch\sof\swork\sinstead\sof\safter\severy\scopy,\sand\schecks\sit\sby\scontent.\sFar\sfewer\ssystem\scalls\sin\sgames\sthat\srewrite\stheir\sdata\severy\sframe\s(Call\sof\sDuty:\sModern\sWarfare\s2).\sSwitch\sit\soff\sif\sa\sgame\sshows\sflickering\sor\swrong\sobjects. = Beschermt\shet\snet\snaar\svideo\sgekopieerde\sgeheugen\séén\skeer\sper\swerkpakket\sin\splaats\svan\sna\selke\skopie,\sen\scontroleert\shet\sop\sinhoud.\sVeel\sminder\ssysteemaanroepen\sin\sgames\sdie\shun\sgegevens\selk\sbeeld\sopnieuw\sschrijven\s(Call\sof\sDuty:\sModern\sWarfare\s2).\sZet\shet\suit\sals\seen\sgame\sknipperende\sof\sverkeerde\sobjecten\stoont.
 Publisher = Uitgever
 Puts\severy\sVideo,\sPerformance,\sAudio,\sControls\sand\sSystem\soption\sback\sto\sits\srecommended\svalue.\sEach\sgame's\sown\ssettings\sstay\sas\sthey\sare. = Zet\selke\soptie\svan\sVideo,\sPrestaties,\sAudio,\sBesturing\sen\sSysteem\sterug\snaar\sde\saanbevolen\swaarde.\sDe\seigen\sinstellingen\svan\selke\sgame\sblijven\szoals\sze\szijn.
 RADV\sgraphics\s(PS5_Vulkan),\sXMA\saudio\s(FFmpeg)\sand\sXenia\sCanary\spatches.\sNo\sgames,\sBIOS\sor\skeys\sare\sincluded. = RADV-graphics\s(PS5_Vulkan),\sXMA-audio\s(FFmpeg)\sen\spatches\svan\sXenia\sCanary.\sGeen\sgames,\sBIOS\sof\ssleutels\sinbegrepen.

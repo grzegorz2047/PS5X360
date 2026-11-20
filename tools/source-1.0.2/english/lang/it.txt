@@ -127,7 +127,6 @@ DLC\sscan\slimit\sreached. = Raggiunto\sil\slimite\sdi\sricerca\sdei\sDLC.
 DLCs = DLC
 Dark\stheme\son.\sThe\semulator\swill\srestart. = Tema\sscuro\sattivo.\sL'emulatore\ssi\sriavvierà.
 Decal\sfix = Correzione\sdelle\sdecalcomanie
-Deferred\smemory\swatches = Protezione\sdella\smemoria\sdifferita
 Delete = Cancella
 Delete\sletters\sfrom\sthe\ssearch\sor\schange\sthe\sfilter\swith\sL1\sand\sR1. = Cancella\slettere\sdalla\sricerca\so\scambia\sfiltro\scon\sL1\se\sR1.
 Depth\sprecision = Precisione\sdella\sprofondità
@@ -350,7 +349,6 @@ Press\sSquare\sagain\sto\sremove.\sSaves\sand\sachievements\sremain\sin\sremoved
 Profile\sremoved.\sSaves\sand\sachievements\sretained\sin\sthe\sbackup. = Profilo\srimosso.\sSalvataggi\se\sobiettivi\sconservati\snel\sbackup.
 Profiles = Profili
 Profiles\sand\splayers = Profili\se\sgiocatori
-Protects\sthe\smemory\sjust\scopied\sto\svideo\sonce\sper\sbatch\sof\swork\sinstead\sof\safter\severy\scopy,\sand\schecks\sit\sby\scontent.\sFar\sfewer\ssystem\scalls\sin\sgames\sthat\srewrite\stheir\sdata\severy\sframe\s(Call\sof\sDuty:\sModern\sWarfare\s2).\sSwitch\sit\soff\sif\sa\sgame\sshows\sflickering\sor\swrong\sobjects. = Protegge\sla\smemoria\sappena\scopiata\snella\smemoria\svideo\suna\svolta\sper\slotto\sdi\slavoro\sinvece\sche\sdopo\sogni\scopia,\se\sla\sverifica\sin\sbase\sal\scontenuto.\sMolte\smeno\schiamate\sdi\ssistema\snei\sgiochi\sche\sriscrivono\si\sdati\sa\sogni\sfotogramma\s(Call\sof\sDuty:\sModern\sWarfare\s2).\sDisattivala\sse\sun\sgioco\smostra\soggetti\sche\ssfarfallano\so\ssono\ssbagliati.
 Publisher = Editore
 Puts\severy\sVideo,\sPerformance,\sAudio,\sControls\sand\sSystem\soption\sback\sto\sits\srecommended\svalue.\sEach\sgame's\sown\ssettings\sstay\sas\sthey\sare. = Riporta\sogni\sopzione\sdi\sVideo,\sPrestazioni,\sAudio,\sControlli\se\sSistema\sal\svalore\sconsigliato.\sLe\simpostazioni\sproprie\sdi\sogni\sgioco\srestano\scome\ssono.
 RADV\sgraphics\s(PS5_Vulkan),\sXMA\saudio\s(FFmpeg)\sand\sXenia\sCanary\spatches.\sNo\sgames,\sBIOS\sor\skeys\sare\sincluded. = Grafica\sRADV\s(PS5_Vulkan),\saudio\sXMA\s(FFmpeg)\se\spatch\sdi\sXenia\sCanary.\sNon\ssono\sinclusi\sgiochi,\sBIOS\so\schiavi.

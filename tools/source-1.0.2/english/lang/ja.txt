@@ -127,7 +127,6 @@ DLC\sscan\slimit\sreached. = DLC\sの検索上限に達しました。
 DLCs = DLC
 Dark\stheme\son.\sThe\semulator\swill\srestart. = ダークテーマにしました。エミュレーターが再起動します。
 Decal\sfix = デカール補正
-Deferred\smemory\swatches = メモリ保護の遅延
 Delete = 削除
 Delete\sletters\sfrom\sthe\ssearch\sor\schange\sthe\sfilter\swith\sL1\sand\sR1. = 検索の文字を消すか、L1\sと\sR1\sでフィルターを変えてください。
 Depth\sprecision = 深度の精度
@@ -350,7 +349,6 @@ Press\sSquare\sagain\sto\sremove.\sSaves\sand\sachievements\sremain\sin\sremoved
 Profile\sremoved.\sSaves\sand\sachievements\sretained\sin\sthe\sbackup. = プロファイルを削除しました。セーブデータと実績はバックアップに保持されています。
 Profiles = プロファイル
 Profiles\sand\splayers = プロフィールとプレイヤー
-Protects\sthe\smemory\sjust\scopied\sto\svideo\sonce\sper\sbatch\sof\swork\sinstead\sof\safter\severy\scopy,\sand\schecks\sit\sby\scontent.\sFar\sfewer\ssystem\scalls\sin\sgames\sthat\srewrite\stheir\sdata\severy\sframe\s(Call\sof\sDuty:\sModern\sWarfare\s2).\sSwitch\sit\soff\sif\sa\sgame\sshows\sflickering\sor\swrong\sobjects. = ビデオへコピーしたばかりのメモリを、コピーのたびではなく処理のまとまりごとに一度保護し、内容で確認します。毎フレームデータを書き換えるゲームでシステムコールが大幅に減ります（Call\sof\sDuty:\sModern\sWarfare\s2）。オブジェクトのちらつきや表示の誤りが出る場合はオフにしてください。
 Publisher = 発売元
 Puts\severy\sVideo,\sPerformance,\sAudio,\sControls\sand\sSystem\soption\sback\sto\sits\srecommended\svalue.\sEach\sgame's\sown\ssettings\sstay\sas\sthey\sare. = 映像、パフォーマンス、オーディオ、コントロール、システムのすべてのオプションを推奨値に戻します。各ゲームの独自設定はそのままです。
 RADV\sgraphics\s(PS5_Vulkan),\sXMA\saudio\s(FFmpeg)\sand\sXenia\sCanary\spatches.\sNo\sgames,\sBIOS\sor\skeys\sare\sincluded. = RADV\sグラフィックス（PS5_Vulkan）、XMA\sオーディオ（FFmpeg）、Xenia\sCanary\sのパッチ。ゲーム、BIOS、キーは含まれません。
