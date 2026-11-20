@@ -20,6 +20,12 @@
 //      game loop only (stopped before the exit's waits) with the UI loop's beats, and
 //      crash_report.cpp reports the signals that end a process without a fault (SIGPIPE then
 //      ignored).
+//  (f) candidate 8 (candidate 4: the process ended ~1 s after the UI thread's acquire had waited
+//      293 ms; the 3 s report never came): a GPU call past 200 ms or the UI loop still for 1 s is
+//      reported, checked every 50 ms; the work ring holds 128 entries with each draw's targets
+//      (RB_SURFACE_INFO, RB_COLOR_INFO, RB_DEPTH_INFO) and first texture's fetch constant; a
+//      report goes out in one write and one fsync; failed submits, fence waits and acquires are
+//      written raw.
 //  (d) candidate 4 (candidate 1 left no line at all with Ninja Gaiden II, which closed by itself
 //      after loading): the heartbeat line (loops, frames, GPU ring, last submission, the log
 //      writer's progress, calls in progress) every second; the watch thread sleeps with usleep (no
@@ -147,19 +153,19 @@ void CheckSlots() {
 
 void CheckWork() {
   int vs_object = 0, ps_object = 0;
-  for (uint32_t n = 0; n < 40; ++n) {
+  for (uint32_t n = 0; n < 140; ++n) {
     if (n % 5 == 3)  // the newest (n = 39) is a draw
       hw::RecordResolve(100 + n / 10, 0x1F778000 + n, 5447680, 32);
     else
       hw::RecordDraw(100 + n / 10, 0x1000 + n, &vs_object, 0x2000 + n, &ps_object, 4, 3 * n, n % 2 ? hw::kIndexed : 0);
   }
   const auto recent = hw::RecentWork();
-  Expect(recent.size() == hw::kWork, "the ring keeps the newest 32");
+  Expect(recent.size() == hw::kWork && hw::kWork == 128, "the ring keeps the newest 128");
   bool ordered = true;
   for (size_t i = 1; i < recent.size(); ++i) ordered = ordered && recent[i - 1].serial < recent[i].serial;
   Expect(ordered, "recent work is oldest first");
-  Expect(!recent.empty() && recent.back().vs == 0x1000 + 39 && recent.back().submission == 103, "the newest draw is last");
-  Expect(!recent.empty() && recent.front().serial == hw::work_serial.load() - hw::kWork + 1, "the oldest kept is 32 back");
+  Expect(!recent.empty() && recent.back().vs == 0x1000 + 139 && recent.back().submission == 113, "the newest draw is last");
+  Expect(!recent.empty() && recent.front().serial == hw::work_serial.load() - hw::kWork + 1, "the oldest kept is 128 back");
 }
 
 void CheckWatcher() {
@@ -175,15 +181,22 @@ void CheckWatcher() {
   int vs_object = 0, ps_object = 0, other = 0;
   hw::RecordDraw(6, 0xAAAA, &other, 0, nullptr, 4, 3, 0);
   hw::RecordResolve(7, 0x1F778000, 5447680, 32);
-  hw::RecordDraw(7, 0x0123456789ABCDEFull, &vs_object, 0xFEDCBA9876543210ull, &ps_object, 8, 1200, hw::kIndexed);
+  hw::DrawState state;
+  state.surface = 0x00000500;
+  state.color = 0x00030000;
+  state.depth = 0x00140000;
+  state.textures = 0x5;
+  state.tex_d0 = 0x01800002;
+  state.tex_d1 = 0x1F778000;
+  hw::RecordDraw(7, 0x0123456789ABCDEFull, &vs_object, 0xFEDCBA9876543210ull, &ps_object, 8, 1200, hw::kIndexed, state);
   hw::Submitted(7, 6);
   hw::ui_loop.Mark(hw::kUiPaint);
   {
     Blocked gpu("gpu", nullptr, 7, true);
     Blocked ui("ui", "fence", 0);
     const uint64_t t1 = hw::NowMs();
-    Expect(watcher.Observe(t1 + 1000).lines.empty(), "1 s in: nothing yet");
-    auto step = watcher.Observe(t1 + 4500);
+    Expect(watcher.Observe(t1 + 100).lines.empty(), "100 ms in: nothing yet");
+    auto step = watcher.Observe(t1 + 300);  // candidate 8: a GPU call past 200 ms
     Show("first report", step.lines);
     ExpectFits(step.lines);
     Expect(step.probe, "the first report asks where the threads are");
@@ -192,6 +205,8 @@ void CheckWatcher() {
     Expect(Has(step.lines, "last GPU submission 7"), "the queue");
     Expect(Has(step.lines, "HANG gpu ") && Has(step.lines, "in fence for") && Has(step.lines, "for submission 7"),
            "the gpu thread's fence wait and its submission");
+    Expect(Has(step.lines, "surface 00000500 color 00030000 depth 00140000 tex 5 (01800002 1F778000)"),
+           "the draw's targets and first texture");
     Expect(Has(step.lines, "sub 7 (open) draw vs 0123456789ABCDEF ps FEDCBA9876543210 prim 8 vertices 1200 indexed"),
            "the draw in flight");
     Expect(Has(step.lines, "sub 7 (open) resolve to 1F778000, 5447680 bytes, format 32"), "the resolve in flight");
@@ -204,12 +219,12 @@ void CheckWatcher() {
     }
     Expect(vs_dumped && ps_dumped, "the shaders of the open submission are written out");
     Expect(watcher.reports() == 1 && watcher.hung(), "one report");
-    Expect(watcher.Observe(t1 + 5500).lines.empty(), "no line between the 5 s marks");
-    auto still = watcher.Observe(t1 + 9600);
+    Expect(watcher.Observe(t1 + 1300).lines.empty(), "no line between the 5 s marks");
+    auto still = watcher.Observe(t1 + 5400);
     Show("still", still.lines);
     ExpectFits(still.lines);
     Expect(Has(still.lines, "HANG still +5 s") && Has(still.lines, "gpu:fence"), "a line every 5 s");
-    auto again = watcher.Observe(t1 + 25000);
+    auto again = watcher.Observe(t1 + 20400);
     Expect(Has(again.lines, "HANG report again") && again.probe && again.dump.empty(), "the report again after 20 s, no dump");
     gpu.Release();
     ui.Release();
@@ -225,8 +240,8 @@ void CheckWatcher() {
   hw::ui_loop.Mark(hw::kUiSample);
   const uint64_t t2 = hw::NowMs();
   stopped.Observe(t2);
-  Expect(stopped.Observe(t2 + 2500).lines.empty(), "2.5 s: nothing");
-  auto step = stopped.Observe(t2 + 3100);
+  Expect(stopped.Observe(t2 + 900).lines.empty(), "0.9 s: nothing");
+  auto step = stopped.Observe(t2 + 1100);  // candidate 8: the UI loop still for 1 s
   Show("UI loop stopped", step.lines);
   Expect(Has(step.lines, "HANG verdict: the UI loop is stopped outside a GPU wait"), "UI stop verdict");
 
@@ -340,7 +355,8 @@ void CheckTree() {
   const size_t klass_end = main_text.find("std::thread thread_;", klass);
   Expect(klass != std::string::npos && klass_end != std::string::npos, "the watch class");
   const std::string watch = main_text.substr(klass, klass_end - klass);
-  for (const char* part : {"\"hang-watch.txt\"", "O_WRONLY | O_CREAT | O_TRUNC", "::usleep(250000);",
+  for (const char* part : {"\"hang-watch.txt\"", "O_WRONLY | O_CREAT | O_TRUNC", "::usleep(50000);",
+                           "HangWatchRawBatch(step.lines);", "next_observe = now + 50;",
                            "hw::HeartbeatLine(in)", "next_beat = now + 1000;", "hang_watch_fd.store(fd_);",
                            "xbox360ps5::hang_watch::raw_sink.store(&HangWatchRaw, std::memory_order_release);",
                            "xbox360ps5::hang_watch::raw_sink.store(nullptr, std::memory_order_release);",
@@ -364,6 +380,22 @@ void CheckTree() {
   const size_t step4 = hook_body.find("sceSystemServiceLoadExec(");
   Expect(step1 < step2 && step2 < step3 && step3 < step4 && step4 != std::string::npos,
          "the restart's steps logged raw, around the checkpoint and before the restart");
+  // Candidate 8.
+  ExpectIn(".deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc",
+           {"state.surface = regs.values[XE_GPU_REG_RB_SURFACE_INFO];", "state.color = regs.values[XE_GPU_REG_RB_COLOR_INFO];",
+            "state.depth = regs.values[XE_GPU_REG_RB_DEPTH_INFO];", "regs.GetTextureFetch(xe::tzcnt(used_texture_mask));"});
+  ExpectIn(".deps/xenia-canary/src/xenia/ui/vulkan/vulkan_gpu_completion_timeline.cc",
+           {"\"GPU queue submit failed: {}\"", "\"GPU fence wait for submission {} failed: {}\""});
+  ExpectIn(".deps/xenia-canary/src/xenia/ui/vulkan/vulkan_presenter.cc", {"\"GPU swapchain acquire failed: {}\""});
+  {
+    const size_t batch = main_text.find("void HangWatchRawBatch(const std::vector<std::string>& lines) {");
+    Expect(batch != std::string::npos && batch < klass, "the batch writer before the watch");
+    const std::string body = main_text.substr(batch, main_text.find("\n}", batch) - batch);
+    Expect(body.find("(void)!::write(fd, text.data(), text.size());") != std::string::npos &&
+               body.find("::fsync(fd);") != std::string::npos && body.find("NetLogTry(text.data(), text.size());") != std::string::npos &&
+               body.find("lock") == std::string::npos && body.find("XELOG") == std::string::npos,
+           "a report in one write and one fsync, no lock");
+  }
   ExpectIn(".deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_strings.cc",
            {"\"GUEST DbgPrint: \" + std::string(string_util::rtrim(data.str()));",
             "if (ps5_dbgprints.fetch_add(1, std::memory_order_relaxed) < 64) {", "xbox360ps5::hang_watch::Raw(text);"});

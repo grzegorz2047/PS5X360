@@ -2,7 +2,7 @@ diff --git a/include/xbox360ps5/hang_watch.hpp b/include/xbox360ps5/hang_watch.h
 new file mode 100644
 --- /dev/null
 +++ b/include/xbox360ps5/hang_watch.hpp
-@@ -0,0 +1,476 @@
+@@ -0,0 +1,503 @@
 +// SPDX-License-Identifier: MIT
 +// Fix 47 of the source rebuild (tools/source-1.0.2/fixes/47-hang-watch.patch): a watch for a
 +// game whose picture stops and whose process the system ends without a crash report (Ninja
@@ -172,8 +172,12 @@ new file mode 100644
 +  std::atomic<const void*> vs_object{nullptr}, ps_object{nullptr};
 +  std::atomic<uint32_t> kind{0};
 +  std::atomic<uint32_t> a{0}, b{0}, c{0};  // draw: primitive, host vertices, flags; resolve: address, bytes, format
++  // Candidate 8, draws: RB_SURFACE_INFO, RB_COLOR_INFO, RB_DEPTH_INFO, the used texture mask and
++  // the first used texture's fetch constant (dwords 0 and 1: format and pitch, base address).
++  std::atomic<uint32_t> surface{0}, color{0}, depth{0}, textures{0}, tex_d0{0}, tex_d1{0};
 +};
-+inline constexpr size_t kWork = 32;
++// Candidate 8: 128 (a frame of Ninja Gaiden II's menu is ~100 draws), was 32.
++inline constexpr size_t kWork = 128;
 +inline std::array<Work, kWork> work;
 +inline std::atomic<uint64_t> work_serial{0};
 +// Draw flags.
@@ -187,9 +191,19 @@ new file mode 100644
 +  entry.kind.store(kind, std::memory_order_relaxed);
 +  return entry;
 +}
++struct DrawState {
++  uint32_t surface = 0, color = 0, depth = 0, textures = 0, tex_d0 = 0, tex_d1 = 0;
++};
 +inline void RecordDraw(uint64_t submission, uint64_t vs_hash, const void* vs, uint64_t ps_hash,
-+                       const void* ps, uint32_t primitive, uint32_t host_vertices, uint32_t flags) {
++                       const void* ps, uint32_t primitive, uint32_t host_vertices, uint32_t flags,
++                       const DrawState& state = DrawState()) {
 +  Work& entry = NextWork(submission, kDraw);
++  entry.surface.store(state.surface, std::memory_order_relaxed);
++  entry.color.store(state.color, std::memory_order_relaxed);
++  entry.depth.store(state.depth, std::memory_order_relaxed);
++  entry.textures.store(state.textures, std::memory_order_relaxed);
++  entry.tex_d0.store(state.tex_d0, std::memory_order_relaxed);
++  entry.tex_d1.store(state.tex_d1, std::memory_order_relaxed);
 +  entry.vs.store(vs_hash, std::memory_order_relaxed);
 +  entry.ps.store(ps_hash, std::memory_order_relaxed);
 +  entry.vs_object.store(vs, std::memory_order_relaxed);
@@ -234,6 +248,7 @@ new file mode 100644
 +  const void* vs_object = nullptr;
 +  const void* ps_object = nullptr;
 +  uint32_t kind = 0, a = 0, b = 0, c = 0;
++  uint32_t surface = 0, color = 0, depth = 0, textures = 0, tex_d0 = 0, tex_d1 = 0;
 +};
 +inline std::vector<SlotView> BusySlots() {
 +  std::vector<SlotView> out;
@@ -267,6 +282,12 @@ new file mode 100644
 +    view.a = entry.a.load(std::memory_order_relaxed);
 +    view.b = entry.b.load(std::memory_order_relaxed);
 +    view.c = entry.c.load(std::memory_order_relaxed);
++    view.surface = entry.surface.load(std::memory_order_relaxed);
++    view.color = entry.color.load(std::memory_order_relaxed);
++    view.depth = entry.depth.load(std::memory_order_relaxed);
++    view.textures = entry.textures.load(std::memory_order_relaxed);
++    view.tex_d0 = entry.tex_d0.load(std::memory_order_relaxed);
++    view.tex_d1 = entry.tex_d1.load(std::memory_order_relaxed);
 +    if (entry.serial.load(std::memory_order_acquire) != view.serial) continue;
 +    out.push_back(view);
 +  }
@@ -318,7 +339,11 @@ new file mode 100644
 + public:
 +  // A stop of the UI loop for this long, or a fence wait, queue submit, acquire or idle wait
 +  // in one call for this long, is reported. Pipeline creation is reported after 20 s.
-+  static constexpr uint64_t kStopMs = 3000;
++  // Candidate 8: Ninja Gaiden II's process ended about a second after its UI thread had waited
++  // 293 ms in vkAcquireNextImageKHR; the report came after 3 s. A GPU call (fence, acquire,
++  // submit, idle, present) lasting 200 ms, or a UI loop standing still for 1 s, is reported now.
++  static constexpr uint64_t kCallStopMs = 200;
++  static constexpr uint64_t kUiStopMs = 1000;
 +  static constexpr uint64_t kPipelineMs = 20000;
 +  // While stopped: a short line every 5 s (the last one before the system ends the process
 +  // dates the end), and the whole report again after 20 s.
@@ -346,11 +371,11 @@ new file mode 100644
 +    if (gpu != gpu_count_) { gpu_count_ = gpu; gpu_changed_ms_ = now_ms; }
 +    const auto busy = BusySlots();
 +    const uint32_t ui_phase = ui_loop.phase.load(std::memory_order_relaxed);
-+    const bool ui_stopped = now_ms - ui_changed_ms_ >= kStopMs && ui_phase != kUiMeasure;
++    const bool ui_stopped = now_ms - ui_changed_ms_ >= kUiStopMs && ui_phase != kUiMeasure;
 +    bool call_stuck = false;
 +    for (const SlotView& slot : busy) {
 +      if (!slot.call || now_ms < slot.since_ms) continue;
-+      const uint64_t limit = std::string(slot.call) == "pipeline" ? kPipelineMs : kStopMs;
++      const uint64_t limit = std::string(slot.call) == "pipeline" ? kPipelineMs : kCallStopMs;
 +      if (now_ms - slot.since_ms >= limit) call_stuck = true;
 +    }
 +    const bool stopped = ui_stopped || call_stuck;
@@ -414,14 +439,14 @@ new file mode 100644
 +                                (unsigned long long)(submitted_ms && now_ms >= submitted_ms ? now_ms - submitted_ms : 0),
 +                                (unsigned long long)completed,
 +                                (unsigned long long)queue.submissions.load(std::memory_order_relaxed)));
-+    std::string stuck_fence;  // "role submission N for M ms" of a fence wait past kStopMs
++    std::string stuck_fence;  // "role submission N for M ms" of a fence wait past kCallStopMs
 +    for (const SlotView& slot : busy) {
 +      const char* role = slot.role ? slot.role : "thread";
 +      if (slot.call) {
 +        const uint64_t ms = now_ms >= slot.since_ms ? now_ms - slot.since_ms : 0;
 +        if (slot.detail) {
 +          const uint64_t awaited = slot.detail - 1;
-+          if (ms >= kStopMs && stuck_fence.empty())
++          if (ms >= kCallStopMs && stuck_fence.empty())
 +            stuck_fence = Format("%s thread's wait for submission %llu (%llu ms)", role,
 +                                 (unsigned long long)awaited, (unsigned long long)ms);
 +          step.lines.push_back(Format("HANG %s %llx in %s for %llu ms, for submission %llu (%llu calls before)", role,
@@ -444,17 +469,19 @@ new file mode 100644
 +    for (const WorkView& entry : recent) {
 +      const bool open = entry.submission >= first_open;
 +      if (entry.kind == kDraw) {
-+        step.lines.push_back(Format("HANG work %llu sub %llu%s draw vs %016llX ps %016llX prim %u vertices %u%s%s",
++        step.lines.push_back(Format("HANG work %llu sub %llu%s draw vs %016llX ps %016llX prim %u vertices %u%s%s "
++                                    "surface %08X color %08X depth %08X tex %X (%08X %08X)",
 +                                    (unsigned long long)entry.serial, (unsigned long long)entry.submission,
 +                                    open ? " (open)" : "", (unsigned long long)entry.vs, (unsigned long long)entry.ps,
 +                                    entry.a, entry.b, (entry.c & kIndexed) ? " indexed" : "",
-+                                    (entry.c & kMemExport) ? " memexport" : ""));
++                                    (entry.c & kMemExport) ? " memexport" : "", entry.surface, entry.color,
++                                    entry.depth, entry.textures, entry.tex_d0, entry.tex_d1));
 +        if (first && (open || entry.submission + 2 >= submitted)) {
 +          for (const void* object : {entry.vs_object, entry.ps_object}) {
 +            if (!object) continue;
 +            bool known = false;
 +            for (const void* seen : step.dump) known = known || seen == object;
-+            if (!known && step.dump.size() < 16) step.dump.push_back(object);
++            if (!known && step.dump.size() < 24) step.dump.push_back(object);
 +          }
 +        }
 +      } else if (entry.kind == kResolve) {
@@ -467,7 +494,7 @@ new file mode 100644
 +    if (!shown) step.lines.push_back("HANG work: nothing recorded");
 +    if (!stuck_fence.empty())
 +      step.lines.push_back("HANG verdict: the GPU does not finish a submission (" + stuck_fence + "): a GPU hang");
-+    else if (now_ms - ui_changed_ms_ >= kStopMs)
++    else if (now_ms - ui_changed_ms_ >= kUiStopMs)
 +      step.lines.push_back("HANG verdict: the UI loop is stopped outside a GPU wait: see where the threads are (WHERE lines)");
 +  }
 +
@@ -683,7 +710,7 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/command_processor.cc b/.deps/xenia
 diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
 --- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
 +++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
-@@ -3467,6 +3467,22 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+@@ -3467,6 +3467,37 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
  
    // Draw.
    ++draws_since_resolve_.reached_the_gpu;
@@ -701,12 +728,27 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
 +       ? xbox360ps5::hang_watch::kIndexed
 +       : 0u) |
 +          (memexport_ranges_.empty() ? 0u
-+                                     : xbox360ps5::hang_watch::kMemExport));
++                                     : xbox360ps5::hang_watch::kMemExport),
++      [&regs, used_texture_mask] {
++        // Candidate 8: the targets and the first texture of the draw.
++        xbox360ps5::hang_watch::DrawState state;
++        state.surface = regs.values[XE_GPU_REG_RB_SURFACE_INFO];
++        state.color = regs.values[XE_GPU_REG_RB_COLOR_INFO];
++        state.depth = regs.values[XE_GPU_REG_RB_DEPTH_INFO];
++        state.textures = used_texture_mask;
++        if (used_texture_mask) {
++          const xenos::xe_gpu_texture_fetch_t fetch =
++              regs.GetTextureFetch(xe::tzcnt(used_texture_mask));
++          state.tex_d0 = fetch.dword_0;
++          state.tex_d1 = fetch.dword_1;
++        }
++        return state;
++      }());
 +#endif
    OnVIZSurveyDraw(true);
    if (primitive_processing_result.index_buffer_type ==
            PrimitiveProcessor::ProcessedIndexBufferType::kNone ||
-@@ -3746,6 +3762,12 @@ bool VulkanCommandProcessor::IssueCopy() {
+@@ -3746,6 +3777,12 @@ bool VulkanCommandProcessor::IssueCopy() {
      }
      return false;
    }
@@ -719,7 +761,7 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
  
    // CPU readback resolve path (if not disabled).
    ReadbackResolveMode readback_mode = GetReadbackResolveMode();
-@@ -5464,6 +5486,11 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
+@@ -5464,6 +5501,11 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
        }
        return false;
      }
@@ -755,7 +797,19 @@ diff --git a/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_gpu_completion_timeli
      const VulkanDevice::Queue::Acquisition queue_acquisition =
          vulkan_device_->AcquireQueue(queue_family_index, queue_index);
      submit_result = vulkan_device_->SubmitAndUpdateLost(
-@@ -152,6 +159,10 @@ void VulkanGPUCompletionTimeline::AwaitSubmissionImpl(
+@@ -114,6 +121,11 @@ VkResult VulkanGPUCompletionTimeline::AcquireFenceAndSubmit(
+   }
+   if (submit_result != VK_SUCCESS) {
+     fence_acquisition->SetSubmissionFailedOrAborted();
++#if XE_PLATFORM_PS5
++    // Fix 47, candidate 8: straight to hang-watch.txt; the process may end at once.
++    xbox360ps5::hang_watch::Raw(fmt::format("GPU queue submit failed: {}",
++                                            vk::to_string(vk::Result(submit_result))));
++#endif
+   }
+   return submit_result;
+ }
+@@ -152,11 +164,20 @@ void VulkanGPUCompletionTimeline::AwaitSubmissionImpl(
      submission_end_iterator = std::next(submission_end_iterator);
    }
    if (submission_end_iterator != pending_submission_fences_.cbegin()) {
@@ -766,6 +820,16 @@ diff --git a/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_gpu_completion_timeli
      const VkResult fence_wait_result =
          PS5X360_VK_CALL(fence, vulkan_device_->functions().vkWaitForFences, 
              vulkan_device_->device(), 1,
+             &std::prev(submission_end_iterator)->second, VK_TRUE, UINT64_MAX);
+     if (fence_wait_result != VK_SUCCESS) {
++#if XE_PLATFORM_PS5
++      xbox360ps5::hang_watch::Raw(fmt::format(  // fix 47, candidate 8
++          "GPU fence wait for submission {} failed: {}", awaited_submission,
++          vk::to_string(vk::Result(fence_wait_result))));
++#endif
+       XELOGE("Failed to wait for a Vulkan fence: {}",
+              vk::to_string(vk::Result(fence_wait_result)));
+       if (fence_wait_result == VK_ERROR_DEVICE_LOST) {
 diff --git a/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_presenter.cc b/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_presenter.cc
 --- a/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_presenter.cc
 +++ b/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_presenter.cc
@@ -779,7 +843,7 @@ diff --git a/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_presenter.cc b/.deps/
  #include "xenia/ui/vulkan/vulkan_util.h"
  #if XE_PLATFORM_PS5
  #include "xbox360ps5/display_surface.hpp"
-@@ -1678,9 +1681,16 @@ Presenter::PaintResult VulkanPresenter::PaintAndPresentImpl(
+@@ -1678,11 +1681,25 @@ Presenter::PaintResult VulkanPresenter::PaintAndPresentImpl(
  
    uint32_t swapchain_image_index;
    const auto acquire_start = std::chrono::steady_clock::now();
@@ -798,7 +862,16 @@ diff --git a/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_presenter.cc b/.deps/
 +  }
    // A diagnostic only: whether the first generated picture found a free image at once.
    if (fg) fg->NoteAcquire(std::chrono::steady_clock::now() - acquire_start);
++#if XE_PLATFORM_PS5
++  if (acquire_result != VK_SUCCESS && acquire_result != VK_SUBOPTIMAL_KHR) {
++    // Fix 47, candidate 8: straight to hang-watch.txt; the process may end at once.
++    xbox360ps5::hang_watch::Raw(fmt::format(
++        "GPU swapchain acquire failed: {}", vk::to_string(vk::Result(acquire_result))));
++  }
++#endif
    switch (acquire_result) {
+     case VK_SUCCESS:
+     case VK_SUBOPTIMAL_KHR:
 diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
 --- a/src/canary_game_main.cpp
 +++ b/src/canary_game_main.cpp
@@ -811,7 +884,7 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
  #include "xenia/cpu/entry_probe.h"  // candidate 21: Battlefield 3's render-job probes
  #include "xenia/gpu/memexport_merge.h"  // fix 30: the export lines for Battlefield 3
  #include "xenia/kernel/user_module.h"
-@@ -1127,6 +1129,158 @@ void ReportStall(xe::Emulator& emulator, int pass) {
+@@ -1127,6 +1129,177 @@ void ReportStall(xe::Emulator& emulator, int pass) {
      xbox360ps5::ProbeThread(thread->thread()->native_handle(), name);
    }
  }
@@ -838,6 +911,24 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
 +  }
 +  sceKernelDebugOutText(0, line);
 +  xbox360ps5::NetLogTry(line, bytes);
++}
++// Candidate 8: a report's lines in one write and one fsync (128 work lines).
++void HangWatchRawBatch(const std::vector<std::string>& lines) {
++  if (lines.empty()) return;
++  std::string text;
++  for (const auto& line : lines) {
++    text += "[X360] ";
++    text += line;
++    text += '\n';
++    std::string debug = "[X360] " + line + "\n";
++    sceKernelDebugOutText(0, debug.c_str());
++  }
++  const int fd = hang_watch_fd.load();
++  if (fd >= 0) {
++    (void)!::write(fd, text.data(), text.size());
++    ::fsync(fd);
++  }
++  xbox360ps5::NetLogTry(text.data(), text.size());
 +}
 +// exit() (Canary's HalReturnToFirmware calls it) and quick_exit() leave a line too.
 +void HangWatchAtExit() { xbox360ps5::hang_watch::Raw("PROCESS exit(): atexit handlers run"); }
@@ -881,12 +972,13 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
 +    namespace ct = xbox360ps5::cp_trace;
 +    hw::Watcher watcher;
 +    const uint64_t start = hw::NowMs();
-+    Emit(fmt::format("HANG watch started: a beat every second, a report after 3 s of stop; file {} {}",
++    Emit(fmt::format("HANG watch started: a beat every second, a report after a 200 ms GPU call or 1 s of UI stop; file {} {}",
 +                     (folder_ / "hang-watch.txt").string(), fd_ >= 0 ? "open" : "not open"));
 +    uint64_t next_observe = start + 1000, next_beat = start + 1000;
 +    while (!stop_.load()) {
-+      // A plain sleep: candidate 1 waited on a condition variable here.
-+      ::usleep(250000);
++      // A plain sleep: candidate 1 waited on a condition variable here. Every 50 ms
++      // (candidate 8): Ninja Gaiden II's process ended about a second after its stop began.
++      ::usleep(50000);
 +      const uint64_t now = hw::NowMs();
 +      if (now >= next_beat) {
 +        next_beat = now + 1000;
@@ -900,9 +992,9 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
 +        Emit(hw::HeartbeatLine(in));
 +      }
 +      if (now < next_observe) continue;
-+      next_observe = now + 1000;
++      next_observe = now + 50;
 +      auto step = watcher.Observe(now);
-+      for (const auto& line : step.lines) Emit(line);
++      HangWatchRawBatch(step.lines);
 +      if (step.probe) {
 +        GpuState();
 +        for (const auto& slot : hw::BusySlots()) {
@@ -970,7 +1062,7 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
  // Where the time goes in a slow scene: every guest and emulator thread is
  // sampled for a few seconds, and the log gets, per thread, the share spent in
  // generated guest code, in the emulator and in system libraries, with the
-@@ -2278,11 +2432,17 @@ int main(int argc, char** argv) {
+@@ -2278,11 +2451,17 @@ int main(int argc, char** argv) {
        // the working folder) and this restarts the title, which carries on from it.
        auto xam = emulator.kernel_state()->GetKernelModule<xe::kernel::xam::XamModule>("xam.xex");
        xe::kernel::xam::XamModule::restart_hook = [exit_cache] {
@@ -988,7 +1080,7 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
          XELOGE("Title switch: restart refused {:08X}", unsigned(refused));
        };
        xam->LoadLoaderData();
-@@ -2622,7 +2782,13 @@ int main(int argc, char** argv) {
+@@ -2622,7 +2801,13 @@ int main(int argc, char** argv) {
          float fps_sum = 0.0f, fps_low = 1e9f, swaps_sum = 0.0f;
          const auto game_started = std::chrono::steady_clock::now();
          double next_shot = 5;
@@ -1002,7 +1094,7 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
  #if 0  // The old OpenGL renderer's "refused operation" latch; the layer has no such state.
            if (started.renderer == int(xbox360ps5::Renderer::kOpenGL) &&
                static_cast<xbox360ps5::gl::OpenGLGraphicsSystem*>(
-@@ -2922,11 +3088,16 @@ int main(int argc, char** argv) {
+@@ -2922,11 +3107,16 @@ int main(int argc, char** argv) {
            xbox360ps5::motion::SetEnabled(settings.motion_phone != 0);
            input->Submit(sample);
            window.SubmitUiPad(sample);
@@ -1019,7 +1111,7 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
            }
            if (std::chrono::steady_clock::now() - sample_at >= std::chrono::seconds(1)) {
              const auto at = std::chrono::steady_clock::now();
-@@ -3051,6 +3222,7 @@ int main(int argc, char** argv) {
+@@ -3051,6 +3241,7 @@ int main(int argc, char** argv) {
              }
            }
          }
