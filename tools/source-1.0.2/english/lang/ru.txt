@@ -132,6 +132,7 @@ Description\s(from\sthe\sx360db\sarchive) = Описание\s(на\sангли�
 Destination\sexists\sor\scannot\sbe\spublished. = Назначение\sуже\sсуществует\sили\sустановку\sнельзя\sзавершить.
 Detailed\slogs = Подробные\sжурналы
 Developer = Разработчик
+Disc\s%u = Диск\s%u
 Disconnected\sor\sunavailable = Отключена\sили\sнедоступна
 Dithers\sthe\soutput\sso\sskies\sand\sshadows\sdo\snot\sshow\sbands. = Добавляет\sдизеринг\sна\sвыходе,\sчтобы\sна\sнебе\sи\sв\sтенях\sне\sбыло\sполос.
 Does\snot\swork = Не\sработает

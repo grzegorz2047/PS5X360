@@ -132,6 +132,7 @@ Description\s(from\sthe\sx360db\sarchive) = 简介（英文，来自\sx360db\s�
 Destination\sexists\sor\scannot\sbe\spublished. = 目标已存在或无法完成安装。
 Detailed\slogs = 详细日志
 Developer = 开发商
+Disc\s%u = 光盘\s%u
 Disconnected\sor\sunavailable = 已断开或不可用
 Dithers\sthe\soutput\sso\sskies\sand\sshadows\sdo\snot\sshow\sbands. = 对输出进行抖动处理，使天空和阴影不出现色带。
 Does\snot\swork = 无法运行

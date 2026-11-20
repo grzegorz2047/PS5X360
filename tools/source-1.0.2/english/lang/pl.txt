@@ -132,6 +132,7 @@ Description\s(from\sthe\sx360db\sarchive) = Opis\s(po\sangielsku,\sz\sarchiwum\s
 Destination\sexists\sor\scannot\sbe\spublished. = Miejsce\sdocelowe\sistnieje\slub\snie\smożna\szakończyć\sinstalacji.
 Detailed\slogs = Szczegółowe\sdzienniki
 Developer = Producent
+Disc\s%u = Płyta\s%u
 Disconnected\sor\sunavailable = Odłączony\slub\sniedostępny
 Dithers\sthe\soutput\sso\sskies\sand\sshadows\sdo\snot\sshow\sbands. = Dodaje\sdithering\sdo\swyjścia,\saby\sniebo\si\scienie\snie\smiały\spasów.
 Does\snot\swork = Nie\sdziała

@@ -1,0 +1,70 @@
+diff --git a/include/xbox360ps5/launcher.hpp b/include/xbox360ps5/launcher.hpp
+--- a/include/xbox360ps5/launcher.hpp
++++ b/include/xbox360ps5/launcher.hpp
+@@ -28,6 +28,7 @@ struct GameEntry {
+   std::string size;
+   uint64_t hash = 0;           // Executable hash, known after the first launch.
+   int cover = -1;              // Index into the launcher's textures.
++  unsigned disc = 0;           // Fix 52: the disc number in the image's name, 0 for none.
+ };
+ // Options kept in /download0/xbox360ps5/settings.txt. Every choice is a small
+ // integer. Options() describes the ones the menus show: the settings sheet's
+diff --git a/port/disc_catalog.cpp b/port/disc_catalog.cpp
+--- a/port/disc_catalog.cpp
++++ b/port/disc_catalog.cpp
+@@ -200,4 +200,13 @@ std::vector<std::filesystem::path> CandidatesForDisc(
+    catch(const std::exception&){error="Filesystem failure; structural disc candidates refused";}
+   return {};
+ }
++// Fix 52.
++unsigned DiscOfImage(const std::filesystem::path& image) {
++  using namespace ps5x360_disc;
++  return DiscNumberFromName(PathText(image.filename()));
++}
++std::string LibraryName(const std::string& name, unsigned disc) {
++  if (!disc || ps5x360_disc::DiscNumberFromName(name) == disc) return name;
++  return name + " (Disc " + std::to_string(disc) + ")";
++}
+ }
+diff --git a/port/disc_catalog.hpp b/port/disc_catalog.hpp
+--- a/port/disc_catalog.hpp
++++ b/port/disc_catalog.hpp
+@@ -79,4 +79,10 @@ namespace xbox360ps5::multidisc {
+ // Explicit discs.m3u takes precedence; malformed/ambiguous explicit sets fail closed.
+ std::vector<std::filesystem::path> CandidatesForDisc(
+     const std::filesystem::path& launched, uint32_t requested, std::string& error);
++// Fix 52: the library's name of one disc of a set. The disc number a library entry's image (an
++// .iso, or the folder of an extracted disc) has in its name ("... (Disc 2).iso"), 0 for none;
++// and the name with " (Disc N)" appended unless it already names that disc, so two discs of a
++// game never look alike, also after the first launch has named them after the game.
++unsigned DiscOfImage(const std::filesystem::path& image);
++std::string LibraryName(const std::string& name, unsigned disc);
+ }
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -914,6 +914,12 @@ void Launcher::Scan() {
+     if (grouped) {
+       game.name = fs::path(game.folder).filename().string();
+       game.title_id = ReadXexTitleId(game.path);  // Do not inherit a stale cached ID.
++    } else {
++      // Fix 52: one disc of a set ("Battlefield 3 ... (Disc 1).iso") keeps its number in the
++      // name, also once the first launch has named it after the game ("Battlefield 3"): the
++      // two discs looked alike, and the long names were cut before "(Disc N)".
++      game.disc = multidisc::DiscOfImage(game.kind == "XEX" ? game.path.parent_path() : game.path);
++      game.name = multidisc::LibraryName(game.name, game.disc);
+     }
+     // Cover: a picture the user put beside the game, a downloaded one, the
+     // game's cached icon, or the thumbnail inside a package.
+@@ -2880,6 +2886,11 @@ void Launcher::DrawShelf(Canvas& c) {
+     if (IsRunning(game)) c.Chip(Tr("RUNNING  ·  X: CONTINUE"), 96, 742, kAccent);
+     c.Text(game.name, 96, 790, 48, kText, 1.0f, 0, 1300);
+     std::string line = game.kind;
++    if (game.disc) {  // fix 52: the details line is never cut, the name may be
++      char disc[64];
++      std::snprintf(disc, sizeof(disc), Tr("Disc %u"), game.disc);
++      line += "   ·   " + std::string(disc);
++    }
+     if (!game.size.empty()) line += "   ·   " + game.size;
+     if (!game.title_id.empty()) line += "   ·   ID " + game.title_id;
+     c.Text(line, 98, 856, 24, kMuted, 1.0f, 0, 900);

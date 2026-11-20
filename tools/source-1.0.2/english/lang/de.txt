@@ -132,6 +132,7 @@ Description\s(from\sthe\sx360db\sarchive) = Beschreibung\s(auf\sEnglisch,\saus\s
 Destination\sexists\sor\scannot\sbe\spublished. = Das\sZiel\sexistiert\sbereits\soder\skann\snicht\sfertiggestellt\swerden.
 Detailed\slogs = Ausführliche\sProtokolle
 Developer = Entwickler
+Disc\s%u = Disc\s%u
 Disconnected\sor\sunavailable = Getrennt\soder\snicht\sverfügbar
 Dithers\sthe\soutput\sso\sskies\sand\sshadows\sdo\snot\sshow\sbands. = Fügt\sder\sAusgabe\sDithering\shinzu,\sdamit\sHimmel\sund\sSchatten\skeine\sStreifen\szeigen.
 Does\snot\swork = Funktioniert\snicht
