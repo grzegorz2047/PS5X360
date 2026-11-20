@@ -230,21 +230,22 @@ index 5a5720c..036f17a 100644
  #if XE_PLATFORM_PS5
    static std::atomic<bool> motion_reported{false};
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
-index 20be75b..8fbeb45 100644
+index 20be75b..72b04c6 100644
 --- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
 +++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
-@@ -37,7 +37,10 @@
+@@ -37,7 +37,11 @@
  #include "xbox360ps5/virtual_skeleton.hpp"
  #include "xbox360ps5/virtual_nui.hpp"
  #include "xbox360ps5/virtual_hands.hpp"
 +#include "xbox360ps5/kinect_hand_view.hpp"
 +#include "xbox360ps5/body_scale.hpp"
++#include "xbox360ps5/motion_record.hpp"
  #include "xenia/kernel/kernel_state.h"
 +#include "xenia/kernel/kinect_title.h"
  #include "xenia/kernel/user_module.h"
  #include "xenia/kernel/util/shim_utils.h"
  #include "xenia/kernel/xboxkrnl/xboxkrnl_private.h"
-@@ -703,30 +706,65 @@ struct SkeletonSource {
+@@ -703,30 +707,65 @@ struct SkeletonSource {
  };
  SkeletonSource g_skeleton_source;
  std::atomic<bool> g_skeleton_binding_tried{false};
@@ -317,7 +318,7 @@ index 20be75b..8fbeb45 100644
    const auto hands = xbox360ps5::motion::EstimateHands(pose);
    const xbox360ps5::motion::EstimatedHand values[] = {hands.right, hands.left};
    auto* output = memory->TranslateVirtual(object);
-@@ -753,17 +791,42 @@ void EstimatedHandsHandler(cpu::ppc::PPCContext* context, KernelState* kernel) {
+@@ -753,17 +792,42 @@ void EstimatedHandsHandler(cpu::ppc::PPCContext* context, KernelState* kernel) {
  }
  
  void BindEstimatedHands(KernelState* kernel, cpu::XexModule* xex) {
@@ -363,13 +364,17 @@ index 20be75b..8fbeb45 100644
    // A new owned guest page, within the PPC relative branch reach. Never borrow
    // padding from the executable or overwrite an existing guest allocation.
    auto* heap = memory->LookupHeap(0x83C00000);
-@@ -847,8 +910,30 @@ X_HRESULT SkeletonGetNextFrame(KernelState* kernel_state, uint32_t wait_ms,
+@@ -847,8 +911,34 @@ X_HRESULT SkeletonGetNextFrame(KernelState* kernel_state, uint32_t wait_ms,
    }
    if (!xbox360ps5::motion::enabled.load()) return kSkeletonNotConnected;
    source.delivered_period = period;
 -  const xbox360ps5::motion::Frame pose = xbox360ps5::motion::Snapshot();
 +  // Fix 57: the phone's body brought to an adult's size, arms rebuilt (body_scale.hpp).
 +  const xbox360ps5::motion::Frame pose = xbox360ps5::motion::NormalizedSnapshot();
++  // 1.0.5: the phone's pose as it came and the title's hands, kept for motion-*.xmr
++  // (motion_record.hpp; saved when the guide opens).
++  xbox360ps5::motion::motion_recorder.Add(xbox360ps5::motion::Snapshot(),
++                                          xbox360ps5::motion::SnapshotGameHands(), clock::now());
    const uint32_t tracking_id = source.identity.Update(pose);
 +  if (pose.tracked) {
 +    std::lock_guard shoulder_lock(g_shoulder_mutex);
@@ -395,7 +400,7 @@ index 20be75b..8fbeb45 100644
    uint32_t signed_in_mask = 0;
    for (uint32_t slot = 0; slot < 4; ++slot) {
      if (kernel_state->xam_state()->IsUserSignedIn(slot) &&
-@@ -899,8 +984,38 @@ void SkeletonGetNextFrameHandler(cpu::ppc::PPCContext* ppc_context,
+@@ -899,8 +989,38 @@ void SkeletonGetNextFrameHandler(cpu::ppc::PPCContext* ppc_context,
    // Reviewed DBZ caller embeds its frame at object+80. Observe the previous
    // update without changing guest state. The hand context is separate from
    // the raised-hand prompt; a delivered skeleton is not proof it is usable.
@@ -435,7 +440,7 @@ index 20be75b..8fbeb45 100644
        xbox360ps5::motion::guest_skeleton_frames.load() % 150 == 0) {
      const uint32_t object = frame - 0x80;
      Memory* memory = kernel_state->memory();
-@@ -910,16 +1025,39 @@ void SkeletonGetNextFrameHandler(cpu::ppc::PPCContext* ppc_context,
+@@ -910,16 +1030,39 @@ void SkeletonGetNextFrameHandler(cpu::ppc::PPCContext* ppc_context,
        auto u32 = [data](size_t at) { return xe::load_and_swap<uint32_t>(data + at); };
        auto f32 = [data](size_t at) { return xe::load_and_swap<float>(data + at); };
        XELOGW("Virtual Kinect hands: context unavailable {} magnitude {}/{} "
@@ -478,7 +483,7 @@ index 20be75b..8fbeb45 100644
          hand_probe_done = true;
          const uint64_t a = (uint64_t(u32(0x30)) + 6) * 4;
          const uint64_t b = (uint64_t(u32(0x50)) + 14) * 4;
-@@ -950,15 +1088,15 @@ void SkeletonGetNextFrameHandler(cpu::ppc::PPCContext* ppc_context,
+@@ -950,15 +1093,15 @@ void SkeletonGetNextFrameHandler(cpu::ppc::PPCContext* ppc_context,
  // an extern handler on the function. Done once, at the title's first camera
  // request, which is before it can have asked for a skeleton frame.
  void BindSkeletonSource(KernelState* kernel_state) {
@@ -499,7 +504,7 @@ index 20be75b..8fbeb45 100644
    cpu::XexModule* xex = module ? module->xex_module() : nullptr;
    if (!xex) {
      return;
-@@ -981,6 +1119,10 @@ void BindSkeletonSource(KernelState* kernel_state) {
+@@ -981,6 +1124,10 @@ void BindSkeletonSource(KernelState* kernel_state) {
      return;
    }
    const uint32_t address = found[0];
@@ -510,7 +515,7 @@ index 20be75b..8fbeb45 100644
    cpu::Function* function = nullptr;
    const cpu::Symbol::Status status = xex->DeclareFunction(address, &function);
    if (!function || (status != cpu::Symbol::Status::kNew &&
-@@ -1017,8 +1159,8 @@ void BindSkeletonSource(KernelState* kernel_state) {
+@@ -1017,8 +1164,8 @@ void BindSkeletonSource(KernelState* kernel_state) {
    xbox360ps5::motion::guest_skeleton_bound = true;
    BindEstimatedHands(kernel_state, xex);
    XELOGW("Virtual Kinect: skeleton frames of the title come from the "
@@ -521,17 +526,18 @@ index 20be75b..8fbeb45 100644
  }
  
  }  // namespace
-@@ -1041,6 +1183,9 @@ void ShutdownCameraDevice() {
+@@ -1041,6 +1188,10 @@ void ShutdownCameraDevice() {
      g_skeleton_source.notified_user = xbox360ps5::motion::kUserIndexNone;
    }
    g_skeleton_binding_tried = false;
 +  g_skeleton_return = 0;
 +  xbox360ps5::motion::ResetGameHands();
 +  xbox360ps5::motion::ResetBodyScale();
++  xbox360ps5::motion::motion_recorder.Reset();
    xbox360ps5::motion::guest_skeleton_bound = false;
    xbox360ps5::motion::guest_skeleton_frames = 0;
    xbox360ps5::motion::guest_skeleton_bodies = 0;
-@@ -1128,9 +1273,18 @@ dword_result_t PsCamDeviceRequest_entry(dword_t request_ptr) {
+@@ -1128,9 +1279,18 @@ dword_result_t PsCamDeviceRequest_entry(dword_t request_ptr) {
    if (!request_ptr) {
      return X_STATUS_INVALID_PARAMETER;
    }
@@ -817,6 +823,192 @@ index 0000000..b49f702
 +  const float dx = h.x - s.x, dy = h.y - s.y, dz = h.z - s.z;
 +  return std::sqrt(dx * dx + dy * dy + dz * dz);
 +}
++
++}  // namespace xbox360ps5::motion
+diff --git a/include/xbox360ps5/motion_record.hpp b/include/xbox360ps5/motion_record.hpp
+new file mode 100644
+index 0000000..b04e6ea
+--- /dev/null
++++ b/include/xbox360ps5/motion_record.hpp
+@@ -0,0 +1,180 @@
++// SPDX-License-Identifier: MIT
++// Fix 57 (1.0.5): the last seconds of phone motion, kept on the console and saved to a file,
++// so body scaling, reach and gestures can be tuned on a PC (tools/check-motion-replay.cpp)
++// instead of a console build per change.
++//
++// While a Kinect title takes skeleton frames, each frame it gets records the phone's pose as
++// the phone sent it (before body_scale.hpp) and what the title made of the hands at that
++// moment (kinect_hand_view.hpp). The last kRecordFrames (10 s at 30 frames/s) are kept in a
++// ring; opening the guide saves them to the logs folder as motion-<UTC time>.xmr.
++//
++// File (little-endian, as the phone's XMP1 packets):
++//   "XMR1", u32 version (1), u32 records, then per record:
++//   u32 milliseconds since the first record, the 336-byte XMP1 packet of the pose
++//   ("XMP1", u32 sequence, u32 session, u32 tracked, 20 x {x, y, z, confidence} f32),
++//   then the title's hands: u32 valid, u32 context, f32 reach_needed, f32 direction_needed,
++//   and per hand (right, left): f32 magnitude, x, y, z, 5 x i32 counters, u32 held.
++#pragma once
++#include <chrono>
++#include <cstdint>
++#include <cstring>
++#include <deque>
++#include <mutex>
++#include <string>
++#include <vector>
++
++#include "xbox360ps5/kinect_hand_view.hpp"
++#include "xbox360ps5/motion_input.hpp"
++
++namespace xbox360ps5::motion {
++
++constexpr size_t kRecordFrames = 300;
++constexpr size_t kXmp1Bytes = 336;
++constexpr size_t kHandBytes = 4 * 4 + kHandDirections * 4 + 4;
++constexpr size_t kRecordBytes = 4 + kXmp1Bytes + 16 + 2 * kHandBytes;
++
++struct MotionRecord {
++  uint32_t milliseconds = 0;
++  Frame pose;
++  GameHands hands;
++};
++
++namespace record_detail {
++inline void Put32(std::vector<uint8_t>& out, uint32_t value) {
++  for (int n = 0; n < 4; ++n) out.push_back(uint8_t(value >> (8 * n)));
++}
++inline void PutF(std::vector<uint8_t>& out, float value) {
++  uint32_t bits;
++  std::memcpy(&bits, &value, 4);
++  Put32(out, bits);
++}
++inline uint32_t Get32(const uint8_t* at) {
++  return uint32_t(at[0]) | uint32_t(at[1]) << 8 | uint32_t(at[2]) << 16 | uint32_t(at[3]) << 24;
++}
++inline float GetF(const uint8_t* at) {
++  const uint32_t bits = Get32(at);
++  float value;
++  std::memcpy(&value, &bits, 4);
++  return value;
++}
++}  // namespace record_detail
++
++// The pose as the phone sends it (motion_input.hpp Receive reads the same layout).
++inline void PackXmp1(std::vector<uint8_t>& out, const Frame& pose) {
++  using namespace record_detail;
++  for (char c : {'X', 'M', 'P', '1'}) out.push_back(uint8_t(c));
++  Put32(out, pose.sequence);
++  Put32(out, pose.session);
++  Put32(out, pose.tracked ? 1 : 0);
++  for (const auto& joint : pose.joints) {
++    PutF(out, joint.x); PutF(out, joint.y); PutF(out, joint.z); PutF(out, joint.confidence);
++  }
++}
++inline bool UnpackXmp1(const uint8_t* at, Frame& pose) {
++  using namespace record_detail;
++  if (std::memcmp(at, "XMP1", 4)) return false;
++  pose = {};
++  pose.sequence = Get32(at + 4);
++  pose.session = Get32(at + 8);
++  pose.tracked = Get32(at + 12) == 1;
++  for (size_t n = 0; n < 20; ++n) {
++    const uint8_t* j = at + 16 + n * 16;
++    pose.joints[n] = {GetF(j), GetF(j + 4), GetF(j + 8), GetF(j + 12)};
++  }
++  return true;
++}
++
++inline std::vector<uint8_t> SaveRecording(const std::vector<MotionRecord>& records) {
++  using namespace record_detail;
++  std::vector<uint8_t> out;
++  out.reserve(12 + records.size() * kRecordBytes);
++  for (char c : {'X', 'M', 'R', '1'}) out.push_back(uint8_t(c));
++  Put32(out, 1);
++  Put32(out, uint32_t(records.size()));
++  for (const auto& r : records) {
++    Put32(out, r.milliseconds);
++    PackXmp1(out, r.pose);
++    Put32(out, r.hands.valid ? 1 : 0);
++    Put32(out, r.hands.context ? 1 : 0);
++    PutF(out, r.hands.reach_needed);
++    PutF(out, r.hands.direction_needed);
++    for (const GameHand* hand : {&r.hands.right, &r.hands.left}) {
++      PutF(out, hand->magnitude); PutF(out, hand->x); PutF(out, hand->y); PutF(out, hand->z);
++      for (int n = 0; n < kHandDirections; ++n) Put32(out, uint32_t(hand->counters[n]));
++      Put32(out, hand->held);
++    }
++  }
++  return out;
++}
++
++// Empty when the bytes are not a whole recording.
++inline std::vector<MotionRecord> LoadRecording(const uint8_t* data, size_t size) {
++  using namespace record_detail;
++  std::vector<MotionRecord> records;
++  if (size < 12 || std::memcmp(data, "XMR1", 4) || Get32(data + 4) != 1) return records;
++  const uint32_t count = Get32(data + 8);
++  if (count > 100000 || size != 12 + size_t(count) * kRecordBytes) return records;
++  records.resize(count);
++  const uint8_t* at = data + 12;
++  for (auto& r : records) {
++    r.milliseconds = Get32(at);
++    if (!UnpackXmp1(at + 4, r.pose)) return {};
++    const uint8_t* h = at + 4 + kXmp1Bytes;
++    r.hands.valid = Get32(h) != 0;
++    r.hands.context = Get32(h + 4) != 0;
++    r.hands.reach_needed = GetF(h + 8);
++    r.hands.direction_needed = GetF(h + 12);
++    h += 16;
++    for (GameHand* hand : {&r.hands.right, &r.hands.left}) {
++      hand->magnitude = GetF(h); hand->x = GetF(h + 4); hand->y = GetF(h + 8); hand->z = GetF(h + 12);
++      for (int n = 0; n < kHandDirections; ++n) hand->counters[n] = int32_t(Get32(h + 16 + n * 4));
++      hand->held = Get32(h + 16 + kHandDirections * 4);
++      h += kHandBytes;
++    }
++    at += kRecordBytes;
++  }
++  return records;
++}
++
++// The console's ring of the last kRecordFrames.
++class MotionRecorder {
++ public:
++  void Add(const Frame& pose, const GameHands& hands, std::chrono::steady_clock::time_point at) {
++    std::lock_guard lock(mutex_);
++    if (records_.empty()) start_ = at;
++    MotionRecord r;
++    r.milliseconds = uint32_t(std::chrono::duration_cast<std::chrono::milliseconds>(at - start_).count());
++    r.pose = pose;
++    r.hands = hands;
++    records_.push_back(r);
++    if (pose.tracked) last_tracked_ = at;
++    while (records_.size() > kRecordFrames) records_.pop_front();
++  }
++  // The ring as a file's bytes (times from its first record); empty when no body was in it.
++  std::vector<uint8_t> Take() {
++    std::lock_guard lock(mutex_);
++    bool any = false;
++    for (const auto& r : records_) any = any || r.pose.tracked;
++    if (!any) return {};
++    std::vector<MotionRecord> copy(records_.begin(), records_.end());
++    const uint32_t first = copy.front().milliseconds;
++    for (auto& r : copy) r.milliseconds -= first;
++    return SaveRecording(copy);
++  }
++  size_t Size() {
++    std::lock_guard lock(mutex_);
++    return records_.size();
++  }
++  void Reset() {
++    std::lock_guard lock(mutex_);
++    records_.clear();
++  }
++
++ private:
++  std::mutex mutex_;
++  std::deque<MotionRecord> records_;
++  std::chrono::steady_clock::time_point start_{}, last_tracked_{};
++};
++inline MotionRecorder motion_recorder;
 +
 +}  // namespace xbox360ps5::motion
 diff --git a/include/xbox360ps5/nui_image_scan.hpp b/include/xbox360ps5/nui_image_scan.hpp

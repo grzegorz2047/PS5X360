@@ -71,6 +71,7 @@ checks=(
   check-upload-cost.cpp            # fix 62
   check-fault-path.cpp             # fix 65
   check-nui-image-scan.cpp         # fix 57
+  check-motion-replay.cpp          # fix 57 (1.0.5)
   check-phone-qr-panel.cpp         # fix 63
   check-native-mutant.cpp          # fix 64
   check-phone-latency.cpp          # fix 66
@@ -111,6 +112,7 @@ declare -A fix_of=(
   [check-upload-cost.cpp]=62
   [check-fault-path.cpp]=65
   [check-nui-image-scan.cpp]=57
+  [check-motion-replay.cpp]=57
   [check-phone-qr-panel.cpp]=63
   [check-native-mutant.cpp]=64
   [check-phone-latency.cpp]=66

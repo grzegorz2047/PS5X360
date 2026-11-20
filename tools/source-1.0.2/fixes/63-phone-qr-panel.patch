@@ -81,10 +81,10 @@ index 0000000..500ae64
 +
 +}  // namespace xbox360ps5::motion
 diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
-index 95e86eb..946d111 100644
+index 95e86eb..412f278 100644
 --- a/src/canary_game_main.cpp
 +++ b/src/canary_game_main.cpp
-@@ -135,6 +135,10 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
+@@ -135,6 +135,11 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
  #include "xbox360ps5/achievement_hook.hpp"
  #include "xbox360ps5/notify.hpp"
  #include "xbox360ps5/web_settings.hpp"
@@ -92,10 +92,11 @@ index 95e86eb..946d111 100644
 +#include "xbox360ps5/phone_qr_panel.hpp"  // fix 63
 +#include "xbox360ps5/kinect_hand_view.hpp"  // fix 63: the title's hand reach in the panel
 +#include "xbox360ps5/body_scale.hpp"  // fix 57: the body the games get
++#include "xbox360ps5/motion_record.hpp"  // 1.0.5: the last 10 s of phone motion
  #include "xbox360ps5/save_storage.hpp"
  #include "xbox360ps5/dlc_install.hpp"
  #include "xenia/kernel/xam/content_manager.h"
-@@ -163,6 +167,8 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
+@@ -163,6 +168,8 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
  #include <atomic>
  #include <array>
  #include <chrono>
@@ -104,7 +105,7 @@ index 95e86eb..946d111 100644
  #include "output_metrics.hpp"
  #include "overlay_rates.hpp"
  #include <condition_variable>
-@@ -376,8 +382,9 @@ void CheckpointExitCache(const std::shared_ptr<ExitCacheState>& state) noexcept
+@@ -376,8 +383,9 @@ void CheckpointExitCache(const std::shared_ptr<ExitCacheState>& state) noexcept
  class FpsOverlay final : public xe::ui::ImGuiDialog {
   public:
    FpsOverlay(xe::ui::ImGuiDrawer* drawer,const float& fps,const int& shown,const bool& stalled,
@@ -116,7 +117,7 @@ index 95e86eb..946d111 100644
   protected:
    void OnDraw(ImGuiIO& io) override {
      // Sample on every overlay draw, including when its FPS setting is hidden.
-@@ -388,20 +395,47 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
+@@ -388,20 +396,47 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
          ps5x360::output_metrics::enabled.load(std::memory_order_relaxed),
          ps5x360::output_metrics::fallback.load(std::memory_order_relaxed));
      if (xbox360ps5::motion::enabled.load()) {
@@ -170,7 +171,7 @@ index 95e86eb..946d111 100644
      }
      // Fix 45: after a guest crash the game does not come back; the notice says so and how to
      // leave it, in place of "no new frames" (the FPS counter alone showed 0).
-@@ -435,11 +469,117 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
+@@ -435,11 +470,117 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
      list->AddText(ImGui::GetFont(), 22 * scale, ImVec2(36 * scale, 65 * scale), IM_COL32(220, 230, 240, 255), output_text);
    }
   private:
@@ -288,7 +289,33 @@ index 95e86eb..946d111 100644
  };
  // The emulator's guide over a running game, after the Xbox 360's: a light
  // panel that unfolds from the middle of the screen, a page of actions and a page
-@@ -2910,7 +3050,7 @@ int main(int argc, char** argv) {
+@@ -1886,6 +2027,25 @@ static void StorageNotice(const std::string& drive) {
+                           " " + drive,
+                       "", false});
+ }
++// 1.0.5: opening the guide saves the last 10 s of phone motion (motion_record.hpp) to the logs
++// folder, for tools/check-motion-replay.cpp on a PC: make the move, then open the guide.
++static void SaveMotionRecording(const std::filesystem::path& folder) {
++  if (!xbox360ps5::motion::enabled.load() || folder.empty()) return;
++  const std::vector<uint8_t> bytes = xbox360ps5::motion::motion_recorder.Take();
++  if (bytes.empty()) return;
++  char name[64];
++  const std::time_t now = std::time(nullptr);
++  std::tm utc{};
++  gmtime_r(&now, &utc);
++  std::strftime(name, sizeof(name), "motion-%Y%m%d-%H%M%S-UTC.xmr", &utc);
++  const std::filesystem::path path = folder / name;
++  std::ofstream out(path, std::ios::binary | std::ios::trunc);
++  out.write(reinterpret_cast<const char*>(bytes.data()), std::streamsize(bytes.size()));
++  out.close();
++  XELOGW("Motion: the last {} frames of phone motion saved to {}{}",
++         (bytes.size() - 12) / xbox360ps5::motion::kRecordBytes, path.string(),
++         out ? "" : " (the file could not be written)");
++}
+ // Fix 57: a game whose executable requires Kinect asked for its camera with "Camera motion"
+ // off (a start that did not pass the library's question: a forwarder, a package, a title switch).
+ static void KinectNeededNotice() {
+@@ -2910,7 +3070,7 @@ int main(int argc, char** argv) {
          xbox360ps5::gpu_diag::Reset();
          float fps = 0.0f;
          bool stalled_notice=false;
@@ -297,6 +324,14 @@ index 95e86eb..946d111 100644
          // The emulator's guide over the game.
          GuideState guide;
          if (autotest.active) guide.hint = 0.0f;
+@@ -3029,6 +3189,7 @@ int main(int argc, char** argv) {
+             close_library = true;
+           } else if (trigger && !trigger_was) {
+             guide.open = !guide.open;
++            if (guide.open) SaveMotionRecording(log_root);  // 1.0.5
+             xbox360ps5::PlayUiSound(guide.open ? xbox360ps5::UiSound::select : xbox360ps5::UiSound::back);
+             guide.page = guide.row = 0;
+             guide.category = -1;
 diff --git a/src/launcher.cpp b/src/launcher.cpp
 index e435b45..d63bd34 100644
 --- a/src/launcher.cpp
