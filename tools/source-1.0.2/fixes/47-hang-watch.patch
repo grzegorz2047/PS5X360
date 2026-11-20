@@ -561,7 +561,7 @@ diff --git a/include/xbox360ps5/hang_watch.hpp b/include/xbox360ps5/hang_watch.h
 new file mode 100644
 --- /dev/null
 +++ b/include/xbox360ps5/hang_watch.hpp
-@@ -0,0 +1,556 @@
+@@ -0,0 +1,583 @@
 +// SPDX-License-Identifier: MIT
 +// Fix 47 of the source rebuild (tools/source-1.0.2/fixes/47-hang-watch.patch): a watch for a
 +// game whose picture stops and whose process the system ends without a crash report (Ninja
@@ -708,6 +708,33 @@ new file mode 100644
 +// The emulator's log (xenia/base/logging.cc): lines handed to its writer thread and lines it
 +// wrote to its sinks (the game log file and the TCP stream).
 +inline std::atomic<uint64_t> log_appended{0}, log_written{0};
++
++// The guest's kernel calls (xenia/kernel/util/shim_utils.h, every export's trampoline): how many,
++// and the last kGuestCalls names. 1.0.4_candidate_20: Ninja Gaiden II's process was gone 9.9 s
++// into play with its last beat healthy and nothing in either log; the beat now says what the
++// game itself was asking the kernel for until then. Lock-free: a counter and a ring of names
++// (string literals), written by every guest thread, read by the watch thread.
++inline constexpr size_t kGuestCalls = 8;
++inline std::atomic<uint64_t> guest_calls{0};
++inline std::array<std::atomic<const char*>, kGuestCalls> guest_call_names{};
++inline void NoteGuestCall(const char* name) {
++  const uint64_t n = guest_calls.fetch_add(1, std::memory_order_relaxed);
++  guest_call_names[n % kGuestCalls].store(name, std::memory_order_relaxed);
++}
++// "HANG guest +t s: N calls (r/s), last: newest, ..., oldest"
++inline std::string GuestLine(double seconds, uint64_t calls_before, double interval_s) {
++  const uint64_t calls = guest_calls.load(std::memory_order_relaxed);
++  std::string names;
++  const uint64_t shown = calls < kGuestCalls ? calls : kGuestCalls;
++  for (uint64_t k = 0; k < shown; ++k) {
++    const char* name = guest_call_names[(calls - 1 - k) % kGuestCalls].load(std::memory_order_relaxed);
++    names += (k ? ", " : "") + std::string(name ? name : "?");
++  }
++  char head[96];
++  std::snprintf(head, sizeof(head), "HANG guest +%.2f s: %llu kernel calls (%.0f/s), last: ", seconds,
++                (unsigned long long)calls, interval_s > 0 ? double(calls - calls_before) / interval_s : 0.0);
++  return head + (names.empty() ? std::string("none") : names);
++}
 +// GPU command thread phases.
 +enum : uint32_t { kGpuExecute = 1, kGpuIdle = 2 };
 +inline Beat ui_loop, gpu_thread;
@@ -1273,7 +1300,7 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
  int sceSystemServiceHideSplashScreen();
  }
  namespace xbox360ps5 {
-@@ -1129,6 +1139,248 @@ void ReportStall(xe::Emulator& emulator, int pass) {
+@@ -1129,6 +1139,252 @@ void ReportStall(xe::Emulator& emulator, int pass) {
      xbox360ps5::ProbeThread(thread->thread()->native_handle(), name);
    }
  }
@@ -1447,6 +1474,9 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
 +        in.ring_read = ct::Global().ReadPointer();
 +        in.ring_write = ct::Global().WritePointer();
 +        Emit(hw::HeartbeatLine(in));
++        // Candidate 21: what the guest asked the kernel for since the last beat.
++        Emit(hw::GuestLine(double(now - start) / 1000.0, guest_calls_before_, 0.25));
++        guest_calls_before_ = hw::guest_calls.load(std::memory_order_relaxed);
 +      }
 +      if (now < next_observe) continue;
 +      next_observe = now + 50;
@@ -1515,6 +1545,7 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
 +  xe::Memory* memory_ = nullptr;
 +  std::atomic<uint64_t> started_ms_{0};
 +  std::string file_name_ = "hang-watch.txt";
++  uint64_t guest_calls_before_ = 0;
 +  int fd_ = -1;
 +  std::atomic<bool> stop_{false};
 +  std::thread thread_;
@@ -1522,7 +1553,7 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
  // Where the time goes in a slow scene: every guest and emulator thread is
  // sampled for a few seconds, and the log gets, per thread, the share spent in
  // generated guest code, in the emulator and in system libraries, with the
-@@ -1321,6 +1573,7 @@ class NativeWindow final : public xe::ui::Window {
+@@ -1321,6 +1577,7 @@ class NativeWindow final : public xe::ui::Window {
      return true;
    }
    void RequestCloseImpl() override {
@@ -1530,7 +1561,7 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
      WindowDestructionReceiver receiver(this);
      OnBeforeClose(receiver);
      OnAfterClose();
-@@ -2314,11 +2567,17 @@ int main(int argc, char** argv) {
+@@ -2314,11 +2571,17 @@ int main(int argc, char** argv) {
        // the working folder) and this restarts the title, which carries on from it.
        auto xam = emulator.kernel_state()->GetKernelModule<xe::kernel::xam::XamModule>("xam.xex");
        xe::kernel::xam::XamModule::restart_hook = [exit_cache] {
@@ -1548,7 +1579,7 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
          XELOGE("Title switch: restart refused {:08X}", unsigned(refused));
        };
        xam->LoadLoaderData();
-@@ -2658,7 +2917,14 @@ int main(int argc, char** argv) {
+@@ -2658,7 +2921,14 @@ int main(int argc, char** argv) {
          float fps_sum = 0.0f, fps_low = 1e9f, swaps_sum = 0.0f;
          const auto game_started = std::chrono::steady_clock::now();
          double next_shot = 5;
@@ -1563,7 +1594,7 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
  #if 0  // The old OpenGL renderer's "refused operation" latch; the layer has no such state.
            if (started.renderer == int(xbox360ps5::Renderer::kOpenGL) &&
                static_cast<xbox360ps5::gl::OpenGLGraphicsSystem*>(
-@@ -2958,11 +3224,16 @@ int main(int argc, char** argv) {
+@@ -2958,11 +3228,16 @@ int main(int argc, char** argv) {
            xbox360ps5::motion::SetEnabled(settings.motion_phone != 0);
            input->Submit(sample);
            window.SubmitUiPad(sample);
@@ -1580,7 +1611,7 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
            }
            if (std::chrono::steady_clock::now() - sample_at >= std::chrono::seconds(1)) {
              const auto at = std::chrono::steady_clock::now();
-@@ -3087,6 +3358,7 @@ int main(int argc, char** argv) {
+@@ -3087,6 +3362,7 @@ int main(int argc, char** argv) {
              }
            }
          }
@@ -1588,3 +1619,26 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
          xe::ui::controller_keyboard::Cancel();
          // Publish cancellation and signal any keyboard fence while the drawer
          // and kernel still exist, before ending the guest title.
+diff --git a/.deps/xenia-canary/src/xenia/kernel/util/shim_utils.h b/.deps/xenia-canary/src/xenia/kernel/util/shim_utils.h
+--- a/.deps/xenia-canary/src/xenia/kernel/util/shim_utils.h
++++ b/.deps/xenia-canary/src/xenia/kernel/util/shim_utils.h
+@@ -21,6 +21,9 @@
+ #include "xenia/base/string_buffer.h"
+ #include "xenia/cpu/export_resolver.h"
+ #include "xenia/cpu/ppc/ppc_context.h"
++#if XE_PLATFORM_PS5
++#include "xbox360ps5/hang_watch.hpp"  // fix 47: the guest's kernel calls in the beat
++#endif
+ #include "xenia/kernel/kernel_flags.h"
+ #include "xenia/kernel/kernel_state.h"
+ #include "xenia/kernel/util/guest_path.h"
+@@ -558,6 +561,9 @@ struct ExportRegistrerHelper {
+         // The make_tuple order is undefined per the C++ standard and
+         // cause inconsitencies between msvc and clang.
+         std::tuple<Ps...> params = {Ps(init)...};
++#if XE_PLATFORM_PS5
++        xbox360ps5::hang_watch::NoteGuestCall(export_entry->name);  // fix 47
++#endif
+         if (TAGS & xe::cpu::ExportTag::kLog &&
+             (!(TAGS & xe::cpu::ExportTag::kHighFrequency) ||
+              cvars::log_high_frequency_kernel_calls)) {
