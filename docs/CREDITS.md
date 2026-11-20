@@ -19,7 +19,7 @@ Reference projects consulted during the port include [ProsperoEden](https://gith
 
 ## Licenses
 
-The project's original code is MIT. The emulator core, graphics driver, native runtime, tools and other dependencies keep their respective licenses. The root MIT license does not replace third-party BSD, LGPL or GPL terms. Copies of notices are included in `licenses/` and in release archives.
+The project as a whole is GPL-3.0 (root `LICENSE`). The original PS5X360 code and earlier contributions came under the MIT License and keep it; that notice is in `licenses/PS5X360-MIT.txt`. The emulator core, graphics driver, native runtime, tools and other dependencies keep their respective licenses; the root license does not replace third-party BSD, LGPL, MIT or GPL terms. Copies of notices are included in `licenses/` and in release archives.
 
 ## Artwork
 

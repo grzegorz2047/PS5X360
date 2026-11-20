@@ -43,6 +43,7 @@ for probe in probes:
 for name in ("receipt", "hir-receipt", "atomic-receipt", "compiler-receipt", "codegen-receipt", "translation-receipt", "cpu-receipt"):
     items[f"{name}.json"] = root / "build/ps5" / f"{name}.json"
 for name, source in {
+    "PS5X360-MIT": "licenses/PS5X360-MIT.txt",
     "XENIA-BSD": "licenses/XENIA-BSD.txt", "FMT": "licenses/FMT.txt",
     "XBYAK": ".deps/xenia/third_party/xbyak/COPYRIGHT",
     "CAPSTONE": ".deps/xenia/third_party/capstone/LICENSE.TXT",

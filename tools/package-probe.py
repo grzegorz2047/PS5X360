@@ -15,6 +15,7 @@ items = {
     "README.md": "README.md",
     "PORTING.md": "docs/PORTING.md",
     "LICENSE": "LICENSE",
+    "licenses/PS5X360-MIT.txt": "licenses/PS5X360-MIT.txt",
     "licenses/XENIA-BSD.txt": "licenses/XENIA-BSD.txt",
     "licenses/FMT.txt": "licenses/FMT.txt",
 }
