@@ -519,6 +519,7 @@ no\sconnection\sto\s = 接続できません：\s
 not\sidentified\syet = 未識別
 option = 項目
 options = 項目
+or\sin\s/data/xbox360/,\sor\sin\san\sxbox360\sfolder\sat\sthe\stop\sof\sa\sUSB\sor\sM.2\sdrive. = または\s/data/xbox360/、あるいは\sUSB\s/\sM.2\sドライブ直下の\sxbox360\sフォルダー。
 recommended = 推奨
 server\sreturned\s = サーバーの応答：\s
 socket\sunavailable = ソケットが利用できません

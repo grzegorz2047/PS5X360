@@ -522,6 +522,7 @@ no\sconnection\sto\s = no\sconnection\sto\s
 not\sidentified\syet = not\sidentified\syet
 option = option
 options = options
+or\sin\s/data/xbox360/,\sor\sin\san\sxbox360\sfolder\sat\sthe\stop\sof\sa\sUSB\sor\sM.2\sdrive. = or\sin\s/data/xbox360/,\sor\sin\san\sxbox360\sfolder\sat\sthe\stop\sof\sa\sUSB\sor\sM.2\sdrive.
 recommended = recommended
 server\sreturned\s = server\sreturned\s
 socket\sunavailable = socket\sunavailable

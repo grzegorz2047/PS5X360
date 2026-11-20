@@ -519,6 +519,7 @@ no\sconnection\sto\s = 無法連線到\s
 not\sidentified\syet = 尚未識別
 option = 個選項
 options = 個選項
+or\sin\s/data/xbox360/,\sor\sin\san\sxbox360\sfolder\sat\sthe\stop\sof\sa\sUSB\sor\sM.2\sdrive. = 或\s/data/xbox360/，或\sUSB\s/\sM.2\s磁碟機根目錄下的\sxbox360\s資料夾。
 recommended = 推薦
 server\sreturned\s = 伺服器返回\s
 socket\sunavailable = 套接字不可用

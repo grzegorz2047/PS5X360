@@ -519,6 +519,7 @@ no\sconnection\sto\s = pas\sde\sconnexion\sà\s
 not\sidentified\syet = pas\sencore\sidentifié
 option = option
 options = options
+or\sin\s/data/xbox360/,\sor\sin\san\sxbox360\sfolder\sat\sthe\stop\sof\sa\sUSB\sor\sM.2\sdrive. = ou\sdans\s/data/xbox360/,\sou\sdans\sun\sdossier\sxbox360\sà\sla\sracine\sd'un\sdisque\sUSB\sou\sM.2.
 recommended = recommandé
 server\sreturned\s = le\sserveur\sa\srépondu\s
 socket\sunavailable = socket\sindisponible

@@ -519,6 +519,7 @@ no\sconnection\sto\s = keine\sVerbindung\szu\s
 not\sidentified\syet = noch\snicht\serkannt
 option = Option
 options = Optionen
+or\sin\s/data/xbox360/,\sor\sin\san\sxbox360\sfolder\sat\sthe\stop\sof\sa\sUSB\sor\sM.2\sdrive. = oder\sin\s/data/xbox360/\soder\sin\seinen\sOrdner\sxbox360\sim\sHauptverzeichnis\seines\sUSB-\soder\sM.2-Laufwerks.
 recommended = empfohlen
 server\sreturned\s = der\sServer\santwortete\s
 socket\sunavailable = Socket\snicht\sverfügbar

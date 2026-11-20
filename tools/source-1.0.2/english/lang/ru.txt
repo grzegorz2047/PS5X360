@@ -519,6 +519,7 @@ no\sconnection\sto\s = нет\sсоединения\sс\s
 not\sidentified\syet = ещё\sне\sопределено
 option = параметр
 options = параметров
+or\sin\s/data/xbox360/,\sor\sin\san\sxbox360\sfolder\sat\sthe\stop\sof\sa\sUSB\sor\sM.2\sdrive. = или\sв\s/data/xbox360/,\sили\sв\sпапку\sxbox360\sв\sкорне\sUSB-\sили\sM.2-накопителя.
 recommended = рекомендуется
 server\sreturned\s = сервер\sответил\s
 socket\sunavailable = сокет\sнедоступен

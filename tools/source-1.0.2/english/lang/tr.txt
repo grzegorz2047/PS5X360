@@ -519,6 +519,7 @@ no\sconnection\sto\s = bağlantı\syok:\s
 not\sidentified\syet = henüz\stanınmadı
 option = seçenek
 options = seçenek
+or\sin\s/data/xbox360/,\sor\sin\san\sxbox360\sfolder\sat\sthe\stop\sof\sa\sUSB\sor\sM.2\sdrive. = ya\sda\s/data/xbox360/\siçine\sveya\sbir\sUSB\sya\sda\sM.2\ssürücüsünün\skökündeki\sxbox360\sklasörüne.
 recommended = önerilen
 server\sreturned\s = sunucu\syanıt\sverdi:\s
 socket\sunavailable = soket\skullanılamıyor

@@ -519,6 +519,7 @@ no\sconnection\sto\s = 연결\s없음:\s
 not\sidentified\syet = 아직\s확인되지\s않음
 option = 개
 options = 개
+or\sin\s/data/xbox360/,\sor\sin\san\sxbox360\sfolder\sat\sthe\stop\sof\sa\sUSB\sor\sM.2\sdrive. = 또는\s/data/xbox360/\s이나\sUSB\s/\sM.2\s드라이브\s최상위의\sxbox360\s폴더.
 recommended = 권장
 server\sreturned\s = 서버\s응답:\s
 socket\sunavailable = 소켓을\s사용할\s수\s없음
