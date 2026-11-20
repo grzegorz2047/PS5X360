@@ -81,7 +81,7 @@ index 0000000..500ae64
 +
 +}  // namespace xbox360ps5::motion
 diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
-index 95e86eb..412f278 100644
+index 95e86eb..ef3bec2 100644
 --- a/src/canary_game_main.cpp
 +++ b/src/canary_game_main.cpp
 @@ -135,6 +135,11 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
@@ -117,7 +117,7 @@ index 95e86eb..412f278 100644
   protected:
    void OnDraw(ImGuiIO& io) override {
      // Sample on every overlay draw, including when its FPS setting is hidden.
-@@ -388,20 +396,47 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
+@@ -388,20 +396,60 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
          ps5x360::output_metrics::enabled.load(std::memory_order_relaxed),
          ps5x360::output_metrics::fallback.load(std::memory_order_relaxed));
      if (xbox360ps5::motion::enabled.load()) {
@@ -152,6 +152,19 @@ index 95e86eb..412f278 100644
 +      draw->AddRectFilled(ImVec2((1550 + shift_)*scale,100*scale),ImVec2((1900 + shift_)*scale,640*scale),IM_COL32(0,0,0,150),8*scale);
 +      draw->AddText(ImVec2((1570 + shift_)*scale,115*scale), IM_COL32(130,240,170,255), pose.tracked ? "Motion: tracking (research)" : "Motion: waiting / body lost");
 +      draw->AddText(ImVec2((1570 + shift_)*scale,140*scale), IM_COL32(220,220,220,255), xbox360ps5::motion::guest_skeleton_bound.load() ? "Game skeleton: from this pose" : xbox360ps5::motion::guest_camera_open.load() ? "Guest camera: virtual depth" : "Guest camera: not opened");
++      // 1.0.5_candidate_4: the distance the phone page reports (before the console re-centres
++      // it), at the panel's top right: amber outside Dragon Ball Z's 1.8-3.5 m, as a page
++      // calibrated near the phone shows (3.8 m, its limit); "Recenter" on the page fixes it.
++      const auto phone = xbox360ps5::motion::Snapshot();
++      if (phone.tracked) {
++        char distance[48];
++        const float metres = xbox360ps5::motion::kBridgeBodyDistance - phone.joints[0].z;
++        std::snprintf(distance, sizeof(distance), Tr("Distance %.1f m"), double(metres));
++        const ImVec2 size = ImGui::GetFont()->CalcTextSizeA(20 * scale, 4096, 0, distance);
++        const bool outside = metres < xbox360ps5::motion::kNearestMetres || metres > xbox360ps5::motion::kFarthestMetres;
++        draw->AddText(ImGui::GetFont(), 20 * scale, ImVec2((1885 + shift_) * scale - size.x, 117 * scale),
++                      outside ? IM_COL32(245, 204, 137, 255) : IM_COL32(200, 200, 200, 255), distance);
++      }
 +      // Fix 63: what the game needs, under the live skeleton (kinect_hand_view.hpp).
 +      const auto hands = xbox360ps5::motion::SnapshotGameHands();
 +      DrawPositionHint(draw, scale, pose);
@@ -171,7 +184,7 @@ index 95e86eb..412f278 100644
      }
      // Fix 45: after a guest crash the game does not come back; the notice says so and how to
      // leave it, in place of "no new frames" (the FPS counter alone showed 0).
-@@ -435,11 +470,117 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
+@@ -435,11 +483,117 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
      list->AddText(ImGui::GetFont(), 22 * scale, ImVec2(36 * scale, 65 * scale), IM_COL32(220, 230, 240, 255), output_text);
    }
   private:
@@ -289,7 +302,7 @@ index 95e86eb..412f278 100644
  };
  // The emulator's guide over a running game, after the Xbox 360's: a light
  // panel that unfolds from the middle of the screen, a page of actions and a page
-@@ -1886,6 +2027,25 @@ static void StorageNotice(const std::string& drive) {
+@@ -1886,6 +2040,25 @@ static void StorageNotice(const std::string& drive) {
                            " " + drive,
                        "", false});
  }
@@ -315,7 +328,7 @@ index 95e86eb..412f278 100644
  // Fix 57: a game whose executable requires Kinect asked for its camera with "Camera motion"
  // off (a start that did not pass the library's question: a forwarder, a package, a title switch).
  static void KinectNeededNotice() {
-@@ -2910,7 +3070,7 @@ int main(int argc, char** argv) {
+@@ -2910,7 +3083,7 @@ int main(int argc, char** argv) {
          xbox360ps5::gpu_diag::Reset();
          float fps = 0.0f;
          bool stalled_notice=false;
@@ -324,7 +337,7 @@ index 95e86eb..412f278 100644
          // The emulator's guide over the game.
          GuideState guide;
          if (autotest.active) guide.hint = 0.0f;
-@@ -3029,6 +3189,7 @@ int main(int argc, char** argv) {
+@@ -3029,6 +3202,7 @@ int main(int argc, char** argv) {
              close_library = true;
            } else if (trigger && !trigger_was) {
              guide.open = !guide.open;

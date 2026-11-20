@@ -148,7 +148,8 @@ void CheckLanguages(const std::string& folder) {
   const char* kTexts[] = {"Motion: no phone connected", "Scan with your phone to use it as Kinect.",
                           "Same Wi-Fi, stand 2-3 m back, full body visible.", "Code: ",
                           "Step back", "Step closer", "Show your whole body to the camera",
-                          "Hand reach (the game needs %.2f)", "Motion panel", "Top right", "Top left"};
+                          "Hand reach (the game needs %.2f)", "Motion panel", "Top right", "Top left",
+                          "Distance %.1f m"};
   const char* kLanguages[] = {"de", "en", "es", "es-419", "fr", "it", "ja", "ko", "nl", "pl",
                               "pt", "pt-BR", "ru", "tr", "zh-Hans", "zh-Hant"};
   for (const char* language : kLanguages) {
@@ -183,6 +184,8 @@ void CheckTree() {
   CHECK(game.find("shift_ = motion_panel_ == 1 ? xbox360ps5::motion::kQrPanelLeftShift : 0.0f;") != std::string::npos);
   CHECK(game.find("settings.touchpad_menu,settings.motion_panel)") != std::string::npos);
   CHECK(game.find("} else if (!panel_off) {") != std::string::npos);
+  // The phone's own distance at the panel's top right (amber outside DBZ's zone).
+  CHECK(game.find("Tr(\"Distance %.1f m\")") != std::string::npos);
   CHECK(game.find("const auto pose = xbox360ps5::motion::NormalizedSnapshot();") != std::string::npos);
   CHECK(launcher.find("{\"motion_panel\", &S::motion_panel, 3, W::live, 0, true, \"Motion panel\",") != std::string::npos);
   CHECK(launcher.find("{\"Top right\", \"Top left\", \"Off\"}") != std::string::npos);

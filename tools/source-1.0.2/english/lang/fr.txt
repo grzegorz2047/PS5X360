@@ -137,6 +137,7 @@ Detailed\slogs = Journaux\sdétaillés
 Developer = Développeur
 Disc\s%u = Disque\s%u
 Disconnected\sor\sunavailable = Déconnecté\sou\sindisponible
+Distance\s%.1f\sm = Distance\s%.1f\sm
 Dithers\sthe\soutput\sso\sskies\sand\sshadows\sdo\snot\sshow\sbands. = Applique\sun\stramage\sà\sla\ssortie\spour\sque\sciels\set\sombres\sne\smontrent\spas\sde\sbandes.
 Does\snot\swork = Ne\sfonctionne\spas
 Done = Terminé

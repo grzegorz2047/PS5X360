@@ -204,8 +204,38 @@ void CheckTree() {
   std::printf("tree: the recorder is fed by the skeleton frames and saved when the guide opens\n");
 }
 
+// Which point the title measures its hand reach from: for each joint, how far the title's reach is
+// from the hand's distance to that joint (the body as the title got it), over all files given.
+// The title's own hand context only (record.hands.context).
+void FitReachReference(const std::vector<std::vector<m::MotionRecord>>& files) {
+  double error[20][2] = {};
+  int count[2] = {};
+  for (const auto& records : files) {
+    m::BodyScaleState state;
+    for (const auto& record : records) {
+      if (!record.pose.tracked) continue;
+      m::ObserveBody(state, record.pose);
+      const m::Frame body = m::NormalizeBody(state, record.pose);
+      if (!record.hands.valid || !record.hands.context) continue;
+      for (int side = 0; side < 2; ++side) {
+        const auto& hand = body.joints[side ? 11 : 7];
+        const float title = side ? record.hands.right.magnitude : record.hands.left.magnitude;
+        if (hand.confidence < .5f || !(title > 0)) continue;
+        ++count[side];
+        for (int j = 0; j < 20; ++j) error[j][side] += std::fabs(title - m::Distance(hand, body.joints[size_t(j)]));
+      }
+    }
+  }
+  if (!count[0] && !count[1]) return;
+  std::printf("reach reference (mean |title - distance to joint|, m; left hand / right hand):\n");
+  for (int j = 0; j < 20; ++j)
+    std::printf("  joint %2d: %.3f / %.3f\n", j, count[0] ? error[j][0] / count[0] : 0.0,
+                count[1] ? error[j][1] / count[1] : 0.0);
+}
+
 int ReportFiles(int argc, char** argv) {
   int bad = 0;
+  std::vector<std::vector<m::MotionRecord>> all;
   for (int n = 1; n < argc; ++n) {
     std::ifstream in(argv[n], std::ios::binary);
     std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
@@ -215,6 +245,7 @@ int ReportFiles(int argc, char** argv) {
       ++bad;
       continue;
     }
+    all.push_back(records);
     Report r = Replay(records);
     std::printf("%s: %d frames over %.1f s, %d with a body\n", argv[n], r.frames,
                 records.back().milliseconds / 1000.0, r.tracked);
@@ -228,6 +259,7 @@ int ReportFiles(int argc, char** argv) {
     std::printf("  hands within 0.35 m of their shoulder: %s m, depth part %s m\n", r.hand_shoulder.Text().c_str(),
                 r.hand_shoulder_dz.Text().c_str());
   }
+  FitReachReference(all);
   return bad ? 1 : 0;
 }
 

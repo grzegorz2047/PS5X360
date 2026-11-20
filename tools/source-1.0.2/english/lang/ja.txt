@@ -137,6 +137,7 @@ Detailed\slogs = 詳細ログ
 Developer = 開発元
 Disc\s%u = ディスク\s%u
 Disconnected\sor\sunavailable = 切断済みまたは利用不可
+Distance\s%.1f\sm = 距離\s%.1f\sm
 Dithers\sthe\soutput\sso\sskies\sand\sshadows\sdo\snot\sshow\sbands. = 空や影に縞が出ないよう、出力にディザリングをかけます。
 Does\snot\swork = 動作しない
 Done = 完了

@@ -137,6 +137,7 @@ Detailed\slogs = Szczegółowe\sdzienniki
 Developer = Producent
 Disc\s%u = Płyta\s%u
 Disconnected\sor\sunavailable = Odłączony\slub\sniedostępny
+Distance\s%.1f\sm = Odległość\s%.1f\sm
 Dithers\sthe\soutput\sso\sskies\sand\sshadows\sdo\snot\sshow\sbands. = Dodaje\sdithering\sdo\swyjścia,\saby\sniebo\si\scienie\snie\smiały\spasów.
 Does\snot\swork = Nie\sdziała
 Done = Gotowe

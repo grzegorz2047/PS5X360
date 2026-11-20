@@ -131,6 +131,7 @@ Destination\sexists\sor\scannot\sbe\spublished. = El\sdestino\sya\sexiste\so\sno
 Detailed\slogs = Registros\sdetallados
 Disc\s%u = Disco\s%u
 Disconnected\sor\sunavailable = Desconectada\so\sno\sdisponible
+Distance\s%.1f\sm = Distancia\s%.1f\sm
 Dithers\sthe\soutput\sso\sskies\sand\sshadows\sdo\snot\sshow\sbands. = Mezcla\slos\scolores\sen\sla\ssalida\spara\sque\sel\scielo\sy\slas\ssombras\sno\sformen\sfranjas.
 Done = Hecho
 Done||finish = Terminar

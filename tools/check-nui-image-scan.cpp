@@ -294,12 +294,18 @@ void CheckBodyScale() {
     m::BodyScaleState sd;
     for (int n = 0; n < 900; ++n) m::ObserveBody(sd, far);
     CHECK(std::fabs(m::NormalizeBody(sd, far).joints[0].z) < 0.01f);
+    CHECK(m::PositionHint(m::NormalizeBody(sd, far)) == m::Positioning::kOk);
+    // A real step towards the sensor (0.3 m in a frame at most) still shows at once.
     m::Frame step = far;
-    for (auto& j : step.joints) j.z += 0.5f;
+    for (auto& j : step.joints) j.z += 0.3f;
     m::ObserveBody(sd, step);
     const float now_z = m::NormalizeBody(sd, step).joints[0].z;
-    CHECK(now_z > 0.45f && now_z < 0.5f);
-    CHECK(m::PositionHint(m::NormalizeBody(sd, far)) == m::Positioning::kOk);
+    CHECK(now_z > 0.28f && now_z < 0.3f);
+    // A jump no body can make (the page's "Recenter" says 2.5 m now): the new depth at once.
+    m::Frame recalibrated = far;
+    for (auto& j : recalibrated.joints) j.z += 1.3f;
+    m::ObserveBody(sd, recalibrated);
+    CHECK(std::fabs(m::NormalizeBody(sd, recalibrated).joints[0].z) < 0.01f);
   }
   // An adult stays an adult; a huge or tiny reading is clamped (x0.8 .. x2).
   m::BodyScaleState adult;

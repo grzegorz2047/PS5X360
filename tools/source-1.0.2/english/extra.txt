@@ -245,6 +245,7 @@ Motion panel = Painel de movimento
 Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = Onde o painel de movimento da câmera aparece sobre o jogo (a pose do celular, o que o jogo precisa das mãos, o código para conectar um celular). Desligado mantém só o código enquanto nenhum celular estiver conectado.
 Top right = Canto superior direito
 Top left = Canto superior esquerdo
+Distance %.1f m = Distância %.1f m
 
 [added pt]
 Console storage = Armazenamento da consola
@@ -301,6 +302,7 @@ Motion panel = Painel de movimento
 Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = Onde o painel de movimento da câmara aparece sobre o jogo (a pose do telemóvel, o que o jogo precisa das mãos, o código para ligar um telemóvel). Desligado mantém só o código enquanto nenhum telemóvel estiver ligado.
 Top right = Canto superior direito
 Top left = Canto superior esquerdo
+Distance %.1f m = Distância %.1f m
 
 [added es]
 Console storage = Almacenamiento de la consola
@@ -357,6 +359,7 @@ Motion panel = Panel de movimiento
 Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = Dónde se muestra el panel de movimiento de la cámara sobre el juego (la pose del móvil, lo que el juego necesita de las manos, el código para conectar un móvil). Desactivado deja solo el código mientras no haya un móvil conectado.
 Top right = Arriba a la derecha
 Top left = Arriba a la izquierda
+Distance %.1f m = Distancia %.1f m
 
 [added es-419]
 Console storage = Almacenamiento de la consola
@@ -413,6 +416,7 @@ Motion panel = Panel de movimiento
 Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = Dónde se muestra el panel de movimiento de la cámara sobre el juego (la pose del celular, lo que el juego necesita de las manos, el código para conectar un celular). Desactivado deja solo el código mientras no haya un celular conectado.
 Top right = Arriba a la derecha
 Top left = Arriba a la izquierda
+Distance %.1f m = Distancia %.1f m
 
 [added de]
 Console storage = Konsolenspeicher
@@ -469,6 +473,7 @@ Motion panel = Bewegungsfeld
 Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = Wo das Kamera-Bewegungsfeld über dem Spiel angezeigt wird (die Pose vom Handy, was das Spiel von den Händen braucht, der Code zum Verbinden eines Handys). Aus zeigt nur den Code, solange kein Handy verbunden ist.
 Top right = Oben rechts
 Top left = Oben links
+Distance %.1f m = Abstand %.1f m
 
 [added fr]
 Console storage = Stockage de la console
@@ -525,6 +530,7 @@ Motion panel = Panneau de mouvement
 Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = Où le panneau de mouvement de la caméra s'affiche sur le jeu (la pose du téléphone, ce que le jeu attend des mains, le code pour connecter un téléphone). Désactivé ne garde que le code tant qu'aucun téléphone n'est connecté.
 Top right = En haut à droite
 Top left = En haut à gauche
+Distance %.1f m = Distance %.1f m
 
 [added it]
 Console storage = Memoria della console
@@ -581,6 +587,7 @@ Motion panel = Pannello del movimento
 Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = Dove compare il pannello del movimento della fotocamera sopra il gioco (la posa dal telefono, ciò che il gioco chiede alle mani, il codice per collegare un telefono). Disattivato mostra solo il codice finché nessun telefono è collegato.
 Top right = In alto a destra
 Top left = In alto a sinistra
+Distance %.1f m = Distanza %.1f m
 
 [added ja]
 Console storage = 本体ストレージ
@@ -637,6 +644,7 @@ Motion panel = モーションパネル
 Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = ゲーム上にカメラモーションのパネルを表示する位置 (スマートフォンからのポーズ、ゲームが手に求める動き、スマートフォンを接続するコード)。オフにすると、スマートフォンが未接続の間だけコードを表示します。
 Top right = 右上
 Top left = 左上
+Distance %.1f m = 距離 %.1f m
 
 [added ko]
 Console storage = 본체 저장 공간
@@ -693,6 +701,7 @@ Motion panel = 모션 패널
 Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = 게임 위에 카메라 모션 패널을 표시할 위치 (휴대폰의 자세, 게임이 손에 요구하는 동작, 휴대폰 연결 코드). 끄면 휴대폰이 연결되지 않은 동안 코드만 표시합니다.
 Top right = 오른쪽 위
 Top left = 왼쪽 위
+Distance %.1f m = 거리 %.1f m
 
 [added nl]
 Console storage = Consoleopslag
@@ -749,6 +758,7 @@ Motion panel = Bewegingspaneel
 Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = Waar het bewegingspaneel van de camera boven het spel staat (de houding van de telefoon, wat het spel van je handen nodig heeft, de code om een telefoon te verbinden). Uit toont alleen de code zolang er geen telefoon verbonden is.
 Top right = Rechtsboven
 Top left = Linksboven
+Distance %.1f m = Afstand %.1f m
 
 [added pl]
 Console storage = Pamięć konsoli
@@ -805,6 +815,7 @@ Motion panel = Panel ruchu
 Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = Gdzie nad grą rysowany jest panel ruchu z kamery (poza z telefonu, czego gra potrzebuje od rąk, kod do połączenia telefonu). Wyłączony zostawia tylko kod, dopóki żaden telefon nie jest połączony.
 Top right = U góry po prawej
 Top left = U góry po lewej
+Distance %.1f m = Odległość %.1f m
 
 [added ru]
 Console storage = Память консоли
@@ -861,6 +872,7 @@ Motion panel = Панель движения
 Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = Где над игрой показывается панель движения камеры (поза с телефона, что игре нужно от рук, код для подключения телефона). Выключено: только код, пока телефон не подключён.
 Top right = Вверху справа
 Top left = Вверху слева
+Distance %.1f m = Расстояние %.1f м
 
 [added tr]
 Console storage = Konsol depolama alanı
@@ -917,6 +929,7 @@ Motion panel = Hareket paneli
 Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = Kamera hareket panelinin oyunun üzerinde nerede gösterileceği (telefondan gelen poz, oyunun ellerden beklediği, telefonu bağlama kodu). Kapalı, telefon bağlı değilken yalnızca kodu gösterir.
 Top right = Sağ üst
 Top left = Sol üst
+Distance %.1f m = Mesafe %.1f m
 
 [added zh-Hans]
 Console storage = 主机存储空间
@@ -973,6 +986,7 @@ Motion panel = 动作面板
 Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = 摄像头动作面板在游戏画面上的位置（来自手机的姿势、游戏对手部的要求、连接手机的代码）。关闭时，仅在没有手机连接时显示代码。
 Top right = 右上
 Top left = 左上
+Distance %.1f m = 距离 %.1f 米
 
 [added zh-Hant]
 Console storage = 主機儲存空間
@@ -1029,3 +1043,4 @@ Motion panel = 動作面板
 Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = 攝影機動作面板在遊戲畫面上的位置（來自手機的姿勢、遊戲對手部的要求、連接手機的代碼）。關閉時，僅在沒有手機連接時顯示代碼。
 Top right = 右上
 Top left = 左上
+Distance %.1f m = 距離 %.1f 公尺

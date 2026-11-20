@@ -560,10 +560,10 @@ index 20be75b..72b04c6 100644
  }
 diff --git a/include/xbox360ps5/body_scale.hpp b/include/xbox360ps5/body_scale.hpp
 new file mode 100644
-index 0000000..ec01958
+index 0000000..12098c3
 --- /dev/null
 +++ b/include/xbox360ps5/body_scale.hpp
-@@ -0,0 +1,189 @@
+@@ -0,0 +1,195 @@
 +// SPDX-License-Identifier: MIT
 +// Fix 57: the phone's pose brought to a plausible body size before a game sees it.
 +//
@@ -606,6 +606,9 @@ index 0000000..ec01958
 +// beyond Dragon Ball Z's 1.8-3.5 m: "Step closer" all the time and a raised hand ignored. Steps
 +// towards and away still show; only the lasting offset goes.
 +constexpr float kDepthCentreWeight = 1.0f / 150.0f;
++// 1.0.5_candidate_4: a jump of the hips' depth between two frames no body can make (the phone
++// page's "Recenter", a new calibration) takes the new depth at once instead of over seconds.
++constexpr float kDepthJumpMetres = 0.4f;
 +// pose.mjs joint order.
 +constexpr int kHipCentre = 0, kShoulderCentre = 2;
 +constexpr int kLeftArm[4] = {4, 5, 6, 7}, kRightArm[4] = {8, 9, 10, 11};
@@ -617,6 +620,7 @@ index 0000000..ec01958
 +  float factor = 1;                // the last scale applied
 +  float hip_z = 0;                 // the hips' depth, averaged over about five seconds
 +  bool hip_z_set = false;
++  float last_hip_z = 0;            // the hips' depth in the frame before
 +  Frame last_in{}, last_out{};     // the last frame normalised (for repeated asks)
 +};
 +
@@ -645,9 +649,11 @@ index 0000000..ec01958
 +  if (Seen(pose.joints[kHipCentre]) && Seen(pose.joints[kShoulderCentre]))
 +    average(state.torso, Distance(pose.joints[kHipCentre], pose.joints[kShoulderCentre]));
 +  if (pose.tracked && std::isfinite(pose.joints[kHipCentre].z)) {
-+    state.hip_z = state.hip_z_set ? state.hip_z + kDepthCentreWeight * (pose.joints[kHipCentre].z - state.hip_z)
-+                                  : pose.joints[kHipCentre].z;
++    const float z = pose.joints[kHipCentre].z;
++    const bool jump = state.hip_z_set && std::fabs(z - state.last_hip_z) > kDepthJumpMetres;
++    state.hip_z = state.hip_z_set && !jump ? state.hip_z + kDepthCentreWeight * (z - state.hip_z) : z;
 +    state.hip_z_set = true;
++    state.last_hip_z = z;
 +  }
 +  for (int side = 0; side < 2; ++side) {
 +    const int* arm = side ? kRightArm : kLeftArm;
