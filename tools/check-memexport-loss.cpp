@@ -13,7 +13,9 @@
 //      refresh upload is no loss.
 //  (c) the assembled tree has the hooks: SharedMemory's bitmaps and NoteUpload before
 //      UploadRanges, the Vulkan command processor's decision, ClearGpuOnly before the readback's
-//      refresh and MarkGpuOnly after a draw whose exports are not read back, and the summary.
+//      refresh and before an exporting draw requests its own ranges (it writes them again: an
+//      upload for it loses nothing), MarkGpuOnly after a draw whose exports are not read back,
+//      and the summary.
 // Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh).
 #undef NDEBUG
 #include "../include/xbox360ps5/memexport_loss.hpp"
@@ -144,6 +146,10 @@ void CheckTree() {
   const size_t written = vk.rfind("shared_memory_->RangeWrittenByGpu(memexport_range.base_address_dwords << 2,", mark);
   Expect(decide != std::string::npos, "the decision");
   Expect(clear != std::string::npos && refresh != std::string::npos && clear < refresh, "units cleared before the refresh");
+  const size_t own = vk.find("shared_memory_->ClearGpuOnly(memexport_range_base_bytes,");
+  const size_t own_request = vk.find("shared_memory_->RequestRange(memexport_range_base_bytes,", own);
+  Expect(own != std::string::npos && own_request != std::string::npos && own_request - own < 200,
+         "an exporting draw's own request of its ranges is no loss");
   Expect(mark != std::string::npos && written != std::string::npos && mark - written < 400 &&
              vk.find("if (!memexport_readback) {", written) < mark,
          "GPU-only marked with RangeWrittenByGpu, only when not read back");
