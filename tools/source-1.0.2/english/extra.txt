@@ -225,6 +225,15 @@ This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/sav
 Disc %u = Disco %u
 # Fix 60 (issue #12): the empty library names the other folders it scans (the same key in every section).
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = ou em /data/xbox360/, ou numa pasta xbox360 na raiz de um disco USB ou M.2.
+Kinect game = Jogo de Kinect
+\srequires Kinect. Turn on Camera motion for this game? = \sexige o Kinect. Ativar o Camera motion para este jogo?
+A phone paired on the settings page then works as its camera. You can change it later in the game's settings. = Um celular pareado na página de configurações passa a funcionar como a câmera. Você pode mudar isso depois nas configurações do jogo.
+Turn on and play = Ativar e jogar
+Play without it = Jogar sem
+This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again. = Este jogo exige o Kinect. Ative o Camera motion no guia (Configurações, Controles) e inicie o jogo novamente.
+Motion: no phone connected = Movimento: nenhum celular conectado
+Scan with your phone to use it as Kinect. = Escaneie com o celular para usá-lo como Kinect.
+Same Wi-Fi, stand 2-3 m back, full body visible. = Mesma rede Wi-Fi, fique a 2-3 m, com o corpo inteiro visível.
 
 [added pt]
 Console storage = Armazenamento da consola
@@ -262,6 +271,15 @@ Saves and settings were not copied from PS5X360: a folder could not be checked (
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Esta unidade tem as pastas PS5X360/saves e PS5X360Reloaded/saves. É usada a PS5X360Reloaded/saves; a pasta antiga ficou como estava:
 Disc %u = Disco %u
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = ou em /data/xbox360/, ou numa pasta xbox360 na raiz de um disco USB ou M.2.
+Kinect game = Jogo Kinect
+\srequires Kinect. Turn on Camera motion for this game? = \srequer o Kinect. Ativar o Camera motion para este jogo?
+A phone paired on the settings page then works as its camera. You can change it later in the game's settings. = Um telemóvel emparelhado na página de definições passa a funcionar como a câmara. Pode alterar isto mais tarde nas definições do jogo.
+Turn on and play = Ativar e jogar
+Play without it = Jogar sem
+This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again. = Este jogo requer o Kinect. Ative o Camera motion no guia (Definições, Comandos) e inicie o jogo novamente.
+Motion: no phone connected = Movimento: nenhum telemóvel ligado
+Scan with your phone to use it as Kinect. = Leia o código com o telemóvel para o usar como Kinect.
+Same Wi-Fi, stand 2-3 m back, full body visible. = Mesma rede Wi-Fi, fique a 2-3 m, com o corpo inteiro visível.
 
 [added es]
 Console storage = Almacenamiento de la consola
@@ -299,6 +317,15 @@ Saves and settings were not copied from PS5X360: a folder could not be checked (
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Esta unidad tiene las carpetas PS5X360/saves y PS5X360Reloaded/saves. Se usa PS5X360Reloaded/saves; la carpeta antigua se ha dejado como estaba:
 Disc %u = Disco %u
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = o en /data/xbox360/, o en una carpeta xbox360 en la raíz de un disco USB o M.2.
+Kinect game = Juego de Kinect
+\srequires Kinect. Turn on Camera motion for this game? = \srequiere Kinect. ¿Activar Camera motion para este juego?
+A phone paired on the settings page then works as its camera. You can change it later in the game's settings. = Un móvil emparejado en la página de configuración funcionará como su cámara. Puedes cambiarlo más tarde en la configuración del juego.
+Turn on and play = Activar y jugar
+Play without it = Jugar sin él
+This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again. = Este juego requiere Kinect. Activa Camera motion en la guía (Configuración, Controles) y vuelve a iniciar el juego.
+Motion: no phone connected = Movimiento: ningún móvil conectado
+Scan with your phone to use it as Kinect. = Escanéalo con el móvil para usarlo como Kinect.
+Same Wi-Fi, stand 2-3 m back, full body visible. = Misma red Wi-Fi, colócate a 2-3 m, con todo el cuerpo visible.
 
 [added es-419]
 Console storage = Almacenamiento de la consola
@@ -336,6 +363,15 @@ Saves and settings were not copied from PS5X360: a folder could not be checked (
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Esta unidad tiene las carpetas PS5X360/saves y PS5X360Reloaded/saves. Se usa PS5X360Reloaded/saves; la carpeta antigua se dejó como estaba:
 Disc %u = Disco %u
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = o en /data/xbox360/, o en una carpeta xbox360 en la raíz de un disco USB o M.2.
+Kinect game = Juego de Kinect
+\srequires Kinect. Turn on Camera motion for this game? = \srequiere Kinect. ¿Activar Camera motion para este juego?
+A phone paired on the settings page then works as its camera. You can change it later in the game's settings. = Un celular vinculado en la página de configuración funcionará como su cámara. Puedes cambiarlo más tarde en la configuración del juego.
+Turn on and play = Activar y jugar
+Play without it = Jugar sin él
+This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again. = Este juego requiere Kinect. Activa Camera motion en la guía (Configuración, Controles) y vuelve a iniciar el juego.
+Motion: no phone connected = Movimiento: ningún celular conectado
+Scan with your phone to use it as Kinect. = Escanéalo con el celular para usarlo como Kinect.
+Same Wi-Fi, stand 2-3 m back, full body visible. = Misma red Wi-Fi, colócate a 2-3 m, con todo el cuerpo visible.
 
 [added de]
 Console storage = Konsolenspeicher
@@ -373,6 +409,15 @@ Saves and settings were not copied from PS5X360: a folder could not be checked (
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Dieses Laufwerk hat PS5X360/saves und PS5X360Reloaded/saves. PS5X360Reloaded/saves wird verwendet; der alte Ordner wurde nicht verändert:
 Disc %u = Disc %u
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = oder in /data/xbox360/ oder in einen Ordner xbox360 im Hauptverzeichnis eines USB- oder M.2-Laufwerks.
+Kinect game = Kinect-Spiel
+\srequires Kinect. Turn on Camera motion for this game? = \sbenötigt Kinect. Camera motion für dieses Spiel einschalten?
+A phone paired on the settings page then works as its camera. You can change it later in the game's settings. = Ein auf der Einstellungsseite gekoppeltes Handy dient dann als Kamera. Du kannst das später in den Einstellungen des Spiels ändern.
+Turn on and play = Einschalten und spielen
+Play without it = Ohne spielen
+This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again. = Dieses Spiel benötigt Kinect. Schalte Camera motion im Guide ein (Einstellungen, Steuerung) und starte das Spiel neu.
+Motion: no phone connected = Bewegung: kein Handy verbunden
+Scan with your phone to use it as Kinect. = Mit dem Handy scannen, um es als Kinect zu nutzen.
+Same Wi-Fi, stand 2-3 m back, full body visible. = Gleiches WLAN, 2-3 m Abstand, ganzer Körper sichtbar.
 
 [added fr]
 Console storage = Stockage de la console
@@ -410,6 +455,15 @@ Saves and settings were not copied from PS5X360: a folder could not be checked (
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Ce périphérique contient PS5X360/saves et PS5X360Reloaded/saves. PS5X360Reloaded/saves est utilisé ; l'ancien dossier a été laissé tel quel :
 Disc %u = Disque %u
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = ou dans /data/xbox360/, ou dans un dossier xbox360 à la racine d'un disque USB ou M.2.
+Kinect game = Jeu Kinect
+\srequires Kinect. Turn on Camera motion for this game? = \snécessite Kinect. Activer Camera motion pour ce jeu ?
+A phone paired on the settings page then works as its camera. You can change it later in the game's settings. = Un téléphone associé sur la page des paramètres sert alors de caméra. Vous pourrez le modifier plus tard dans les paramètres du jeu.
+Turn on and play = Activer et jouer
+Play without it = Jouer sans
+This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again. = Ce jeu nécessite Kinect. Activez Camera motion dans le guide (Paramètres, Commandes), puis relancez le jeu.
+Motion: no phone connected = Mouvement : aucun téléphone connecté
+Scan with your phone to use it as Kinect. = Scannez avec votre téléphone pour l'utiliser comme Kinect.
+Same Wi-Fi, stand 2-3 m back, full body visible. = Même Wi-Fi, placez-vous à 2-3 m, corps entier visible.
 
 [added it]
 Console storage = Memoria della console
@@ -447,6 +501,15 @@ Saves and settings were not copied from PS5X360: a folder could not be checked (
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Questa unità contiene PS5X360/saves e PS5X360Reloaded/saves. Viene usata PS5X360Reloaded/saves; la vecchia cartella è stata lasciata com'era:
 Disc %u = Disco %u
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = oppure in /data/xbox360/ o in una cartella xbox360 nella radice di un'unità USB o M.2.
+Kinect game = Gioco Kinect
+\srequires Kinect. Turn on Camera motion for this game? = \srichiede Kinect. Attivare Camera motion per questo gioco?
+A phone paired on the settings page then works as its camera. You can change it later in the game's settings. = Un telefono associato nella pagina delle impostazioni funzionerà come sua fotocamera. Puoi cambiarlo in seguito nelle impostazioni del gioco.
+Turn on and play = Attiva e gioca
+Play without it = Gioca senza
+This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again. = Questo gioco richiede Kinect. Attiva Camera motion nella guida (Impostazioni, Controlli), poi riavvia il gioco.
+Motion: no phone connected = Movimento: nessun telefono connesso
+Scan with your phone to use it as Kinect. = Scansiona con il telefono per usarlo come Kinect.
+Same Wi-Fi, stand 2-3 m back, full body visible. = Stessa rete Wi-Fi, stai a 2-3 m, corpo intero visibile.
 
 [added ja]
 Console storage = 本体ストレージ
@@ -484,6 +547,15 @@ Saves and settings were not copied from PS5X360: a folder could not be checked (
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = このドライブには PS5X360/saves と PS5X360Reloaded/saves の両方があります。PS5X360Reloaded/saves を使用し、古いフォルダーはそのままにしました:
 Disc %u = ディスク %u
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = または /data/xbox360/、あるいは USB / M.2 ドライブ直下の xbox360 フォルダー。
+Kinect game = Kinect ゲーム
+\srequires Kinect. Turn on Camera motion for this game? = \sには Kinect が必要です。このゲームで Camera motion をオンにしますか？
+A phone paired on the settings page then works as its camera. You can change it later in the game's settings. = 設定ページでペアリングしたスマートフォンがカメラとして機能します。後でゲームの設定で変更できます。
+Turn on and play = オンにしてプレイ
+Play without it = オフのままプレイ
+This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again. = このゲームには Kinect が必要です。ガイド（設定、コントロール）で Camera motion をオンにしてから、ゲームを再起動してください。
+Motion: no phone connected = モーション: スマートフォン未接続
+Scan with your phone to use it as Kinect. = スマートフォンでスキャンして Kinect として使用します。
+Same Wi-Fi, stand 2-3 m back, full body visible. = 同じ Wi-Fi で、2-3 m 離れて全身が映るように立ってください。
 
 [added ko]
 Console storage = 본체 저장 공간
@@ -521,6 +593,15 @@ Saves and settings were not copied from PS5X360: a folder could not be checked (
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = 이 드라이브에 PS5X360/saves와 PS5X360Reloaded/saves가 모두 있습니다. PS5X360Reloaded/saves를 사용하며 이전 폴더는 그대로 두었습니다:
 Disc %u = 디스크 %u
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = 또는 /data/xbox360/ 이나 USB / M.2 드라이브 최상위의 xbox360 폴더.
+Kinect game = Kinect 게임
+\srequires Kinect. Turn on Camera motion for this game? = \s에는 Kinect가 필요합니다. 이 게임에서 Camera motion을 켜시겠습니까?
+A phone paired on the settings page then works as its camera. You can change it later in the game's settings. = 설정 페이지에서 페어링한 휴대폰이 카메라로 작동합니다. 나중에 게임 설정에서 변경할 수 있습니다.
+Turn on and play = 켜고 플레이
+Play without it = 끈 채로 플레이
+This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again. = 이 게임에는 Kinect가 필요합니다. 가이드(설정, 컨트롤)에서 Camera motion을 켠 다음 게임을 다시 시작하세요.
+Motion: no phone connected = 모션: 연결된 휴대폰 없음
+Scan with your phone to use it as Kinect. = 휴대폰으로 스캔하여 Kinect로 사용하세요.
+Same Wi-Fi, stand 2-3 m back, full body visible. = 같은 Wi-Fi에서 2-3 m 떨어져 전신이 보이게 서세요.
 
 [added nl]
 Console storage = Consoleopslag
@@ -558,6 +639,15 @@ Saves and settings were not copied from PS5X360: a folder could not be checked (
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Dit station heeft zowel PS5X360/saves als PS5X360Reloaded/saves. PS5X360Reloaded/saves wordt gebruikt; de oude map is ongewijzigd gelaten:
 Disc %u = Schijf %u
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = of in /data/xbox360/, of in een map xbox360 in de hoofdmap van een USB- of M.2-schijf.
+Kinect game = Kinect-game
+\srequires Kinect. Turn on Camera motion for this game? = \svereist Kinect. Camera motion voor deze game inschakelen?
+A phone paired on the settings page then works as its camera. You can change it later in the game's settings. = Een telefoon die op de instellingenpagina is gekoppeld, werkt dan als camera. Je kunt dit later wijzigen in de instellingen van de game.
+Turn on and play = Inschakelen en spelen
+Play without it = Spelen zonder
+This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again. = Deze game vereist Kinect. Schakel Camera motion in via de gids (Instellingen, Besturing) en start de game opnieuw.
+Motion: no phone connected = Beweging: geen telefoon verbonden
+Scan with your phone to use it as Kinect. = Scan met je telefoon om hem als Kinect te gebruiken.
+Same Wi-Fi, stand 2-3 m back, full body visible. = Zelfde wifi, sta 2-3 m achteruit, hele lichaam zichtbaar.
 
 [added pl]
 Console storage = Pamięć konsoli
@@ -595,6 +685,15 @@ Saves and settings were not copied from PS5X360: a folder could not be checked (
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Na tym dysku są foldery PS5X360/saves i PS5X360Reloaded/saves. Używany jest PS5X360Reloaded/saves; stary folder pozostawiono bez zmian:
 Disc %u = Płyta %u
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = albo do /data/xbox360/, albo do folderu xbox360 w katalogu głównym dysku USB lub M.2.
+Kinect game = Gra na Kinecta
+\srequires Kinect. Turn on Camera motion for this game? = \swymaga Kinecta. Włączyć Camera motion dla tej gry?
+A phone paired on the settings page then works as its camera. You can change it later in the game's settings. = Telefon sparowany na stronie ustawień będzie wtedy działał jako kamera. Możesz to później zmienić w ustawieniach gry.
+Turn on and play = Włącz i graj
+Play without it = Graj bez tego
+This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again. = Ta gra wymaga Kinecta. Włącz Camera motion w przewodniku (Ustawienia, Sterowanie), a potem uruchom grę ponownie.
+Motion: no phone connected = Ruch: brak połączonego telefonu
+Scan with your phone to use it as Kinect. = Zeskanuj telefonem, aby użyć go jako Kinecta.
+Same Wi-Fi, stand 2-3 m back, full body visible. = Ta sama sieć Wi-Fi, stań 2-3 m dalej, całe ciało widoczne.
 
 [added ru]
 Console storage = Память консоли
@@ -632,6 +731,15 @@ Saves and settings were not copied from PS5X360: a folder could not be checked (
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = На этом диске есть и PS5X360/saves, и PS5X360Reloaded/saves. Используется PS5X360Reloaded/saves; старая папка оставлена без изменений:
 Disc %u = Диск %u
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = или в /data/xbox360/, или в папку xbox360 в корне USB- или M.2-накопителя.
+Kinect game = Игра для Kinect
+\srequires Kinect. Turn on Camera motion for this game? = \sтребует Kinect. Включить Camera motion для этой игры?
+A phone paired on the settings page then works as its camera. You can change it later in the game's settings. = Телефон, сопряжённый на странице настроек, будет работать как камера. Это можно изменить позже в настройках игры.
+Turn on and play = Включить и играть
+Play without it = Играть без него
+This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again. = Этой игре нужен Kinect. Включите Camera motion в меню (Настройки, Управление) и перезапустите игру.
+Motion: no phone connected = Движение: телефон не подключён
+Scan with your phone to use it as Kinect. = Отсканируйте телефоном, чтобы использовать его как Kinect.
+Same Wi-Fi, stand 2-3 m back, full body visible. = Та же сеть Wi-Fi, встаньте в 2-3 м, всё тело в кадре.
 
 [added tr]
 Console storage = Konsol depolama alanı
@@ -669,6 +777,15 @@ Saves and settings were not copied from PS5X360: a folder could not be checked (
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Bu sürücüde hem PS5X360/saves hem de PS5X360Reloaded/saves var. PS5X360Reloaded/saves kullanılıyor; eski klasör olduğu gibi bırakıldı:
 Disc %u = Disk %u
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = ya da /data/xbox360/ içine veya bir USB ya da M.2 sürücüsünün kökündeki xbox360 klasörüne.
+Kinect game = Kinect oyunu
+\srequires Kinect. Turn on Camera motion for this game? = \sKinect gerektirir. Bu oyun için Camera motion açılsın mı?
+A phone paired on the settings page then works as its camera. You can change it later in the game's settings. = Ayarlar sayfasında eşleştirilen bir telefon kamera olarak çalışır. Bunu daha sonra oyunun ayarlarından değiştirebilirsiniz.
+Turn on and play = Aç ve oyna
+Play without it = Olmadan oyna
+This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again. = Bu oyun Kinect gerektirir. Rehberde (Ayarlar, Kontroller) Camera motion'ı açın ve oyunu yeniden başlatın.
+Motion: no phone connected = Hareket: bağlı telefon yok
+Scan with your phone to use it as Kinect. = Kinect olarak kullanmak için telefonunuzla tarayın.
+Same Wi-Fi, stand 2-3 m back, full body visible. = Aynı Wi-Fi, 2-3 m geride durun, tüm vücut görünsün.
 
 [added zh-Hans]
 Console storage = 主机存储空间
@@ -706,6 +823,15 @@ Saves and settings were not copied from PS5X360: a folder could not be checked (
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = 此驱动器上同时有 PS5X360/saves 和 PS5X360Reloaded/saves。将使用 PS5X360Reloaded/saves；旧文件夹保持不变：
 Disc %u = 光盘 %u
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = 或 /data/xbox360/，或 USB / M.2 驱动器根目录下的 xbox360 文件夹。
+Kinect game = Kinect 游戏
+\srequires Kinect. Turn on Camera motion for this game? = \s需要 Kinect。要为此游戏开启 Camera motion 吗？
+A phone paired on the settings page then works as its camera. You can change it later in the game's settings. = 在设置页面配对的手机将用作摄像头。之后可以在游戏设置中更改。
+Turn on and play = 开启并游玩
+Play without it = 不开启直接游玩
+This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again. = 此游戏需要 Kinect。请在指南（设置、控制）中开启 Camera motion，然后重新启动游戏。
+Motion: no phone connected = 动作：未连接手机
+Scan with your phone to use it as Kinect. = 用手机扫描，即可将其用作 Kinect。
+Same Wi-Fi, stand 2-3 m back, full body visible. = 连接同一 Wi-Fi，站在 2-3 米外，全身入镜。
 
 [added zh-Hant]
 Console storage = 主機儲存空間
@@ -743,3 +869,12 @@ Saves and settings were not copied from PS5X360: a folder could not be checked (
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = 此磁碟機上同時有 PS5X360/saves 和 PS5X360Reloaded/saves。將使用 PS5X360Reloaded/saves；舊資料夾保持不變：
 Disc %u = 光碟 %u
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = 或 /data/xbox360/，或 USB / M.2 磁碟機根目錄下的 xbox360 資料夾。
+Kinect game = Kinect 遊戲
+\srequires Kinect. Turn on Camera motion for this game? = \s需要 Kinect。要為此遊戲開啟 Camera motion 嗎？
+A phone paired on the settings page then works as its camera. You can change it later in the game's settings. = 在設定頁面配對的手機將作為攝影機使用。之後可以在遊戲設定中變更。
+Turn on and play = 開啟並遊玩
+Play without it = 不開啟直接遊玩
+This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again. = 此遊戲需要 Kinect。請在指南（設定、控制）中開啟 Camera motion，然後重新啟動遊戲。
+Motion: no phone connected = 動作：未連接手機
+Scan with your phone to use it as Kinect. = 用手機掃描，即可將其當作 Kinect 使用。
+Same Wi-Fi, stand 2-3 m back, full body visible. = 連接同一 Wi-Fi，站在 2-3 公尺外，全身入鏡。

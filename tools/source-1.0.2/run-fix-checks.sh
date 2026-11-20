@@ -70,6 +70,9 @@ checks=(
   check-fault-stack.cpp            # fix 61
   check-upload-cost.cpp            # fix 62
   check-fault-path.cpp             # fix 65
+  check-nui-image-scan.cpp         # fix 57
+  check-phone-qr-panel.cpp         # fix 63
+  check-native-mutant.cpp          # fix 64
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -78,6 +81,7 @@ declare -A arguments=(
   [check-ui-lang-overlay.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-game-info.cpp]="$repo/tools/source-1.0.2/fixtures/gameinfo-excerpt.txt"
   [check-guest-crash.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-phone-qr-panel.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-measure-10s.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-library-disc.cpp]="$repo/tools/source-1.0.2/english/lang"
 )
@@ -103,6 +107,9 @@ declare -A fix_of=(
   [check-fault-stack.cpp]=61
   [check-upload-cost.cpp]=62
   [check-fault-path.cpp]=65
+  [check-nui-image-scan.cpp]=57
+  [check-phone-qr-panel.cpp]=63
+  [check-native-mutant.cpp]=64
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
