@@ -36,6 +36,13 @@
 //      own DbgPrint messages (the first 64), its XamLoaderTerminateTitle / XamLoaderLaunchTitle
 //      (thread, caller, r3, r30) and each step of the title-switch restart go through it, and
 //      exit() / quick_exit() leave a line.
+//  (g) candidate 11 (candidate 8: the last beat, 9 s into play, was healthy and nothing followed):
+//      the beat comes every 250 ms and carries the memory the system still has and the guest
+//      heaps' reserved bytes; a guest allocation is counted and one of 8 MiB or more, or a failed
+//      one, is a raw line; the crash report's lines (signals, terminate, probes, Stage) are
+//      mirrored to hang-watch.txt, which stays open after the game loop; every LoadExec of the
+//      title, the window's close, a FatalError, HalReturnToFirmware, KeBugCheck, TerminateTitle
+//      and the guest's main thread ending leave a line.
 // Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh).
 #undef NDEBUG
 #include "../include/xbox360ps5/gpu_diagnostics.hpp"  // includes hang_watch.hpp (fix 47)
@@ -299,7 +306,7 @@ void CheckHeartbeat() {
   in.ring_write = 0x1057;
   const std::string line = hw::HeartbeatLine(in);
   std::printf("   %s\n", line.c_str());
-  Expect(line.rfind("HANG beat +12.5 s: ui ", 0) == 0, "beat: time since the start");
+  Expect(line.rfind("HANG beat +12.50 s: ui ", 0) == 0, "beat: time since the start");
   Expect(line.find("(paint) gpu ") != std::string::npos && line.find("(executing the ring)") != std::string::npos,
          "beat: both loops and their phase");
   Expect(line.find("frames 700 swaps 705 ring 104B/1057 sub 42 (") != std::string::npos, "beat: frames, ring, submission");
@@ -307,6 +314,41 @@ void CheckHeartbeat() {
   Expect(line.find(" gpu:fence:") != std::string::npos, "beat: the call in progress");
   gpu.Release();
   Expect(hw::HeartbeatLine(in).find("calls: none") != std::string::npos, "beat: no call in progress");
+  // Candidate 11: memory.
+  Expect(line.find(" mem: direct free -1 MiB, flexible free -1 MiB;") != std::string::npos, "beat: memory not asked");
+  in.direct_free = int64_t(1500) << 20;
+  in.flexible_free = int64_t(310) << 20;
+  in.guest_4k = uint64_t(120) << 20;
+  in.guest_64k = uint64_t(260) << 20;
+  in.guest_physical = uint64_t(400) << 20;
+  const std::string with_memory = hw::HeartbeatLine(in);
+  std::printf("   %s\n", with_memory.c_str());
+  Expect(with_memory.find(" mem: direct free 1500 MiB, flexible free 310 MiB; guest heaps 4K 120 64K 260 phys 400 MiB, "
+                          "allocated v ") != std::string::npos,
+         "beat: the system's and the guest's memory");
+  Expect(with_memory.size() < 380, "beat: fits the raw writer's 380 bytes");
+}
+
+void CheckGuestAllocations() {
+  static std::vector<std::string> raw;
+  hw::raw_sink.store(+[](const char* text, size_t size) { raw.emplace_back(text, size); });
+  Expect(hw::GuestAllocation("NtAllocateVirtualMemory", false, 0x40000000, 0x10000, 0x1000, true).empty() && raw.empty(),
+         "a small allocation: counted, no line");
+  Expect(hw::guest_memory.virtual_calls == 1 && hw::guest_memory.virtual_bytes == 0x10000, "the virtual total");
+  const std::string big = hw::GuestAllocation("MmAllocatePhysicalMemoryEx", true, 0xA0000000, 96u << 20, 0x20000000, true);
+  std::printf("   %s\n", big.c_str());
+  Expect(raw.size() == 1 && raw.back() == big, "an allocation of 8 MiB or more: a raw line");
+  Expect(big.find("GUEST MmAllocatePhysicalMemoryEx allocated: A0000000, 100663296 bytes (96 MiB), type 20000000; "
+                  "so far virtual 0 MiB in 1 calls, physical 96 MiB in 1 calls, 0 failed") != std::string::npos,
+         "the big allocation's line");
+  hw::GuestAllocation("NtAllocateVirtualMemory", false, 0, 0x2000, 0x1000, false);
+  Expect(raw.size() == 2 && raw.back().find("GUEST NtAllocateVirtualMemory FAILED: 00000000, 8192 bytes") == 0 &&
+             raw.back().find(", 1 failed") != std::string::npos,
+         "a failed allocation, even a small one: a raw line");
+  Expect(hw::guest_memory.failures == 1 && hw::guest_memory.virtual_calls == 1, "a failure is not added to the total");
+  hw::BeatInput in;
+  Expect(hw::HeartbeatLine(in).find("allocated v 0 p 96 MiB, 1 failed") != std::string::npos, "the beat has the totals");
+  hw::raw_sink.store(nullptr);
 }
 
 void CheckRawSink() {
@@ -357,9 +399,10 @@ void CheckTree() {
   const std::string watch = main_text.substr(klass, klass_end - klass);
   for (const char* part : {"\"hang-watch.txt\"", "O_WRONLY | O_CREAT | O_TRUNC", "::usleep(50000);",
                            "HangWatchRawBatch(step.lines);", "next_observe = now + 50;",
-                           "hw::HeartbeatLine(in)", "next_beat = now + 1000;", "hang_watch_fd.store(fd_);",
+                           "hw::HeartbeatLine(in)", "next_beat = now + 250;", "hang_watch_fd.store(fd_);",
                            "xbox360ps5::hang_watch::raw_sink.store(&HangWatchRaw, std::memory_order_release);",
-                           "xbox360ps5::hang_watch::raw_sink.store(nullptr, std::memory_order_release);",
+                           "xbox360ps5::SetCrashReportMirror(fd_);", "ReadMemory(in, memory_);",
+                           "if (fd_ < 0) fd_ = ::open(", "HANG watch stopped: the game loop ended",
                            "std::atexit(HangWatchAtExit);", "std::at_quick_exit(HangWatchAtQuickExit);",
                            "void Emit(const std::string& text) { HangWatchRaw(text.data(), text.size()); }"})
     Expect(watch.find(part) != std::string::npos, std::string("the watch has: ") + part);
@@ -405,7 +448,8 @@ void CheckTree() {
          "XamLoaderTerminateTitle logged first");
   Expect(xam.find("Ps5TitleEnd(\"XamLoaderLaunchTitle\",") > xam.find("void XamLoaderLaunchTitle_entry("),
          "XamLoaderLaunchTitle logged first");
-  for (const char* part : {"condition_variable", "Stage(", "XELOG", "std::fopen", "::sleep(", "wait_for("})
+  for (const char* part : {"condition_variable", "Stage(", "XELOG", "std::fopen", "::sleep(", "wait_for(", "::close(",
+                           "raw_sink.store(nullptr"})
     Expect(watch.find(part) == std::string::npos, std::string("the watch never uses: ") + part);
   ExpectIn(".deps/xenia-canary/src/xenia/base/logging.cc",
            {"xbox360ps5::hang_watch::log_written.fetch_add(", "xbox360ps5::hang_watch::log_appended.fetch_add("});
@@ -416,6 +460,46 @@ void CheckTree() {
            {"constexpr int kEndingSignals[] = {SIGHUP, SIGINT, SIGQUIT, SIGTERM, SIGXCPU, SIGXFSZ, SIGPIPE};",
             "for (int signal : kEndingSignals) sigaction(signal, &ending, nullptr);",
             "if (number == SIGPIPE) return;", "raise(number);"});
+  // Candidate 11.
+  ExpectIn("platform/ps5/crash_report.cpp",
+           {"std::atomic<int> mirror_file{-1};", "if (fd >= 0) { (void)!write(fd, text, size); fsync(fd); }",
+            "Mirror(line, used);", "Mirror(text, bytes);", "Mirror(text, size);", "Mirror(buffer, size);",
+            "void SetCrashReportMirror(int fd) { mirror_file.store(fd); }"});
+  ExpectIn("include/xbox360ps5/crash_report.hpp", {"void SetCrashReportMirror(int fd);"});
+  {
+    const std::string define = "#define sceSystemServiceLoadExec(path, argv) LoadExecLogged(path, argv, __LINE__)";
+    const size_t at = main_text.find(define);
+    Expect(at != std::string::npos, "LoadExec is logged");
+    const size_t logged = main_text.find("int LoadExecLogged(const char* path, const char** argv, int line) {");
+    Expect(logged != std::string::npos && logged < at &&
+               main_text.find("return (sceSystemServiceLoadExec)(path, argv);", logged) < at,
+           "the logger calls the system's LoadExec itself");
+    size_t uses = 0, early = 0;
+    for (size_t n = main_text.find("sceSystemServiceLoadExec("); n != std::string::npos;
+         n = main_text.find("sceSystemServiceLoadExec(", n + 1)) {
+      if (main_text.compare(n - 4, 4, "int ") == 0 || main_text.compare(n - 8, 8, "#define ") == 0) continue;
+      ++uses;
+      if (n < at) ++early;
+    }
+    Expect(uses >= 6 && early == 0, "every LoadExec of the title comes after the logger");
+  }
+  Expect(main_text.find("xbox360ps5::Stage(\"PROCESS window close requested: the game loop ends\");") != std::string::npos,
+         "the window's close is logged");
+  Expect(main_text.find("in.direct_free = int64_t(direct_free);") != std::string::npos &&
+             main_text.find("in.guest_physical = reserved(memory->GetPhysicalHeap());") != std::string::npos,
+         "the beat reads the memory");
+  ExpectIn(".deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_memory.cc",
+           {"static dword_result_t NtAllocateVirtualMemory_impl(", "GuestAllocation(\n        \"NtAllocateVirtualMemory\", false,",
+            "GuestAllocation(\"MmAllocatePhysicalMemoryEx\", true,", "GuestAllocation(\"MmAllocatePhysicalMemory\", true,"});
+  ExpectIn(".deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_hal.cc",
+           {"xbox360ps5::hang_watch::Raw(\"GUEST HalReturnToFirmware: \" + exitMessage);"});
+  ExpectIn(".deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_debug.cc",
+           {"xbox360ps5::hang_watch::Raw(\"GUEST KeBugCheck: \" + msg);"});
+  ExpectIn(".deps/xenia-canary/src/xenia/kernel/kernel_state.cc",
+           {"xbox360ps5::hang_watch::Raw(\"Kernel: TerminateTitle\");", "if (thread->main_thread()) {",
+            "\"GUEST main thread {:08X} ended\""});
+  ExpectIn(".deps/xenia-canary/src/xenia/base/logging.cc",
+           {"xbox360ps5::hang_watch::Raw(\"PROCESS FatalError: \" + std::string(str));"});
 }
 
 }  // namespace
@@ -425,6 +509,7 @@ int main() {
   CheckWork();
   CheckHeartbeat();
   CheckRawSink();
+  CheckGuestAllocations();
   CheckWatcher();
   CheckTree();
   if (failures) {
