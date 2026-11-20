@@ -11,6 +11,10 @@
 //      upload of that unit), and the next frame's same export read back as learned; a small
 //      export stays "small"; an export read back clears its units first, so fix 30's own
 //      refresh upload is no loss.
+//  (d) 1.0.4_candidate_5: fix 30's refresh (an exact invalidation of the ranges before the draw)
+//      only for fix 30's own readbacks (the option, small exports): on a learned readback of
+//      Black Ops' 0.7-1.4 MB export ranges it threw away resolved textures there (candidate 2:
+//      blocky corrupted textures, while the hair was right).
 //  (c) the assembled tree has the hooks: SharedMemory's bitmaps and NoteUpload before
 //      UploadRanges, the Vulkan command processor's decision, ClearGpuOnly before the readback's
 //      refresh and before an exporting draw requests its own ranges (it writes them again: an
@@ -146,6 +150,11 @@ void CheckTree() {
   const size_t written = vk.rfind("shared_memory_->RangeWrittenByGpu(memexport_range.base_address_dwords << 2,", mark);
   Expect(decide != std::string::npos, "the decision");
   Expect(clear != std::string::npos && refresh != std::string::npos && clear < refresh, "units cleared before the refresh");
+  // 1.0.4_candidate_5: only fix 30's own readbacks refresh the ranges (an exact invalidation of a
+  // learned export's large ranges corrupted Black Ops' textures in candidate 2).
+  const size_t only30 = vk.rfind("if (memexport_fix30) {", refresh);
+  Expect(only30 != std::string::npos && only30 > decide && refresh - only30 < 120,
+         "the refresh only for fix 30's own readbacks");
   const size_t own = vk.find("shared_memory_->ClearGpuOnly(memexport_range_base_bytes,");
   const size_t own_request = vk.find("shared_memory_->RequestRange(memexport_range_base_bytes,", own);
   Expect(own != std::string::npos && own_request != std::string::npos && own_request - own < 200,

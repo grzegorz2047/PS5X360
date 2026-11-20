@@ -370,7 +370,25 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
      // The GPU's copy of the ranges refreshed from guest memory before the
      // draw (see RefreshRanges).
      std::vector<xbox360ps5::memexport_merge::Range> ranges;
-@@ -3387,6 +3426,10 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+@@ -3335,7 +3374,16 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+       ranges.push_back({memexport_range.base_address_dwords << 2,
+                         memexport_range.size_bytes});
+     }
+-    xbox360ps5::memexport_merge::RefreshRanges(*shared_memory_, ranges);
++    // Fix 48 (1.0.4_candidate_5): only for fix 30's own readbacks (the option,
++    // small exports). An exact invalidation of a learned export's ranges (0.7 to
++    // 1.4 MB in Call of Duty: Black Ops, far more than the shader writes) also
++    // threw away what else the GPU had there, resolved textures among them, and
++    // corrupted them in blocks. The merge after the draw stores only the dwords
++    // the shader changed either way, and the RequestRange of the ranges below
++    // already brings in what the CPU wrote since.
++    if (memexport_fix30) {
++      xbox360ps5::memexport_merge::RefreshRanges(*shared_memory_, ranges);
++    }
+     // Candidate 36: the exporting vertex shader of Battlefield 3's small
+     // exports (its microcode, stream and vertex fetch constants), once each.
+     namespace mm = xbox360ps5::memexport_merge;
+@@ -3387,6 +3435,10 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
    for (const draw_util::MemExportRange& memexport_range : memexport_ranges_) {
      uint32_t memexport_range_base_bytes = memexport_range.base_address_dwords
                                            << 2;
@@ -381,7 +399,7 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
      if (!shared_memory_->RequestRange(memexport_range_base_bytes,
                                        memexport_range.size_bytes)) {
        XELOGE(
-@@ -3521,6 +3564,11 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+@@ -3521,6 +3573,11 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
    for (const draw_util::MemExportRange& memexport_range : memexport_ranges_) {
      shared_memory_->RangeWrittenByGpu(memexport_range.base_address_dwords << 2,
                                        memexport_range.size_bytes);
