@@ -368,6 +368,9 @@ void CheckTree() {
   // The title's skeleton frames and the fallback get the normalised body.
   CHECK(cam.find("const xbox360ps5::motion::Frame pose = xbox360ps5::motion::NormalizedSnapshot();") != std::string::npos);
   CHECK(cam.find("auto pose = xbox360ps5::motion::NormalizedSnapshot();") != std::string::npos);
+  // The virtual depth frames show the same body (DBZ's hand detection reads them).
+  const std::string depth = ReadText("include/xbox360ps5/virtual_depth_camera.hpp");
+  CHECK(depth.find("Render(NormalizedSnapshot(),depth_);") != std::string::npos);
   std::printf("tree: core files use the code scan; the library offers Camera motion\n");
 }
 

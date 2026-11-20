@@ -1395,6 +1395,27 @@ index 0000000..1cfb959
 +}
 +
 +}  // namespace xbox360ps5::motion
+diff --git a/include/xbox360ps5/virtual_depth_camera.hpp b/include/xbox360ps5/virtual_depth_camera.hpp
+index 5cf8b54..fb392f0 100644
+--- a/include/xbox360ps5/virtual_depth_camera.hpp
++++ b/include/xbox360ps5/virtual_depth_camera.hpp
+@@ -4,6 +4,7 @@
+ // poses rasterized as a depth silhouette (not measured depth).
+ #pragma once
+ #include "xbox360ps5/virtual_skeleton.hpp"
++#include "xbox360ps5/body_scale.hpp"  // 1.0.5_candidate_3: the body the skeleton frames have
+ #include "xbox360ps5/usb_kinect.hpp"
+ #include "xbox360ps5/factory_calibration.hpp"
+ #include <algorithm>
+@@ -64,7 +65,7 @@ class VirtualDepthCamera {
+   uint32_t CopyDepthFrame(uint32_t after,std::vector<uint8_t>& out){
+     if (sensor_.active()) return sensor_.CopyDepth(after,out);
+     const auto sequence=Sequence();if(sequence==after)return 0;
+-    Render(Snapshot(),depth_);Pack(depth_,out);return sequence;
++    Render(NormalizedSnapshot(),depth_);Pack(depth_,out);return sequence;
+   }
+   uint32_t CopyColorFrame(uint32_t after,std::vector<uint8_t>& out){
+     if (sensor_.active()) return sensor_.CopyColor(after,out);
 diff --git a/include/xbox360ps5/virtual_nui.hpp b/include/xbox360ps5/virtual_nui.hpp
 index d8348c7..da9dc59 100644
 --- a/include/xbox360ps5/virtual_nui.hpp
