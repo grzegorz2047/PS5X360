@@ -12,6 +12,11 @@ copy, or one converted to CRLF, stops the packaging.
 | `MBEDTLS-3.6.7-LICENSE.txt` | `licenses/MBEDTLS-3.6.7-LICENSE.txt` | Mbed TLS 3.6.7 is linked (phone-camera TLS server). Its licence is Apache-2.0 OR GPL-2.0-or-later, and this build uses it under Apache-2.0. | `mbedtls-3.6.7/LICENSE` inside <https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.7/mbedtls-3.6.7.tar.bz2>. This is the archive `assemble.py` pins, SHA-256 `a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6`. | `9b405ef4c89342f5eae1dd828882f931747f71001cfba7d114801039b52ad09b` |
 | `MPL-2.0.txt` | `licenses/CACERT-MPL-2.0.txt` | the Mozilla CA bundle (`third_party/cacert/cacert.pem`, from curl.se) is embedded in `eboot.bin` as data, and it is MPL-2.0 | <https://www.mozilla.org/media/MPL/2.0/index.txt> | `3f3d9e0024b1921b067d6f7f88deb4a60cbe7a78e76c64e3f1d7fc3b779b9d04` |
 
+`package.py` also writes the package's `LICENSE` from `GPL-3.0.txt`, as this repository's root
+`LICENSE` is the GPL-3.0 text, and adds this repository's `licenses/PS5X360-MIT.txt`: a short
+header, then the official package's `LICENSE` (the MIT License of the PS5X360 code), which
+`package.py` checks word for word, so that notice stays with the code it covers.
+
 The official package's own GPL-3.0 copies stay in the package unchanged.
 `PS5-FRAMEGEN-GPL-3.txt`, `NATIVE-RUNTIME-GPL-3.txt` and `PS5-VULKAN-GPL-3.txt` are this text
 with CRLF line ends. `WOLFSSL-GPL-3.txt` is wolfSSL's own copy, and its bytes differ from this

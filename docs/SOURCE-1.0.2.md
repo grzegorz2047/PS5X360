@@ -273,7 +273,10 @@ draft is published, at the commit the draft targets.
 2. The package: the official v1.0.2 `PPSA50011.zip` (SHA-256 `230359c2…`) is the base, read
    under its `PPSA50011/` folder and written under `PPSA83600/`, with the source-built
    `eboot.bin` as it was signed, its own `sce_sys/param.json` (title id `PPSA83600`, name
-   PS5X360Reloaded) and icon and backgrounds (`icon0.png`, `pic0.png`, `pic1.png`), the
+   PS5X360Reloaded, `contentVersion` from the version: `X.Y.Z` is `%02d.%03d.000` of X and
+   Y*100+Z, so 1.0.4 is `01.004.000`, higher than the `00.001.000` of the official package and
+   of v1.0.3, and the console and catalogs see an older install as outdated; `masterVersion`
+   stays `00.01`) and icon and backgrounds (`icon0.png`, `pic0.png`, `pic1.png`), the
    English-keyed `assets/lang/*.txt` of fix 25 in place of the official Portuguese-keyed ones,
    this repository's `assets/presets.txt`, `assets/config` and `assets/patches`,
    `VERSION`/`RELEASE.json`/`MANIFEST.json` for `X.Y.Z`, the GPL notice and the licence texts the
@@ -307,7 +310,11 @@ PS5X360's own code is MIT and Xenia is BSD-3-Clause, but the executable as a who
 **GPL-3.0**: it links wolfSSL (GPL-3.0-or-later) and ps5-framegen (GPL-3.0-or-later), and the
 author's earlier releases already shipped GPL-3.0 runtime parts. The assembled tree keeps every
 licence and notice file of the drops under `licenses/` (`drop-0.5.9`, `drop-1.0.0`,
-`drop-1.0.2`, `framegen-COPYING`) next to this repository's `LICENSE` and `licenses/`.
+`drop-1.0.2`, `framegen-COPYING`) next to this repository's `LICENSE` (the GPL-3.0 text, the
+licence of the project as a whole) and `licenses/` (with `PS5X360-MIT.txt`, the MIT notice of the
+PS5X360 code and the earlier contributions, which stays with that code). The package's `LICENSE`
+is the GPL-3.0 text as well, and the official package's `LICENSE` (that MIT notice) is kept as
+`licenses/PS5X360-MIT.txt`.
 
 **Anyone who distributes an `eboot.bin` rebuilt this way must distribute it under the GPL-3.0,
 with its complete corresponding source** (this repository's `tools/source-1.0.2`, the drops and

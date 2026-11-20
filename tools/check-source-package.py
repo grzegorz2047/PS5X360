@@ -8,9 +8,17 @@ carries the official sce_sys/param.json verbatim. It checks:
   * the layout is the base's, moved from PPSA50011/ to PPSA83600/ (PS5X360Reloaded's title id),
     with eboot.bin replaced byte for byte (not patched, not re-signed);
   * sce_sys/param.json differs from the base in exactly titleId PPSA83600, conceptId 83600,
-    contentId UP9000-PPSA83600_00-PS5X360RELOADED0 and titleName PS5X360Reloaded in every
-    language, keeping the base's key order, indent and CRLF; a base param that is not the
-    official app's is refused;
+    contentId UP9000-PPSA83600_00-PS5X360RELOADED0, titleName PS5X360Reloaded in every
+    language and contentVersion, keeping the base's key order, indent, CRLF and masterVersion; a
+    base param that is not the official app's is refused;
+  * contentVersion comes from the release version, X.Y.Z -> "%02d.%03d.000" % (X, Y * 100 + Z)
+    (1.0.4 -> 01.004.000), is strictly increasing over a run of versions, is above v1.0.3's
+    shipped 00.001.000, and a version that does not fit, a base or shipped value that is not
+    lower or not NN.NNN.NNN, is refused;
+  * LICENSE is the GPL-3.0 text (the repository's root LICENSE too), and
+    licenses/PS5X360-MIT.txt is the repository's file, ending with the official package's
+    LICENSE (the MIT notice) verbatim; a base without that LICENSE, a changed MIT notice or a
+    repository without the file is refused;
   * sce_sys/icon0.png, pic0.png and pic1.png are the reviewed PS5X360Reloaded art (variant A3,
     by SHA-256) from tools/source-1.0.2/package-art, at the official sizes;
   * the official user docs that name PPSA50011 are not shipped as they are
@@ -67,8 +75,11 @@ OFFICIAL_PARAM = ('{\r\n  "ageLevel": {\r\n    "default": 0\r\n  },\r\n  "applic
                   '  "requiredSystemSoftwareVersion": "0x0000000000000000",\r\n'
                   '  "sdkVersion": "0x0000000000000000",\r\n  "titleId": "PPSA50011",\r\n'
                   '  "versionFileUri": ""\r\n}\r\n').encode()
-# What package.py must make of it: these four lines differ, nothing else.
+# contentVersion of VERSION (1.0.3): 01.003.000, no longer the official 00.001.000 v1.0.3 shipped.
+CONTENT_VERSION = '01.003.000'
+# What package.py must make of it: these five lines differ, nothing else.
 RELOADED_PARAM = (OFFICIAL_PARAM.replace(b'"conceptId": "50011"', b'"conceptId": "83600"')
+                  .replace(b'"contentVersion": "00.001.000"', f'"contentVersion": "{CONTENT_VERSION}"'.encode())
                   .replace(b'"UP9000-PPSA50011_00-XBOX360PS5M80001"', b'"UP9000-PPSA83600_00-PS5X360RELOADED0"')
                   .replace(b'"titleName": "PS5X360"', b'"titleName": "PS5X360Reloaded"')
                   .replace(b'"titleId": "PPSA50011"', b'"titleId": "PPSA83600"'))
@@ -88,6 +99,13 @@ OFFICIAL_DOCS = {
                              b'folder (`PPSA50011/updates`).\n',
     B + 'CREDITS.md': b'# Credits\n\nPS5X360 by BrinooTk.\n',
 }
+# The official package's LICENSE (the MIT notice of the PS5X360 code, as this repository's root
+# LICENSE was before it became the GPL-3.0 text): the end of licenses/PS5X360-MIT.txt.
+MIT_FILE = (REPO / 'licenses/PS5X360-MIT.txt').read_bytes()
+OFFICIAL_LICENSE = MIT_FILE[MIT_FILE.find(b'\n\nMIT License\n') + 2:]
+assert hashlib.sha256(OFFICIAL_LICENSE).hexdigest() == \
+    '31278a4a718a1e625be83294ce66c51d56a38e6981b772f1f7f142f486d26275', OFFICIAL_LICENSE[:40]
+GPL = (REPO / 'tools/source-1.0.2/licenses/GPL-3.0.txt').read_bytes()
 COMMIT = 'f9140f1' + '0' * 33
 SOURCE_URL = f'https://github.com/example/PS5X360Reloaded/tree/{COMMIT}'
 DATE = '2026-11-20'
@@ -139,7 +157,7 @@ def base_files():
         B + 'eboot.bin': MAGIC + b'official 1.0.2 executable',
         B + 'RELEASE.json': b'{"version": "1.0.2"}\n',
         B + 'MANIFEST.json': b'{}\n',
-        B + 'LICENSE': b'MIT License\n',
+        B + 'LICENSE': OFFICIAL_LICENSE,
         B + 'readback-auto.off': b'',
         # Not in the official zip; a base made from the binary release's stage would carry it.
         B + 'licenses/PS5X360-OPT-NOTICE.txt': b'eboot.bin is the official 1.0.2 executable\n',
@@ -192,7 +210,8 @@ def check_files(files, base_sha=package.BASE_ZIP_SHA256):
     repo_assets |= {f'assets/config/{p.name}' for p in (REPO / 'assets/config').glob('*.toml')}
     repo_assets |= {f'assets/patches/{p.name}' for p in (REPO / 'assets/patches').glob('*.patch.toml')}
     added = {f'licenses/PS5X360-{VERSION}-NOTICE.txt', 'licenses/GPL-3.0.txt',
-             'licenses/MBEDTLS-3.6.7-LICENSE.txt', 'licenses/CACERT-MPL-2.0.txt', 'assets/lang/pt-BR.txt'}
+             'licenses/MBEDTLS-3.6.7-LICENSE.txt', 'licenses/CACERT-MPL-2.0.txt', 'assets/lang/pt-BR.txt',
+             'licenses/PS5X360-MIT.txt'}
     expected = ({name[len(B):] for name in base}
                 - {'readback-auto.off', 'licenses/PS5X360-OPT-NOTICE.txt', 'AUTOLOG.md'}
                 | repo_assets | added)
@@ -202,11 +221,25 @@ def check_files(files, base_sha=package.BASE_ZIP_SHA256):
 
     # eboot.bin byte for byte; untouched files byte for byte.
     assert files[P + 'eboot.bin'] == eboot()
-    for name in ('LICENSE', 'assets/fonts/font.ttf', 'licenses/WOLFSSL-GPL-3.txt', 'CREDITS.md',
+    for name in ('assets/fonts/font.ttf', 'licenses/WOLFSSL-GPL-3.txt', 'CREDITS.md',
                  'licenses/PS5X360-NOTICE.txt', 'KINECT-source-and-licenses.zip', 'tools/kinect-tracker.elf'):
         assert files[P + name] == base[B + name], name
 
-    # param.json: the official file with the new id, content id, concept id and name, nothing else.
+    # LICENSE: the GPL-3.0 text, as the repository's root LICENSE (which GitHub reads as GPL-3.0);
+    # the official MIT LICENSE kept, word for word, at the end of licenses/PS5X360-MIT.txt.
+    assert files[P + 'LICENSE'] == GPL == files[P + 'licenses/GPL-3.0.txt']
+    assert (REPO / 'LICENSE').read_bytes().replace(b'\r\n', b'\n') == GPL
+    assert GPL.startswith(b'                    GNU GENERAL PUBLIC LICENSE\n')
+    mit = files[P + 'licenses/PS5X360-MIT.txt']
+    assert mit == MIT_FILE.replace(b'\r\n', b'\n') and mit.endswith(b'\n\n' + base[B + 'LICENSE'])
+    header = mit[:-len(base[B + 'LICENSE'])].decode()
+    for needle in ('MIT License', 'PS5X360 by BrinooTk', 'https://github.com/BrinooTk/PS5X360',
+                   'General Public License version 3 (LICENSE)', 'keeps this notice'):
+        assert needle in header.replace('\n', ' '), needle
+    assert mit.count(b'Copyright (c) 2026 Xbox360PS5 contributors') == 1
+
+    # param.json: the official file with the new id, content id, concept id, name and content
+    # version, nothing else.
     assert sha(OFFICIAL_PARAM) == '68f56aa52bfdf3b73f8c8f41294b29da9d9f4d0b49fe5da953ea433123178313'
     param_bytes = files[P + 'sce_sys/param.json']
     assert param_bytes == RELOADED_PARAM, param_bytes
@@ -219,8 +252,11 @@ def check_files(files, base_sha=package.BASE_ZIP_SHA256):
     assert re.fullmatch(r'UP9000-PPSA[0-9]{5}_00-[A-Z0-9]{16}', param['contentId'])
     assert param['contentId'] != official['contentId'] and param['conceptId'] == param['titleId'][4:]
     assert param['localizedParameters'] == {'defaultLanguage': 'en-US', 'en-US': {'titleName': 'PS5X360Reloaded'}}
+    assert param['contentVersion'] == CONTENT_VERSION == package.content_version(VERSION)
+    assert param['contentVersion'] > official['contentVersion'] == package.SHIPPED_CONTENT_VERSIONS['1.0.3']
+    assert param['masterVersion'] == official['masterVersion'] == '00.01'
     changed = {key for key in official if official[key] != param[key]}
-    assert changed == {'titleId', 'conceptId', 'contentId', 'localizedParameters'}, changed
+    assert changed == {'titleId', 'conceptId', 'contentId', 'contentVersion', 'localizedParameters'}, changed
 
     # The official user docs that name PPSA50011: PS5X360Reloaded's INSTALLATION.md, this
     # release's notes, the DLC and updates READMEs with the folder renamed, no AutoLog guide.
@@ -283,6 +319,7 @@ def check_files(files, base_sha=package.BASE_ZIP_SHA256):
     release = json.loads(files[P + 'RELEASE.json'])
     assert release['version'] == VERSION
     assert release['title_id'] == 'PPSA83600' and release['title_name'] == 'PS5X360Reloaded'
+    assert release['content_version'] == CONTENT_VERSION
     assert release['executable_sha256'] == sha(eboot())
     assert release['candidate'] is False and release['published'] is True
     assert release['candidate_id'] == 'src-' + sha(eboot())[:8]
@@ -322,8 +359,14 @@ def check_files(files, base_sha=package.BASE_ZIP_SHA256):
                    'moved from PPSA50011/ to PPSA83600/', 'tools/source-1.0.2/package-art',
                    'tools/source-1.0.2/package-docs', 'AUTOLOG.md is left out',
                    'This is a modified version of PS5X360 1.0.2 by BrinooTk (https://github.com/BrinooTk/PS5X360/releases)',
-                   'Source drops (BrinooTk/PS5X360 releases)', 'the PS5X360\n    code is MIT (LICENSE)'):
+                   'Source drops (BrinooTk/PS5X360 releases)',
+                   # The licence layout: LICENSE is GPL-3.0, the MIT notice is kept in its own file.
+                   'LICENSE is the GPL-3.0 text too',
+                   'the PS5X360 code came under the MIT License and keeps its notice\n    (licenses/PS5X360-MIT.txt)',
+                   'the official\n    LICENSE, the MIT License, is in licenses/PS5X360-MIT.txt',
+                   f'content version\n    {CONTENT_VERSION}, so an older install shows as outdated'):
         assert needle in text, needle
+    assert 'code is MIT (LICENSE)' not in text
     assert 'complete source tree' not in text
     assert 'candidate' not in text.lower()
 
@@ -417,6 +460,7 @@ def main():
         assert (tmp / 'cli/PPSA83600.zip').read_bytes() == (tmp / 'cli2/PPSA83600.zip').read_bytes()
         assert summary['version'] == VERSION and summary['eboot_sha256'] == sha(eboot())
         assert summary['title_id'] == 'PPSA83600' and summary['package'].endswith('PPSA83600.zip')
+        assert summary['content_version'] == CONTENT_VERSION
         print('[OK] command line: official zip gate, package, same zip twice')
 
     for version in ('1.0.3_candidate_37', '', 'v1.0.3', '1.0', '1.0.3.1', '1.0.3 '):
@@ -445,6 +489,12 @@ def main():
     refused('no language files', lang={})
     refused('pl.txt is not an English-keyed', lang=dict(LANG, **{'pl.txt': b'\xff\xfe#\0 \0P\0'}))
     refused('base package VERSION is not 1.0.2', base_files=dict(base_files(), **{B + 'VERSION': b'1.0.3\n'}))
+    # The official LICENSE is the MIT notice kept in licenses/PS5X360-MIT.txt: missing or changed,
+    # the packaging stops rather than drop or misstate it.
+    refused('base package has no LICENSE', base_files={k: v for k, v in base_files().items() if k != B + 'LICENSE'})
+    refused('base package LICENSE is not the MIT License', base_files=dict(base_files(), **{B + 'LICENSE': GPL}))
+    refused("licenses/PS5X360-MIT.txt does not end with the base package's LICENSE",
+            base_files=dict(base_files(), **{B + 'LICENSE': OFFICIAL_LICENSE.replace(b'2026', b'2025')}))
     # The base is read under PPSA50011/ only: a stage already moved, or a stray file, is refused.
     refused('base package files outside PPSA50011/: PPSA83600/VERSION',
             base_files=dict(base_files(), **{P + 'VERSION': b'1.0.2\n'}))
@@ -457,24 +507,38 @@ def main():
                            (b'{"titleId": "PPSA50011"', 'is not JSON'),
                            (b'[]', 'is not a JSON object'),
                            (OFFICIAL_PARAM.replace(b'  "conceptId": "50011",\r\n', b''), 'has no conceptId'),
+                           (OFFICIAL_PARAM.replace(b'  "contentVersion": "00.001.000",\r\n', b''),
+                            'has no contentVersion'),
+                           (OFFICIAL_PARAM.replace(b'"00.001.000"', b'"1.0.2"'),
+                            "contentVersion '1.0.2' of the base package is not NN.NNN.NNN"),
+                           # A base already at or above the release's value: not increasing.
+                           (OFFICIAL_PARAM.replace(b'"00.001.000"', f'"{CONTENT_VERSION}"'.encode()),
+                            f'contentVersion {CONTENT_VERSION} is not higher than {CONTENT_VERSION} of the base package'),
+                           (OFFICIAL_PARAM.replace(b'"00.001.000"', b'"99.999.000"'),
+                            f'contentVersion {CONTENT_VERSION} is not higher than 99.999.000 of the base package'),
                            (OFFICIAL_PARAM.replace(b'"defaultLanguage": "en-US"', b'"defaultLanguage": "fr-FR"'),
                             'no localizedParameters entry for its defaultLanguage'),
-                           (b'{"titleId": "PPSA50011", "conceptId": "50011", "contentId": "x"}',
+                           (b'{"titleId": "PPSA50011", "conceptId": "50011", "contentId": "x",'
+                            b' "contentVersion": "00.001.000"}',
                             'no localizedParameters entry')):
         refused(message, base_files=dict(base_files(), **{B + 'sce_sys/param.json': param}))
     # Every language entry gets the new name; LF files stay LF, other fields stay as they are.
     several = {'titleId': 'PPSA50011', 'conceptId': '50011', 'contentId': 'UP9000-PPSA50011_00-XBOX360PS5M80001',
+               'contentVersion': '00.001.000', 'masterVersion': '00.01',
                'localizedParameters': {'defaultLanguage': 'en-US', 'en-US': {'titleName': 'PS5X360'},
                                        'pl-PL': {'titleName': 'PS5X360', 'titleNameSort': 'x'}, 'ja-JP': {}},
                'downloadDataSize': 256}
-    made = package.param_json(json.dumps(several, indent=2).encode() + b'\n')
+    made = package.param_json(json.dumps(several, indent=2).encode() + b'\n', '1.0.4')
     assert b'\r' not in made and made.endswith(b'}\n'), made
     made = json.loads(made)
     assert made['localizedParameters'] == {
         'defaultLanguage': 'en-US', 'en-US': {'titleName': 'PS5X360Reloaded'},
         'pl-PL': {'titleName': 'PS5X360Reloaded', 'titleNameSort': 'x'}, 'ja-JP': {'titleName': 'PS5X360Reloaded'}}
     assert made['downloadDataSize'] == 256 and made['titleId'] == 'PPSA83600'
-    assert package.param_json(OFFICIAL_PARAM) == RELOADED_PARAM
+    assert made['contentVersion'] == '01.004.000' and made['masterVersion'] == '00.01'
+    assert package.param_json(OFFICIAL_PARAM, VERSION) == RELOADED_PARAM
+    assert package.param_json(OFFICIAL_PARAM, '1.0.4') == \
+        RELOADED_PARAM.replace(f'"{CONTENT_VERSION}"'.encode(), b'"01.004.000"')
     # The official docs: a changed text (the folder named another number of times) or a missing
     # one stops the packaging, and so does any other text file still naming PPSA50011.
     dlc = OFFICIAL_DOCS[B + 'dlc/README.md']
@@ -490,6 +554,14 @@ def main():
         other = Path(other)
         (other / 'assets').mkdir()
         (other / 'assets/presets.txt').write_bytes(b'presets\n')
+        refused('no licenses/PS5X360-MIT.txt in the repository', repo_root=other)
+        (other / 'licenses').mkdir()
+        # The MIT notice changed (here: another copyright line) or cut short stops the packaging.
+        (other / 'licenses/PS5X360-MIT.txt').write_bytes(MIT_FILE.replace(b'Xbox360PS5 contributors', b'someone else'))
+        refused('licenses/PS5X360-MIT.txt does not end with the base package\'s LICENSE', repo_root=other)
+        (other / 'licenses/PS5X360-MIT.txt').write_bytes(OFFICIAL_LICENSE)
+        refused('licenses/PS5X360-MIT.txt does not end with the base package\'s LICENSE', repo_root=other)
+        (other / 'licenses/PS5X360-MIT.txt').write_bytes(MIT_FILE.replace(b'\n', b'\r\n'))
         refused('no release notes docs/release-notes/v1.0.3.md', repo_root=other)
         (other / 'docs/release-notes').mkdir(parents=True)
         (other / 'docs/release-notes/v1.0.3.md').write_bytes(b'## PS5X360Reloaded v1.0.3\n')
@@ -520,6 +592,50 @@ def main():
     finally:
         package.LICENCES = licences
     print('[OK] refusals')
+
+    # contentVersion from the release version: fixed, strictly increasing, above what shipped.
+    cv = package.content_version
+    assert cv('1.0.4') == '01.004.000' and cv('1.0.3') == '01.003.000' and cv('1.2.15') == '01.215.000'
+    assert cv('0.0.0') == '00.000.000' and cv('99.9.99') == '99.999.000' and cv('2.0.0') == '02.000.000'
+    run = ['0.9.99', '1.0.3', '1.0.4', '1.0.10', '1.0.99', '1.1.0', '1.1.5', '1.9.99', '2.0.0', '10.0.1', '99.9.99']
+    values = [cv(version) for version in run]
+    assert all(package.CONTENT_VERSION_RE.fullmatch(value) for value in values), values
+    assert values == sorted(values) and len(set(values)) == len(values), values
+    # Text order is version order (the console and catalogs may compare either way).
+    assert [tuple(int(x) for x in v.split('.')) for v in values] == \
+        sorted(tuple(int(x) for x in v.split('.')) for v in values)
+    shipped = package.SHIPPED_CONTENT_VERSIONS
+    assert shipped == {'1.0.3': '00.001.000'}, shipped
+    assert cv('1.0.4') > max(shipped.values()) and cv('1.0.4') > cv('1.0.3')
+    assert package.check_content_version('01.004.000', '00.001.000') == '01.004.000'
+    for version in ('1.10.0', '1.0.100', '100.0.0'):
+        try:
+            cv(version)
+        except SystemExit as error:
+            assert 'does not fit contentVersion NN.NNN.000' in str(error.code), error.code
+        else:
+            raise AssertionError(f'{version} accepted')
+        refused('does not fit contentVersion', version=version, eboot=eboot(version),
+                sources=dict(SOURCES, version=version))
+    # A release whose contentVersion is not above one already shipped (as 1.0.4 would be after a
+    # release that shipped 01.004.000) is refused.
+    try:
+        package.SHIPPED_CONTENT_VERSIONS = dict(shipped, **{'1.0.4': '01.004.000'})
+        assert package.param_json(OFFICIAL_PARAM, '1.0.5').count(b'"01.005.000"') == 1
+        for version, message in (('1.0.4', 'contentVersion 01.004.000 is not higher than 01.004.000 of v1.0.4'),
+                                 ('1.0.3', 'contentVersion 01.003.000 is not higher than 01.004.000 of v1.0.4')):
+            try:
+                package.param_json(OFFICIAL_PARAM, version)
+            except SystemExit as error:
+                assert message in str(error.code), error.code
+            else:
+                raise AssertionError(f'{version} accepted after 01.004.000 shipped')
+        refused('contentVersion 01.003.000 is not higher than 01.004.000 of v1.0.4')
+        package.SHIPPED_CONTENT_VERSIONS = dict(shipped, **{'1.0.4': '1.4'})
+        refused("contentVersion '1.4' of v1.0.4 is not NN.NNN.NNN")
+    finally:
+        package.SHIPPED_CONTENT_VERSIONS = shipped
+    print('[OK] contentVersion: 1.0.4 -> 01.004.000, increasing, above the shipped 00.001.000')
 
     try:
         package.toolchain_pins('env:\n  PS5_MESA_REV: ' + '0' * 40 + '\n')

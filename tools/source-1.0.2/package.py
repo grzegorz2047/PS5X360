@@ -13,8 +13,11 @@ replacing it. This script:
 
   * reads the base's files under PPSA50011/ and writes them under PPSA83600/;
   * rewrites sce_sys/param.json: titleId PPSA83600, conceptId 83600, contentId
-    UP9000-PPSA83600_00-PS5X360RELOADED0 and the titleName PS5X360Reloaded in every language
-    entry; every other field and the file's layout (key order, indent, CRLF) stay the base's;
+    UP9000-PPSA83600_00-PS5X360RELOADED0, the titleName PS5X360Reloaded in every language
+    entry and contentVersion from the release version (content_version(): X.Y.Z ->
+    "%02d.%03d.000" % (X, Y * 100 + Z), so 1.0.4 -> 01.004.000), which must be higher than the
+    base's and than every contentVersion already shipped (SHIPPED_CONTENT_VERSIONS); every other
+    field (masterVersion included) and the file's layout (key order, indent, CRLF) stay the base's;
   * replaces sce_sys/icon0.png, pic0.png and pic1.png with the PS5X360Reloaded art in
     tools/source-1.0.2/package-art (checked by SHA-256 and size, see its README.md);
   * replaces the official user docs that name its folder PPSA50011 (tools/source-1.0.2/package-docs,
@@ -34,6 +37,10 @@ replacing it. This script:
   * writes VERSION, RELEASE.json (a source build), licenses/PS5X360-<version>-NOTICE.txt (the
     GPL-3.0 notice), the licence texts the official package lacks (tools/source-1.0.2/licenses),
     and MANIFEST.json;
+  * replaces the package's LICENSE, the official MIT License, with the GPL-3.0 text (as this
+    repository's root LICENSE) and adds this repository's licenses/PS5X360-MIT.txt, after
+    checking that it ends with that MIT notice word for word, so the notice of the PS5X360 code
+    stays in the package;
   * writes <out-dir>/PPSA83600.zip (deterministic), <out-dir>/PPSA83600.zip.sha256 and the
     unpacked <out-dir>/stage/PPSA83600. The images come from it with
     tools/binary-release/make_images.sh <out-dir>/stage/PPSA83600 <out-dir> PPSA83600.
@@ -79,6 +86,12 @@ ZIP_TIME = build_package.ZIP_TIME
 sha256 = build_package.sha256
 
 VERSION_RE = re.compile(r'[0-9]+\.[0-9]+\.[0-9]+')
+# sce_sys/param.json contentVersion, "NN.NNN.NNN". The console and the homebrew catalogs compare it
+# with the installed app's to tell an outdated install, so each release needs a higher one.
+CONTENT_VERSION_RE = re.compile(r'[0-9]{2}\.[0-9]{3}\.[0-9]{3}')
+# contentVersion of every PS5X360Reloaded release already published: v1.0.3 kept the official
+# package's value. A new release's contentVersion must be higher than all of them.
+SHIPPED_CONTENT_VERSIONS = {'1.0.3': '00.001.000'}
 # A test build's label (BUILD_VERSION 1.0.3_candidate_N). A bare "candidate_" is not enough:
 # Mesa's own strings contain it (intersection_candidate_aabb_opaque, candidate_infos).
 CANDIDATE_LABEL_RE = re.compile(rb'[0-9]+\.[0-9]+\.[0-9]+_candidate')
@@ -87,6 +100,12 @@ ENGLISH_HEADER_RE = re.compile(r'# PS5X360 interface text: (\S+)\. Keys are Engl
 SOURCE_URL_RE = re.compile(r'(https://[^/]+/[^/]+/[^/]+)/(?:tree|commit)/([0-9a-f]{40})/?')
 WORKFLOW = ROOT / '.github/workflows/build-source-1.0.2.yml'
 
+# The package's LICENSE: the GPL-3.0 text (GPL-3.0.txt below, also this repository's root
+# LICENSE), in place of the official package's MIT License. That notice moves to
+# licenses/PS5X360-MIT.txt: this repository's file of that name, a short header and then the
+# official LICENSE word for word (checked, so a changed notice stops the packaging).
+LICENSE_TEXT = 'GPL-3.0.txt'
+MIT_NOTICE = 'licenses/PS5X360-MIT.txt'
 # (file in tools/source-1.0.2/licenses, path in the package, SHA-256); see licenses/README.md.
 LICENCES = [
     ('GPL-3.0.txt', 'licenses/GPL-3.0.txt',
@@ -138,6 +157,30 @@ def check_version(version):
     if not VERSION_RE.fullmatch(version or ''):
         fail(f'version {version!r} is not X.Y.Z (a release, not a candidate label)')
     return version
+
+
+def content_version(version):
+    """sce_sys/param.json contentVersion of release X.Y.Z: "%02d.%03d.000" % (X, Y * 100 + Z), so
+    1.0.4 is 01.004.000 and 1.2.15 is 01.215.000. Strictly increasing with the version while
+    X <= 99, Y <= 9 and Z <= 99; another version stops the packaging instead of wrapping around."""
+    major, minor, patch = (int(part) for part in check_version(version).split('.'))
+    if major > 99 or minor > 9 or patch > 99:
+        fail(f'version {version} does not fit contentVersion NN.NNN.000 (X <= 99, Y <= 9, Z <= 99)')
+    return f'{major:02d}.{minor * 100 + patch:03d}.000'
+
+
+def check_content_version(value, base_value):
+    """The derived contentVersion must be higher than the base package's and every shipped one
+    (SHIPPED_CONTENT_VERSIONS), or an installed older PS5X360Reloaded would not show as outdated.
+    The fixed-width form compares as text."""
+    others = [('the base package', base_value)]
+    others += [(f'v{shipped}', other) for shipped, other in sorted(SHIPPED_CONTENT_VERSIONS.items())]
+    for name, other in others:
+        if not CONTENT_VERSION_RE.fullmatch(other if isinstance(other, str) else ''):
+            fail(f'contentVersion {other!r} of {name} is not NN.NNN.NNN')
+        if value <= other:
+            fail(f'contentVersion {value} is not higher than {other} of {name}')
+    return value
 
 
 def source_names(version):
@@ -213,10 +256,10 @@ def check_eboot(eboot, version):
              'not built as PS5X360Reloaded')
 
 
-def param_json(base):
-    """The release's sce_sys/param.json from the official one: new titleId, conceptId, contentId
-    and titleName in every localizedParameters language; the rest, the key order, the indent and
-    the line endings stay the base's."""
+def param_json(base, version):
+    """The release's sce_sys/param.json from the official one: new titleId, conceptId, contentId,
+    titleName in every localizedParameters language and contentVersion (content_version()); the
+    rest, masterVersion included, the key order, the indent and the line endings stay the base's."""
     try:
         param = json.loads(base)
     except ValueError as error:
@@ -225,9 +268,10 @@ def param_json(base):
         fail('base sce_sys/param.json is not a JSON object')
     if param.get('titleId') != BASE_PREFIX.rstrip('/'):
         fail(f'base sce_sys/param.json titleId {param.get("titleId")!r} is not {BASE_PREFIX.rstrip("/")}')
-    for key in ('conceptId', 'contentId'):
+    for key in ('conceptId', 'contentId', 'contentVersion'):
         if not isinstance(param.get(key), str):
             fail(f'base sce_sys/param.json has no {key}')
+    value = check_content_version(content_version(version), param['contentVersion'])
     localized = param.get('localizedParameters')
     languages = [code for code, entry in (localized or {}).items() if isinstance(entry, dict)] \
         if isinstance(localized, dict) else []
@@ -239,6 +283,7 @@ def param_json(base):
     param['titleId'] = TITLE_ID
     param['conceptId'] = CONCEPT_ID
     param['contentId'] = CONTENT_ID
+    param['contentVersion'] = value
     for code in languages:
         localized[code]['titleName'] = TITLE_NAME
     newline = '\r\n' if b'\r\n' in base else '\n'
@@ -338,6 +383,26 @@ def licence_texts():
     return texts
 
 
+def licence_files(base_license, repo_root=ROOT):
+    """{package path: bytes}: LICENSE, the GPL-3.0 text, and licenses/PS5X360-MIT.txt, this
+    repository's file. The official package's LICENSE, the MIT notice of the PS5X360 code, must
+    be the end of licenses/PS5X360-MIT.txt, after its header, word for word (line ends aside)."""
+    if base_license is None:
+        fail('base package has no LICENSE')
+    gpl = licence_texts()['licenses/' + LICENSE_TEXT]
+    path = repo_root / MIT_NOTICE
+    if not path.is_file():
+        fail(f'no {MIT_NOTICE} in the repository (the MIT notice of the PS5X360 code)')
+    mit = path.read_bytes().replace(b'\r\n', b'\n')
+    official = base_license.replace(b'\r\n', b'\n')
+    if not official.startswith(b'MIT License\n') or b'Permission is hereby granted' not in official:
+        fail('base package LICENSE is not the MIT License of PS5X360')
+    header = mit[:len(mit) - len(official)]
+    if not mit.endswith(b'\n\n' + official) or b'Permission is hereby granted' in header:
+        fail(f'{MIT_NOTICE} does not end with the base package\'s LICENSE (the MIT notice) word for word')
+    return {'LICENSE': gpl, MIT_NOTICE: mit}
+
+
 def notice(version, date, repo, commit, eboot_sha, sources, toolchain, sources_sha):
     release = f'{repo}/releases/tag/v{version}'
     names = source_names(version)
@@ -365,8 +430,9 @@ Licence of eboot.bin
     version 3 (licenses/GPL-3.0.txt). It links wolfSSL 5.9.4 (GPL-3.0-or-later,
     licenses/WOLFSSL-GPL-3.txt), ps5-framegen (GPL-3.0-or-later, licenses/PS5-FRAMEGEN-GPL-3.txt)
     and the GPL-3.0 PS5 runtime of PS5_Vulkan and the payload SDK (licenses/PS5-VULKAN-GPL-3.txt,
-    licenses/NATIVE-RUNTIME-GPL-3.txt). Each part keeps its own licence as well: the PS5X360
-    code is MIT (LICENSE), Xenia is BSD-3-Clause (licenses/XENIA-BSD.txt,
+    licenses/NATIVE-RUNTIME-GPL-3.txt); LICENSE is the GPL-3.0 text too. Each part keeps its own
+    licence as well: the PS5X360 code came under the MIT License and keeps its notice
+    (licenses/PS5X360-MIT.txt), Xenia is BSD-3-Clause (licenses/XENIA-BSD.txt,
     licenses/XENIA-NETPLAY-BSD.txt), RADV/Mesa is MIT (licenses/MESA-LICENSE.txt), libcurl is
     under the curl licence (licenses/CURL.txt), miniupnpc is BSD-3-Clause (licenses/MINIUPNPC.txt), Mbed TLS 3.6.7 is
     used under Apache-2.0 (licenses/MBEDTLS-3.6.7-LICENSE.txt), and the embedded Mozilla CA
@@ -426,15 +492,18 @@ Other files
     Every other file is the official {BASE_VERSION} PPSA50011.zip (sha256 {BASE_ZIP_SHA256})
     unchanged, moved from PPSA50011/ to {PREFIX}, except: sce_sys/param.json (title id
     {TITLE_ID}, content id {CONTENT_ID}, name {TITLE_NAME}, so this
-    app installs next to the official PS5X360 instead of replacing it), sce_sys/icon0.png,
+    app installs next to the official PS5X360 instead of replacing it; content version
+    {content_version(version)}, so an older install shows as outdated), sce_sys/icon0.png,
     pic0.png and pic1.png (the official art marked "RELOADED", tools/source-1.0.2/package-art),
     the user docs that named the official app's folder (tools/source-1.0.2/package-docs:
     INSTALLATION.md is PS5X360Reloaded's own, RELEASE_NOTES.md is this release's notes,
     dlc/README.md and updates/README.md name {PREFIX} instead, AUTOLOG.md is left out),
     assets/lang/*.txt (English-keyed, tools/source-1.0.2/english/lang),
     assets/presets.txt, assets/config/*.toml and assets/patches/*.patch.toml (from the
-    repository), VERSION, RELEASE.json, MANIFEST.json, this notice and the licence files above
-    (tools/source-1.0.2/licenses/README.md says where each came from).
+    repository), VERSION, RELEASE.json, MANIFEST.json, this notice, the licence files above
+    (tools/source-1.0.2/licenses/README.md says where each came from) and LICENSE: the official
+    LICENSE, the MIT License, is in licenses/PS5X360-MIT.txt under a header, and LICENSE is the
+    GPL-3.0 text.
     licenses/PS5X360-NOTICE.txt is the official 1.0.0 notice, kept as provenance.
 """.encode()
 
@@ -455,7 +524,7 @@ def build(base_files, eboot, lang, sources, version, source_url, date, toolchain
     files = {PREFIX + name[len(BASE_PREFIX):]: data for name, data in base_files.items()}
     if PREFIX + 'sce_sys/param.json' not in files:
         fail('base package has no sce_sys/param.json')
-    files[PREFIX + 'sce_sys/param.json'] = param_json(files[PREFIX + 'sce_sys/param.json'])
+    files[PREFIX + 'sce_sys/param.json'] = param_json(files[PREFIX + 'sce_sys/param.json'], version)
     for target, data in art_files().items():
         files[PREFIX + target] = data
     if files.get(PREFIX + 'VERSION') != (BASE_VERSION + '\n').encode():
@@ -486,6 +555,8 @@ def build(base_files, eboot, lang, sources, version, source_url, date, toolchain
     files.pop(PREFIX + 'licenses/PS5X360-OPT-NOTICE.txt', None)
     for target, data in licence_texts().items():
         files[PREFIX + target] = data
+    for target, data in licence_files(files.get(PREFIX + 'LICENSE'), repo_root).items():
+        files[PREFIX + target] = data
 
     package_docs(files, version, repo, commit, repo_root)
 
@@ -496,6 +567,7 @@ def build(base_files, eboot, lang, sources, version, source_url, date, toolchain
         'version': version,
         'title_id': TITLE_ID,
         'title_name': TITLE_NAME,
+        'content_version': content_version(version),
         'executable_sha256': eboot_sha,
         'candidate': False,
         'published': True,
@@ -585,7 +657,8 @@ def main(argv=None):
                   sha256(sources_bytes))
     digest = write_package(files, args.out_dir)
     out_zip = args.out_dir / f'{TITLE_ID}.zip'
-    print(json.dumps({'version': version, 'title_id': TITLE_ID, 'package': str(out_zip), 'files': len(files),
+    print(json.dumps({'version': version, 'title_id': TITLE_ID, 'content_version': content_version(version),
+                      'package': str(out_zip), 'files': len(files),
                       'bytes': out_zip.stat().st_size, 'sha256': digest,
                       'eboot_sha256': sha256(files[PREFIX + 'eboot.bin'])}))
     return 0

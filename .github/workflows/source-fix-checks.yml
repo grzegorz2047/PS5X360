@@ -57,6 +57,8 @@ on:
       - 'tools/check-core-commit.py'
       - 'tools/check-docs-reloaded.py'
       - 'README.md'
+      - 'LICENSE'
+      - 'licenses/PS5X360-MIT.txt'
       - 'docs/release-notes/**'
       - 'docs/FORWARDER.md'
       - 'docs/SOURCE-1.0.2.md'

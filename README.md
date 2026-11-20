@@ -365,7 +365,8 @@ and Microsoft's image server.
 Licenses:
 - **The released `eboot.bin` is GPL-3.0** as a whole: it links wolfSSL and ps5-framegen (both
   GPL-3.0-or-later). Each part keeps its own licence too: PS5X360 code is MIT, Xenia is
-  BSD-3-Clause. The package's `PPSA83600/licenses/` folder has every licence text and the notice
+  BSD-3-Clause. The package's `LICENSE` is the GPL-3.0 text, and its `PPSA83600/licenses/` folder
+  has every licence text (the MIT notice of the PS5X360 code in `PS5X360-MIT.txt`) and the notice
   `PS5X360-1.0.3-NOTICE.txt`.
 - **The source is attached to each release:** `PS5X360-1.0.3-source.tar.xz` (the tree the
   `eboot.bin` was compiled from, with `SOURCES.json`), `PS5X360Reloaded-1.0.3-scripts.tar.gz`
@@ -373,8 +374,12 @@ Licenses:
   and the statically linked RADV/Mesa and PS5 runtime at the pinned commits) and the build log.
   Anyone who distributes a rebuilt `eboot.bin` must do so under the GPL-3.0, with its complete
   source.
-- This repository's own code is MIT ([LICENSE](LICENSE)); bundled third-party components keep
-  their licenses ([licenses/](licenses/), the font's [SIL Open Font License](assets/fonts/OFL.txt)).
+- **This repository is GPL-3.0** as a whole ([LICENSE](LICENSE)), like the `eboot.bin` built from
+  it. The PS5X360 code by BrinooTk and the earlier contributions came under the MIT License and
+  keep its notice ([licenses/PS5X360-MIT.txt](licenses/PS5X360-MIT.txt)), which must stay with
+  that code; MIT code may be part of a GPL-3.0 work, and this does not relicense it. Bundled
+  third-party components keep their licenses ([licenses/](licenses/), the font's
+  [SIL Open Font License](assets/fonts/OFL.txt)).
 
 PS5X360Reloaded, like PS5X360, is an independent community project and is not affiliated with
 Sony or Microsoft. The README artwork is illustrative branding, not an emulator screenshot.

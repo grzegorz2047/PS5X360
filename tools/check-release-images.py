@@ -10,6 +10,10 @@ the official PS5X360's PPSA50011, which the old binary releases (release-binary.
     and still downloads the official v1.0.2 PPSA50011.zip with the pinned SHA-256 (package.py's);
     PPSA50011 appears nowhere else in it;
   * release-binary.yml still makes PPSA50011.ffpkg/.ffpfsc from stage/PPSA50011 (the default id);
+  * the stage's sce_sys/param.json as package.py writes it for the images: titleId PPSA83600 and
+    contentVersion from the release version (1.0.4 -> 01.004.000), above the official
+    00.001.000 that v1.0.3 shipped; a base contentVersion that is not lower, or a version that
+    does not fit, is refused;
   * make_images.sh, run with stand-ins for git, dotnet (UFS2Tool) and MkPFS's python: the id
     names both images and is the UFS2 volume label; the default is PPSA50011; an id that is not
     4 capital letters and 5 digits, or a stage whose sce_sys/param.json carries another titleId,
@@ -143,10 +147,12 @@ def check_script(bash):
         write_stub(stubs / 'dotnet', STUB_DOTNET)
         env = dict(os.environ, PACKAGING_CACHE=posix(bash, cache), STUB_LOG=posix(bash, log))
         # The fields of the official param.json make_images.sh and package.py read (CRLF, as there).
-        official_param =('{\r\n  "titleId": "PPSA50011",\r\n  "conceptId": "50011",\r\n'
+        official_param = ('{\r\n  "titleId": "PPSA50011",\r\n  "conceptId": "50011",\r\n'
                           '  "contentId": "UP9000-PPSA50011_00-XBOX360PS5M80001",\r\n'
+                          '  "contentVersion": "00.001.000",\r\n'
                           '  "localizedParameters": {\r\n    "defaultLanguage": "en-US",\r\n'
-                          '    "en-US": {\r\n      "titleName": "PS5X360"\r\n    }\r\n  }\r\n}\r\n').encode()
+                          '    "en-US": {\r\n      "titleName": "PS5X360"\r\n    }\r\n  },\r\n'
+                          '  "masterVersion": "00.01"\r\n}\r\n').encode()
 
         def stage(name, param):
             folder = root / 'stage' / name
@@ -184,9 +190,24 @@ def check_script(bash):
         assert calls[1].startswith('mkpfs -m mkpfs pack folder ') and \
             calls[1].endswith('/PPSA50011.ffpfsc --version PS5 --verify'), calls
 
-        # The source release: PPSA83600, with param.json as package.py writes it (CRLF).
-        reloaded = package.param_json(official_param)
+        # The source release: PPSA83600, with param.json as package.py writes it (CRLF) for 1.0.4:
+        # contentVersion 01.004.000, above the 00.001.000 of the official package and of v1.0.3.
+        reloaded = package.param_json(official_param, '1.0.4')
         assert b'"titleId": "PPSA83600"' in reloaded and b'\r\n' in reloaded
+        assert b'"contentVersion": "01.004.000",\r\n' in reloaded and b'"masterVersion": "00.01"' in reloaded
+        assert package.SHIPPED_CONTENT_VERSIONS['1.0.3'] == '00.001.000' < package.content_version('1.0.4')
+        for base, version, message in (
+                (official_param.replace(b'"00.001.000"', b'"01.004.000"'), '1.0.4',
+                 'contentVersion 01.004.000 is not higher than 01.004.000 of the base package'),
+                (official_param.replace(b'"00.001.000"', b'"02.000.000"'), '1.0.4',
+                 'contentVersion 01.004.000 is not higher than 02.000.000 of the base package'),
+                (official_param, '1.0.100', 'does not fit contentVersion')):
+            try:
+                package.param_json(base, version)
+            except SystemExit as error:
+                assert message in str(error.code), (message, error.code)
+            else:
+                raise AssertionError(f'param.json accepted: {message}')
         out = root / 'out-source'
         result, calls = run(stage(ID, reloaded), out, ID)
         assert result.returncode == 0, (result.stdout, result.stderr)
@@ -219,7 +240,7 @@ def check_script(bash):
             assert result.returncode != 0 and message in result.stderr, (extra, result.returncode, result.stderr)
             assert calls == [] and made(out) == [], (extra, calls, made(out))
     print('  make_images.sh: id names the images and the volume label, PPSA50011 by default, '
-          'bad ids and a param.json of another title refused')
+          'bad ids and a param.json of another title refused; contentVersion 01.004.000 for 1.0.4')
 
 
 def main():
