@@ -116,8 +116,7 @@ void CheckTimer() {
   }).join();
   const double span = double(fc::NowNs() - begin) / 1e9;
   const std::string scaled = sampled.Line(span);
-  std::printf("   %s
-", scaled.c_str());
+  std::printf("   %s\n", scaled.c_str());
   const double total = In(scaled, "SET_CONSTANT") * span;
   Expect(total > 28 && total < 52, "about 100 of 400 timed, scaled to about 40 ms (" + std::to_string(total) + ")");
 }
