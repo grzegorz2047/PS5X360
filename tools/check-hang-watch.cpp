@@ -138,7 +138,7 @@ void CheckSlots() {
 void CheckWork() {
   int vs_object = 0, ps_object = 0;
   for (uint32_t n = 0; n < 40; ++n) {
-    if (n % 5 == 4)
+    if (n % 5 == 3)  // the newest (n = 39) is a draw
       hw::RecordResolve(100 + n / 10, 0x1F778000 + n, 5447680, 32);
     else
       hw::RecordDraw(100 + n / 10, 0x1000 + n, &vs_object, 0x2000 + n, &ps_object, 4, 3 * n, n % 2 ? hw::kIndexed : 0);
