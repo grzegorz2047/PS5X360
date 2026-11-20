@@ -1,6 +1,13 @@
 """Assemble a source tree for PS5X360 v1.0.2 from the author's public source drops.
 
     python3 -I tools/source-1.0.2/assemble.py --out build/src102 [--cache .deps/src102-cache]
+        [--version X.Y.Z] [--release]
+
+The version shown on the home screen ("PS5X360 v<version>") is --version, else
+PS5X360_BUILD_VERSION, else tools/source-1.0.2/BUILD_VERSION (the test builds' candidate label),
+else 1.0.2. --release (or PS5X360_RELEASE=1) is a release build: its version must be given by
+--version or PS5X360_BUILD_VERSION and be plain X.Y.Z, no fix may be left out, and SOURCES.json
+records version, version_source and release.
 
 Inputs (all public; every archive is checked against its SHA-256 below):
   * BrinooTk/PS5X360 release assets PS5X360-source-{0.5.9-fix1,0.6.0-changes,1.0.0-changes,
@@ -29,6 +36,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -127,6 +135,11 @@ TITLE_LAYERS = [
     ('port/ps5_resolver.cpp', 'v1.0.2/port/port-src/ps5_resolver.cpp'),
     ('port/phone_camera_tls.cpp', 'v1.0.2/port/phone-folder/phone_camera_tls.cpp'),
 ]
+# A release's version: plain X.Y.Z, ASCII digits (no candidate label, no "v", nothing after it).
+RELEASE_VERSION = re.compile(r'[0-9]+\.[0-9]+\.[0-9]+')
+# Any version: it becomes a C string literal and a CMake compile definition, so no quotes,
+# backslashes, spaces or semicolons (a test build's 1.0.3_candidate_37 is fine).
+ANY_VERSION = re.compile(r'[0-9A-Za-z][0-9A-Za-z._+-]{0,63}')
 # Not taken from the layers: kinect-update-20261008/native/include/xenia is a frozen copy of the
 # older Canary core's headers (for that overlay's isolated compiles); on the include path it
 # would hide the netplay core's own headers.
@@ -396,11 +409,44 @@ def build_title(out, drops, report):
         path.write_text(text.replace(old, new), encoding='utf-8', newline='\n')
         manifest[rel].setdefault('edits', []).append(why)
         manifest[rel]['sha256'] = sha256(path)
-    # The label on the home screen ("PS5X360 v<VERSION>") comes from tools/source-1.0.2/BUILD_VERSION,
-    # bumped for every console test build (1.0.3_candidate_N), so the running build is visible.
-    build_version = HERE / 'BUILD_VERSION'
-    version = build_version.read_text(encoding='utf-8').strip() if build_version.exists() else '1.0.2'
-    (out / 'VERSION').write_text(version + '\n')
+
+
+def is_release(argument, environment):
+    """--release, or PS5X360_RELEASE set to 1/true/yes (any case)."""
+    return bool(argument) or (environment or '').strip().lower() in ('1', 'true', 'yes')
+
+
+def resolve_version(argument, environment, build_version=HERE / 'BUILD_VERSION', release=False):
+    """The version label of this build and where it came from, as (version, source).
+
+    The label on the home screen ("PS5X360 v<VERSION>") is --version, else PS5X360_BUILD_VERSION,
+    else tools/source-1.0.2/BUILD_VERSION, bumped for every console test build
+    (1.0.3_candidate_N) so the running build is visible, else 1.0.2. A blank override counts as
+    unset. A release takes its version only from --version or PS5X360_BUILD_VERSION, never from
+    the candidate file or the fallback, and it must be plain X.Y.Z. Anything else stops the
+    assembly before it downloads anything."""
+    overrides = (((argument or '').strip(), '--version'),
+                 ((environment or '').strip(), 'PS5X360_BUILD_VERSION'))
+    version, source = next(((v, s) for v, s in overrides if v), ('', ''))
+    if not version and release:
+        sys.exit('release build: give its version with --version or PS5X360_BUILD_VERSION')
+    if not version and build_version.exists():
+        version, source = build_version.read_text(encoding='utf-8').strip(), 'BUILD_VERSION'
+    if not version:
+        version, source = '1.0.2', 'default'
+    if release and not RELEASE_VERSION.fullmatch(version):
+        sys.exit(f'release build: version {version!r} ({source}) is not X.Y.Z')
+    if not ANY_VERSION.fullmatch(version):
+        sys.exit(f'version {version!r} ({source}) has characters a C string or CMake cannot take')
+    return version, source
+
+
+def write_version(out, report, version, source, release):
+    """<out>/VERSION (canary/CMakeLists.txt makes it XBOX360PS5_VERSION) and SOURCES.json's record."""
+    (out / 'VERSION').write_text(version + '\n', newline='\n')
+    report['version'] = version
+    report['version_source'] = source
+    report['release'] = bool(release)
 
 
 def skip_names(arguments, environment):
@@ -480,6 +526,18 @@ def build_online(out, core, cache, report):
     report['online'] = {'net_libs': NET_LIBS, 'mbedtls': {'url': MBEDTLS[0], 'sha256': MBEDTLS[1]}}
 
 
+def settings(args, environ, build_version=HERE / 'BUILD_VERSION'):
+    """(release, version, version_source, skip) from the arguments and the environment, checked
+    before anything is downloaded: a release with a fix left out stops here."""
+    release = is_release(args.release, environ.get('PS5X360_RELEASE'))
+    version, source = resolve_version(args.version, environ.get('PS5X360_BUILD_VERSION'),
+                                      build_version=build_version, release=release)
+    skip = skip_names(args.skip_fix, environ.get('PS5X360_SKIP_FIXES'))
+    if release and skip:
+        sys.exit(f'release build: no fix may be left out (asked: {", ".join(skip)})')
+    return release, version, source, skip
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     parser.add_argument('--out', type=Path, default=REPO / 'build/src102')
@@ -488,7 +546,14 @@ def main():
     parser.add_argument('--skip-fix', action='append', metavar='NAME',
                         help='leave out a fix (file name, stem or number, e.g. 01); repeatable. '
                              'PS5X360_SKIP_FIXES adds a comma-separated list')
+    parser.add_argument('--version', metavar='X.Y.Z',
+                        help='the version label (wins over PS5X360_BUILD_VERSION and BUILD_VERSION)')
+    parser.add_argument('--release', action='store_true',
+                        help='a release build: --version or PS5X360_BUILD_VERSION must be X.Y.Z and '
+                             'no fix may be left out (also PS5X360_RELEASE=1)')
     args = parser.parse_args()
+    release, version, version_source, skip = settings(args, os.environ)
+    print(f'version {version} (from {version_source}){", release build" if release else ""}', flush=True)
     out, cache = args.out.resolve(), args.cache.resolve()
     for sub in ('include', 'platform', 'src', 'port', 'reconstructed', 'online', 'canary', 'licenses'):
         if (out / sub).exists():
@@ -501,8 +566,8 @@ def main():
         core = build_core(out, drops, report)
         build_online(out, core, cache, report)
     build_title(out, drops, report)
-    apply_fixes(out, report, with_core=not args.skip_core,
-                skip=skip_names(args.skip_fix, os.environ.get('PS5X360_SKIP_FIXES')))
+    write_version(out, report, version, version_source, release)
+    apply_fixes(out, report, with_core=not args.skip_core, skip=skip)
     report['excluded'] = {'paths': list(EXCLUDED), 'files': len(EXCLUDED_SEEN)}
     (out / 'SOURCES.json').write_text(json.dumps(report, indent=1, sort_keys=True) + '\n')
     counts = {}
