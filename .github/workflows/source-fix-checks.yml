@@ -49,9 +49,12 @@ on:
       - 'tools/check-official-import.cpp'
       - 'tools/check-hang-watch.cpp'
       - 'tools/check-memexport-loss.cpp'
+      - 'tools/check-frame-cost.cpp'
       - 'tools/check-title-id.py'
       - 'tools/check-kinect-fake-relay.py'
       - 'tools/check-english-source.py'
+      - 'tools/check-measure-10s.cpp'
+      - 'tools/check-global-lock-spin.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

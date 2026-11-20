@@ -181,6 +181,7 @@ jobs:
           path: |
             build/src102-out/eboot.bin
             build/src102-out/eboot.elf
+            build/src102-out/eboot-symbols.txt
             build/src102-out/kinect-fake-relay.elf
             build/src102-out/lang/*.txt
             build/src102/SOURCES.json

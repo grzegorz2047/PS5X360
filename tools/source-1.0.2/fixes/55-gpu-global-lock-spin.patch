@@ -1,0 +1,223 @@
+diff --git a/.deps/xenia-canary/src/xenia/base/mutex.cc b/.deps/xenia-canary/src/xenia/base/mutex.cc
+--- a/.deps/xenia-canary/src/xenia/base/mutex.cc
++++ b/.deps/xenia-canary/src/xenia/base/mutex.cc
+@@ -258,6 +258,7 @@ bool xe_fast_mutex::try_lock() {
+ #include <pthread.h>
+ #include <sched.h>
+ #include <time.h>
++#include "xbox360ps5/global_lock_spin.hpp"  // fix 55: the GPU thread spins for the lock
+ namespace xe {
+ std::atomic<bool> ps5_spin_mutexes{false};
+ 
+@@ -293,7 +294,9 @@ inline void ps5_take(std::atomic<uint32_t>& state) {
+ 
+ void xe_global_mutex::lock() {
+   if (!ps5_spin_mutexes.load(std::memory_order_relaxed)) {
+-    blocking_.lock();
++    // Fix 55: the GPU command thread tries on its own core for ~37 us before it sleeps; every
++    // other thread locks as before.
++    xbox360ps5::global_lock::Lock(blocking_);
+     return;
+   }
+   const uint64_t self = ps5_thread_id();
+diff --git a/.deps/xenia-canary/src/xenia/gpu/command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/command_processor.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/command_processor.cc
+@@ -17,6 +17,9 @@
+ #include "xenia/base/cvar.h"
+ #include "xenia/base/logging.h"
+ #include "xenia/base/profiling.h"
++#if XE_PLATFORM_PS5
++#include "xbox360ps5/global_lock_spin.hpp"  // fix 55
++#endif
+ #include "xenia/gpu/gpu_flags.h"
+ #include "xenia/gpu/graphics_system.h"
+ #include "xenia/gpu/packet_disassembler.h"
+@@ -378,6 +381,9 @@ void CommandProcessor::WorkerThreadMain() {
+   // Xbox360PS5: the guest waits for this thread; it takes the core the title
+   // keeps free for it (platform/ps5/thread_place.cpp).
+   xbox360ps5::PlaceCallingThread(true);
++  // Fix 55: this thread waits for the global critical region by spinning first (it has the
++  // core to itself; the guest waits for it, and sleeping cost it 12-41% of its time).
++  xbox360ps5::global_lock::SpinOnThisThread();
+ #endif
+   if (!SetupContext()) {
+     xe::FatalError("Unable to setup command processor internal state");
+diff --git a/.deps/xenia-canary/src/xenia/gpu/shared_memory.cc b/.deps/xenia-canary/src/xenia/gpu/shared_memory.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/shared_memory.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/shared_memory.cc
+@@ -19,6 +19,9 @@
+ 
+ #include "xenia/base/assert.h"
+ #include "xenia/base/bit_range.h"
++#if XE_PLATFORM_PS5
++#include "xbox360ps5/global_lock_spin.hpp"  // fix 55
++#endif
+ #include "xenia/base/logging.h"
+ #include "xenia/base/profiling.h"
+ #include "xenia/base/xxhash.h"
+@@ -882,12 +885,15 @@ bool SharedMemory::RequestRange(uint32_t start, uint32_t length,
+   // here, while the global-epoch cache reuses only a few thousand validations.
+   // This avoids a hash and epoch load for valid requests without caching hashes
+   // of unwatched guest bytes or changing any invalidation/watch behavior.
+-  if (use_request_cache &&
+-      xbox360ps5::gpu_diag::lock_free_valid.load(std::memory_order_relaxed) &&
++  // Fix 55: also without "Optimized video memory" (memory_boost): for a range whose pages are
++  // all valid the locked path finds nothing to upload and returns true with no other effect, so
++  // the answer is the same; Battlefield 3 spent 14% of the GPU thread waiting for the lock here.
++  if (xbox360ps5::gpu_diag::lock_free_valid.load(std::memory_order_relaxed) &&
+       xbox360ps5::gpu_diag::RangeBitsAllSet(
+           system_page_flags_valid_, start >> page_size_log2_,
+           (start + length - 1) >> page_size_log2_)) {
+     ++lock_free_hits_;
++    xbox360ps5::global_lock::Add(xbox360ps5::global_lock::stats.lock_free_requests);
+     return true;
+   }
+   if (use_request_cache &&
+diff --git a/include/xbox360ps5/global_lock_spin.hpp b/include/xbox360ps5/global_lock_spin.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/global_lock_spin.hpp
+@@ -0,0 +1,109 @@
++// SPDX-License-Identifier: MIT
++// Fix 55 (tools/source-1.0.2/fixes/55-gpu-global-lock-spin.patch): the GPU command thread waits
++// for the global critical region by spinning on its own core before it sleeps.
++//
++// The guide's profile of 1.0.4_candidate_6 (logs/v104-c6) put the GPU command thread, the one
++// thread these games wait for, in std::recursive_mutex::lock, the global critical region's
++// blocking mutex (the "Fast locks" option off, as by default), for 41% of its samples in
++// Battlefield 3, 18-24% in Black Ops and 12-15% in Modern Warfare 2: SharedMemory::RequestRange,
++// MakeRangeValid and UploadRanges and PhysicalHeap::EnableAccessCallbacks take it for every
++// buffer of a draw and every upload, and the guest's threads take it in their write faults and
++// kernel calls, briefly. A thread that finds it taken sleeps in the kernel and is woken later,
++// which costs far more than the holder's few microseconds. "Fast locks" spins, but replaces the
++// mutex for every thread and has a known cost (Fable II). This changes only how the GPU thread
++// waits for the same mutex: try_lock between pauses for about 37 us (2048 pauses on Zen 2),
++// then the normal lock. Every other thread, and the mutex, stay as they are.
++//
++// Stats (written by the GPU thread only, read by the 30-s summary): locks taken, the contended
++// ones, those won while spinning and those that slept, the time spent waiting (TSC ticks), and
++// the shared-memory requests answered without the lock (all pages valid, RequestRange).
++#pragma once
++#include <atomic>
++#include <cstdint>
++#include <cstdio>
++#include <string>
++#include <pthread.h>
++#include <x86intrin.h>
++
++namespace xbox360ps5 {
++namespace global_lock {
++
++// The thread that spins: the GPU command thread names itself (CommandProcessor::WorkerThreadMain).
++// A pthread_self() comparison, not a thread_local: thread-local storage is emulated on this
++// target (a pthread key), and every guest thread's lock passes here.
++inline std::atomic<uint64_t> spin_thread{0};
++inline void SpinOnThisThread() { spin_thread.store(uint64_t(pthread_self()), std::memory_order_relaxed); }
++inline void SpinOnNoThread() { spin_thread.store(0, std::memory_order_relaxed); }
++inline bool SpinsHere() { return spin_thread.load(std::memory_order_relaxed) == uint64_t(pthread_self()); }
++inline constexpr uint32_t kSpinPauses = 2048;
++inline constexpr uint32_t kTryEvery = 16;  // pauses between two try_lock
++
++struct Stats {
++  std::atomic<uint64_t> taken{0}, contended{0}, won_spinning{0}, slept{0}, wait_ticks{0};
++  std::atomic<uint64_t> lock_free_requests{0};
++};
++inline Stats stats;
++// Single writer (the GPU thread): a relaxed load and store, no locked instruction.
++inline void Add(std::atomic<uint64_t>& counter, uint64_t value = 1) {
++  counter.store(counter.load(std::memory_order_relaxed) + value, std::memory_order_relaxed);
++}
++
++// Locks `mutex` (a std::recursive_mutex): plainly on every thread but the spinning one; that one
++// tries first, then between pauses, and sleeps only after kSpinPauses.
++template <class Mutex>
++inline void Lock(Mutex& mutex) {
++  if (!SpinsHere()) {
++    mutex.lock();
++    return;
++  }
++  Add(stats.taken);
++  if (mutex.try_lock()) return;
++  Add(stats.contended);
++  const uint64_t start = __rdtsc();
++  for (uint32_t pauses = 1; pauses <= kSpinPauses; ++pauses) {
++    _mm_pause();
++    if (pauses % kTryEvery == 0 && mutex.try_lock()) {
++      Add(stats.won_spinning);
++      Add(stats.wait_ticks, __rdtsc() - start);
++      return;
++    }
++  }
++  mutex.lock();
++  Add(stats.slept);
++  Add(stats.wait_ticks, __rdtsc() - start);
++}
++
++struct Snapshot {
++  uint64_t taken = 0, contended = 0, won_spinning = 0, slept = 0, wait_ticks = 0, lock_free_requests = 0;
++  uint64_t tsc = 0;
++};
++inline Snapshot Take() {
++  Snapshot s;
++  s.taken = stats.taken.load(std::memory_order_relaxed);
++  s.contended = stats.contended.load(std::memory_order_relaxed);
++  s.won_spinning = stats.won_spinning.load(std::memory_order_relaxed);
++  s.slept = stats.slept.load(std::memory_order_relaxed);
++  s.wait_ticks = stats.wait_ticks.load(std::memory_order_relaxed);
++  s.lock_free_requests = stats.lock_free_requests.load(std::memory_order_relaxed);
++  s.tsc = __rdtsc();
++  return s;
++}
++// The summary's line for the period between two snapshots `seconds` apart (the TSC's rate is
++// taken from the same period).
++inline std::string Line(const Snapshot& before, const Snapshot& now, double seconds) {
++  if (seconds <= 0) seconds = 1;
++  const double per_second = 1.0 / seconds;
++  const double ticks_per_ms = double(now.tsc - before.tsc) / (seconds * 1000.0);
++  const double wait_ms = ticks_per_ms > 0 ? double(now.wait_ticks - before.wait_ticks) / ticks_per_ms : 0;
++  char text[320];
++  std::snprintf(text, sizeof(text),
++                "Performance: global lock (GPU thread) %.0f/s taken, %.0f/s contended: %.0f/s won spinning, "
++                "%.0f/s slept, %.1f ms/s waiting; %.0f/s shared-memory requests answered without it",
++                double(now.taken - before.taken) * per_second, double(now.contended - before.contended) * per_second,
++                double(now.won_spinning - before.won_spinning) * per_second, double(now.slept - before.slept) * per_second,
++                wait_ms * per_second, double(now.lock_free_requests - before.lock_free_requests) * per_second);
++  return text;
++}
++
++}  // namespace global_lock
++}  // namespace xbox360ps5
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -148,6 +148,7 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
+ #include "xenia/cpu/processor.h"
+ #include "xenia/kernel/util/object_table.h"
+ #include "xenia/kernel/xam/xam_state.h"
++#include "xbox360ps5/global_lock_spin.hpp"  // fix 55: the summary line
+ #include "third_party/imgui/imgui.h"
+ #include <algorithm>
+ #include <atomic>
+@@ -3015,6 +3016,21 @@ int main(int argc, char** argv) {
+               }
+               XELOGW("Performance: rendered output {:.1f}/s, minimum {:.0f}; submitted swaps {:.1f}/s over {} samples",
+                      fps_sum / summary_samples, fps_low, swaps_sum / summary_samples, summary_samples);
++              {
++                // Fix 55: how the GPU thread waited for the global critical region.
++                // The first summary only starts the period.
++                static bool lock_started = false;
++                static xbox360ps5::global_lock::Snapshot lock_before;
++                static auto lock_at = std::chrono::steady_clock::now();
++                const auto lock_now = xbox360ps5::global_lock::Take();
++                const auto lock_time = std::chrono::steady_clock::now();
++                if (lock_started)
++                  XELOGW("{}", xbox360ps5::global_lock::Line(
++                                   lock_before, lock_now, std::chrono::duration<double>(lock_time - lock_at).count()));
++                lock_started = true;
++                lock_before = lock_now;
++                lock_at = lock_time;
++              }
+               // What reached the console from the camera and what the game took.
+               if (xbox360ps5::motion::enabled.load()) XELOGW("Motion: {}", xbox360ps5::motion::Status());
+               // What the memory watches cost in the same half minute.
