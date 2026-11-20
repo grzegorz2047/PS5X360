@@ -45,6 +45,8 @@ REQUIRED = {
         '**Generic**',
         '`<drive>/PS5X360/saves`',
         '`/data/homebrew/PPSA83600/logs`',
+        'make room on the internal storage first',
+        'if the copied `game_paths.txt` lists',
         '`PPSA83600/licenses/`',
         # Upstream credits stay.
         'This repository is a fork of [BrinooTk/PS5X360](https://github.com/BrinooTk/PS5X360).',
@@ -89,6 +91,8 @@ REQUIRED = {
         '`PPSA83600.ffpkg`',
         '`PPSA83600.zip`',
         'the whole `PPSA83600` folder has to be installed',
+        'since the rename the folder is `/data/homebrew/PPSA83600/cache`',
+        '`/data/homebrew/PPSA83600/skin` in PS5X360Reloaded',
         # The page is about the official 1.0.2 package; those references stay.
         'This page records whether the official PS5X360 v1.0.2 `eboot.bin` (package `PPSA50011.zip`,',
     ],

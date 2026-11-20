@@ -70,8 +70,9 @@ The [v1.0.3 release](https://github.com/grzegorz2047/PS5X360Reloaded/releases) h
 Install **one** of them: the image or the ZIP folder, not both (two copies of `PPSA83600` are a
 duplicate for ShadowMountPlus).
 
-**Image (`.ffpkg` / `.ffpfsc`):** copy `PPSA83600.ffpkg` to the place ShadowMountPlus mounts
-images from (on the development setup, the USB drive), keeping the file name: ShadowMountPlus
+**Image (`.ffpkg` / `.ffpfsc`):** copy `PPSA83600.ffpkg` (or `PPSA83600.ffpfsc`) to the place
+ShadowMountPlus mounts images from (on the development setup, the USB drive), keeping the file
+name: ShadowMountPlus
 names the mount after it (`/mnt/shadowmnt/PPSA83600_*`). Then open **PS5X360Reloaded** from the
 PS5 home screen. To update, close the emulator, replace the image with the new one and start it
 again; if a game hung on exit, restart the console first, because the old image can stay mounted
@@ -128,7 +129,8 @@ saves only when the drive has enough free space for them; otherwise it copies no
 copies over saves PS5X360Reloaded already has. The shader cache and the logs are not copied (the
 cache is built again). A file it cannot read is skipped and named in the log.
 
-To copy the saves by hand instead (for example after the import was skipped for lack of space):
+To copy the saves by hand instead (for example after the import was skipped for lack of space;
+make room on the internal storage first, because the copy needs as much space as the saves take):
 with both apps closed, copy `/data/homebrew/PPSA50011/saves` over FTP to
 `/data/homebrew/PPSA83600/saves`. Do it before you play in PS5X360Reloaded, because it replaces
 saves made there.
@@ -148,6 +150,8 @@ To move them by hand over FTP:
    `/mnt/sandbox/PPSA83600_000/download0/xbox360ps5/`, replacing the ones there. Leave out
    `LOGS/`, `boot.log` and `library/` (logs and the game list cache, which is rebuilt).
 5. Close PS5X360Reloaded completely and open it again: the settings are read when it starts.
+   Then check **Settings → Game folders**: if the copied `game_paths.txt` lists
+   `/data/homebrew/PPSA50011/assets/roms`, remove it (see **Games** below).
 
 **Games.** The official app's `PPSA50011/assets/roms` is not one of PS5X360Reloaded's game
 folders. Put games in `/data/xbox360` or in `xbox360` on a USB or M.2 drive: both apps list
@@ -219,8 +223,8 @@ into one game (fix 21): `--rom <game>` with a full path, a path in the game fold
 title ID, and `--exit-after-game` to return to the PS5 home screen when the game closes. Tiles are
 made with Forwarder Manager, with the target title id `PPSA83600` (its `PS5X360` target starts
 the official app). Close PS5X360Reloaded before using a tile: arguments only reach a new
-PS5X360Reloaded process. When the forwarder launcher is already running, ShadowMountPlus may refuse the start
-(`0x80940033`, [drakmor/ShadowMountPlus#196](https://github.com/drakmor/ShadowMountPlus/issues/196)).
+PS5X360Reloaded process. When the forwarder launcher is already running, ShadowMountPlus may
+refuse the start (`0x80940033`, [drakmor/ShadowMountPlus#196](https://github.com/drakmor/ShadowMountPlus/issues/196)).
 Setup and workarounds: [docs/FORWARDER.md](docs/FORWARDER.md).
 
 ## Organize your games
@@ -294,8 +298,7 @@ When you report a bug, include the game, title ID, region and version; the enabl
 firmware and the emulator version (the home screen shows it); the exact point where the game
 fails; a short video or screenshot if you can; and the matching game-session logs. Logs are in
 `/data/homebrew/PPSA83600/logs`, or in `download0/xbox360ps5/LOGS` if that folder cannot be
-written. The
-included log downloader can create a ZIP to share.
+written. The included log downloader can create a ZIP to share.
 
 - **PS5X360Reloaded (`PPSA83600`, v1.0.3 and its test builds):** report on
   [this repository](https://github.com/grzegorz2047/PS5X360Reloaded/issues).
@@ -374,8 +377,7 @@ Licenses:
   their licenses ([licenses/](licenses/), the font's [SIL Open Font License](assets/fonts/OFL.txt)).
 
 PS5X360Reloaded, like PS5X360, is an independent community project and is not affiliated with
-Sony or Microsoft. The
-README artwork is illustrative branding, not an emulator screenshot.
+Sony or Microsoft. The README artwork is illustrative branding, not an emulator screenshot.
 
 ## Support the projects
 
