@@ -142,5 +142,14 @@ tool="$build/host/ps5-native-tool"
   --stub-dir "$sdk/target/lib" --stub "$build/stubs/libSceAgc.so" --stub "$build/stubs/libSceAgcDriver.so" \
   --module-sdk 0x02000009 --companion-sdk 0x08050001 --file-name eboot.elf
 "$tool" self --sign --in "$build/eboot.elf" --out "$build/eboot.bin" --magic 0x1D3D154F
+# The symbols of the linked ELF (eboot.elf has none), sorted by address: the console's reports
+# give code addresses as offsets into it (crash reports, the guide's "Measure performance").
+nm_tool=$(command -v llvm-nm-18 || command -v llvm-nm || true)
+if [[ -n $nm_tool ]]; then
+  "$nm_tool" -n -C --defined-only "$build/llvm-pie.elf" > "$build/eboot-symbols.txt" || echo "symbol list not made"
+  wc -l "$build/eboot-symbols.txt" || true
+else
+  echo "symbol list not made: no llvm-nm"
+fi
 ls -la "$build/eboot.elf" "$build/eboot.bin"
 sha256sum "$build/eboot.elf" "$build/eboot.bin"
