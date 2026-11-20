@@ -381,7 +381,8 @@ Sony or Microsoft. The README artwork is illustrative branding, not an emulator 
 
 ## Support the projects
 
-To support the original author, BrinooTk, you can contribute through
+You can support my current work  through [Ko-fi](https://ko-fi.com/grzegorz2047). 
+or support the original author, BrinooTk, you can contribute through
 [Ko-fi](https://ko-fi.com/brinoblitz). Testing, bug reports and sharing the project also help.
 
 Older M0–M8 milestones and Portuguese research notes are preserved in
