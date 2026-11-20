@@ -210,6 +210,9 @@ USB drive usb5 = Unidade USB usb5
 USB drive usb6 = Unidade USB usb6
 USB drive usb7 = Unidade USB usb7
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \ssem\scapa\sno\sXboxUnity\snem\sna\sMicrosoft
+# Fix 45: the overlay's notice after a guest crash (the same two keys in every section).
+The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = O jogo travou e o emulador o pausou. Touchpad: guia, depois Fechar o jogo e voltar ao menu
+The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = O jogo travou e o emulador o pausou. OPTIONS + touchpad: guia, depois Fechar o jogo e voltar ao menu
 
 [added pt]
 Console storage = Armazenamento da consola
@@ -237,6 +240,8 @@ USB drive usb5 = Unidade USB usb5
 USB drive usb6 = Unidade USB usb6
 USB drive usb7 = Unidade USB usb7
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \ssem\scapa\sno\sXboxUnity\snem\sna\sMicrosoft
+The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = O jogo bloqueou e o emulador colocou-o em pausa. Touchpad: guia, depois Fechar o jogo e voltar ao menu
+The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = O jogo bloqueou e o emulador colocou-o em pausa. OPTIONS + touchpad: guia, depois Fechar o jogo e voltar ao menu
 
 [added es]
 Console storage = Almacenamiento de la consola
@@ -264,6 +269,8 @@ USB drive usb5 = Unidad USB usb5
 USB drive usb6 = Unidad USB usb6
 USB drive usb7 = Unidad USB usb7
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \ssin\sportada\sen\sXboxUnity\sni\sen\sMicrosoft
+The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = El juego se ha bloqueado y el emulador lo ha pausado. Touchpad: guía, luego Cerrar el juego y volver al menú
+The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = El juego se ha bloqueado y el emulador lo ha pausado. OPTIONS + touchpad: guía, luego Cerrar el juego y volver al menú
 
 [added es-419]
 Console storage = Almacenamiento de la consola
@@ -291,6 +298,8 @@ USB drive usb5 = Unidad USB usb5
 USB drive usb6 = Unidad USB usb6
 USB drive usb7 = Unidad USB usb7
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \ssin\sportada\sen\sXboxUnity\sni\sen\sMicrosoft
+The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = El juego falló y el emulador lo pausó. Touchpad: guía, luego Cerrar el juego y volver al menú
+The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = El juego falló y el emulador lo pausó. OPTIONS + touchpad: guía, luego Cerrar el juego y volver al menú
 
 [added de]
 Console storage = Konsolenspeicher
@@ -318,6 +327,8 @@ USB drive usb5 = USB-Laufwerk usb5
 USB drive usb6 = USB-Laufwerk usb6
 USB drive usb7 = USB-Laufwerk usb7
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \sohne\sCover\sbei\sXboxUnity\soder\sauf\sdem\sServer\svon\sMicrosoft
+The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = Das Spiel ist abgestürzt und der Emulator hat es angehalten. Touchpad: Guide, dann Spiel schließen und zum Menü zurückkehren
+The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = Das Spiel ist abgestürzt und der Emulator hat es angehalten. OPTIONS + Touchpad: Guide, dann Spiel schließen und zum Menü zurückkehren
 
 [added fr]
 Console storage = Stockage de la console
@@ -345,6 +356,8 @@ USB drive usb5 = Périphérique USB usb5
 USB drive usb6 = Périphérique USB usb6
 USB drive usb7 = Périphérique USB usb7
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \ssans\sjaquette\ssur\sXboxUnity\sni\ssur\sle\sserveur\sde\sMicrosoft
+The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = Le jeu a planté et l'émulateur l'a mis en pause. Pavé tactile : guide, puis Fermer le jeu et revenir au menu
+The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = Le jeu a planté et l'émulateur l'a mis en pause. OPTIONS + pavé tactile : guide, puis Fermer le jeu et revenir au menu
 
 [added it]
 Console storage = Memoria della console
@@ -372,6 +385,8 @@ USB drive usb5 = Unità USB usb5
 USB drive usb6 = Unità USB usb6
 USB drive usb7 = Unità USB usb7
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \ssenza\scopertina\ssu\sXboxUnity\sné\ssul\sserver\sdi\sMicrosoft
+The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = Il gioco si è bloccato e l'emulatore lo ha messo in pausa. Touchpad: guida, poi Chiudi il gioco e torna al menu
+The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = Il gioco si è bloccato e l'emulatore lo ha messo in pausa. OPTIONS + touchpad: guida, poi Chiudi il gioco e torna al menu
 
 [added ja]
 Console storage = 本体ストレージ
@@ -399,6 +414,8 @@ USB drive usb5 = USBドライブ usb5
 USB drive usb6 = USBドライブ usb6
 USB drive usb7 = USBドライブ usb7
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \sXboxUnity\sにも\sMicrosoft\sのサーバーにもカバーなし
+The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = ゲームがクラッシュし、エミュレーターが一時停止しました。タッチパッド：ガイド、次に「ゲームを閉じてメニューに戻る」
+The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = ゲームがクラッシュし、エミュレーターが一時停止しました。OPTIONS ＋ タッチパッド：ガイド、次に「ゲームを閉じてメニューに戻る」
 
 [added ko]
 Console storage = 본체 저장 공간
@@ -426,6 +443,8 @@ USB drive usb5 = USB 드라이브 usb5
 USB drive usb6 = USB 드라이브 usb6
 USB drive usb7 = USB 드라이브 usb7
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \sXboxUnity와\sMicrosoft\s서버에\s표지\s없음
+The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = 게임이 충돌하여 에뮬레이터가 일시 중지했습니다. 터치패드: 가이드, 그다음 게임을 닫고 메뉴로 돌아가기
+The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = 게임이 충돌하여 에뮬레이터가 일시 중지했습니다. OPTIONS + 터치패드: 가이드, 그다음 게임을 닫고 메뉴로 돌아가기
 
 [added nl]
 Console storage = Consoleopslag
@@ -453,6 +472,8 @@ USB drive usb5 = USB-station usb5
 USB drive usb6 = USB-station usb6
 USB drive usb7 = USB-station usb7
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \szonder\shoes\sop\sXboxUnity\sof\sde\sserver\svan\sMicrosoft
+The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = De game is gecrasht en de emulator heeft hem gepauzeerd. Touchpad: gids, daarna Game sluiten en terug naar het menu
+The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = De game is gecrasht en de emulator heeft hem gepauzeerd. OPTIONS + touchpad: gids, daarna Game sluiten en terug naar het menu
 
 [added pl]
 Console storage = Pamięć konsoli
@@ -480,6 +501,8 @@ USB drive usb5 = Dysk USB usb5
 USB drive usb6 = Dysk USB usb6
 USB drive usb7 = Dysk USB usb7
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \sbez\sokładki\sw\sXboxUnity\sani\sna\sserwerze\sMicrosoftu
+The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = Gra uległa awarii i emulator ją wstrzymał. Touchpad: przewodnik, potem Zamknij grę i wróć do menu
+The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = Gra uległa awarii i emulator ją wstrzymał. OPTIONS + touchpad: przewodnik, potem Zamknij grę i wróć do menu
 
 [added ru]
 Console storage = Память консоли
@@ -507,6 +530,8 @@ USB drive usb5 = USB-накопитель usb5
 USB drive usb6 = USB-накопитель usb6
 USB drive usb7 = USB-накопитель usb7
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \sбез\sобложки\sна\sXboxUnity\sи\sна\sсервере\sMicrosoft
+The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = Игра завершилась со сбоем, и эмулятор приостановил её. Сенсорная панель: меню, затем Закрыть игру и вернуться в меню
+The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = Игра завершилась со сбоем, и эмулятор приостановил её. OPTIONS + сенсорная панель: меню, затем Закрыть игру и вернуться в меню
 
 [added tr]
 Console storage = Konsol depolama alanı
@@ -534,6 +559,8 @@ USB drive usb5 = USB sürücü usb5
 USB drive usb6 = USB sürücü usb6
 USB drive usb7 = USB sürücü usb7
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \sXboxUnity'de\sve\sMicrosoft\ssunucusunda\skapak\syok
+The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = Oyun çöktü ve emülatör onu duraklattı. Dokunmatik yüzey: rehber, ardından Oyunu kapat ve menüye dön
+The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = Oyun çöktü ve emülatör onu duraklattı. OPTIONS + dokunmatik yüzey: rehber, ardından Oyunu kapat ve menüye dön
 
 [added zh-Hans]
 Console storage = 主机存储空间
@@ -561,6 +588,8 @@ USB drive usb5 = USB 驱动器 usb5
 USB drive usb6 = USB 驱动器 usb6
 USB drive usb7 = USB 驱动器 usb7
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \sXboxUnity\s和微软服务器上都没有封面
+The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = 游戏崩溃，模拟器已将其暂停。触摸板：指南，然后选择关闭游戏并返回菜单
+The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = 游戏崩溃，模拟器已将其暂停。OPTIONS + 触摸板：指南，然后选择关闭游戏并返回菜单
 
 [added zh-Hant]
 Console storage = 主機儲存空間
@@ -588,3 +617,5 @@ USB drive usb5 = USB 磁碟機 usb5
 USB drive usb6 = USB 磁碟機 usb6
 USB drive usb7 = USB 磁碟機 usb7
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \sXboxUnity\s和微軟伺服器上都沒有封面
+The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = 遊戲當機，模擬器已將其暫停。觸控板：指南，然後選擇關閉遊戲並返回選單
+The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = 遊戲當機，模擬器已將其暫停。OPTIONS + 觸控板：指南，然後選擇關閉遊戲並返回選單

@@ -1,0 +1,293 @@
+diff --git a/.deps/xenia-canary/src/xenia/apu/xma_decoder.cc b/.deps/xenia-canary/src/xenia/apu/xma_decoder.cc
+index ca06f8c..8352328 100644
+--- a/.deps/xenia-canary/src/xenia/apu/xma_decoder.cc
++++ b/.deps/xenia-canary/src/xenia/apu/xma_decoder.cc
+@@ -409,6 +409,16 @@ void XmaDecoder::Pause() {
+   }
+   paused_ = true;
+ 
++  // Xbox360PS5 (fix 45): without a dedicated thread (the game option xma_inline)
++  // WorkerThreadMain never runs, so nothing would signal pause_fence_.
++  if (!cvars::use_dedicated_xma_thread) {
++    return;
++  }
++  // Xbox360PS5 (fix 45): wake an idle worker so it reaches its paused_ check, as
++  // AudioSystem::Pause wakes its own. Otherwise it sleeps on work_event_ until a
++  // context is kicked, and once the guest's audio is paused nothing kicks one:
++  // Pause() never returned in Emulator::ExceptionCallback (Minecraft, 584111F7).
++  work_event_->Set();
+   pause_fence_.Wait();
+ }
+ 
+diff --git a/.deps/xenia-canary/src/xenia/emulator.cc b/.deps/xenia-canary/src/xenia/emulator.cc
+index 261e935..dd5b647 100644
+--- a/.deps/xenia-canary/src/xenia/emulator.cc
++++ b/.deps/xenia-canary/src/xenia/emulator.cc
+@@ -13,6 +13,10 @@
+ 
+ // Xbox360PS5: small persisted phase markers, independent of verbose logging.
+ extern "C" void Xbox360PS5LoaderStage(const char*) __attribute__((weak));
++// Xbox360PS5 (fix 45): a guest crash, told to the port before Pause() (which may
++// not return); ExceptionCallback's "Uh-oh!" dialog is not on the console's screen.
++extern "C" void Xbox360PS5GuestCrashed(uint32_t guest_pc, uint32_t thread_handle,
++                                       uint64_t fault_address) __attribute__((weak));
+ namespace {
+ void LoaderStage(const char* stage) {
+   if (Xbox360PS5LoaderStage) Xbox360PS5LoaderStage(stage);
+@@ -1531,6 +1535,17 @@ bool Emulator::ExceptionCallback(Exception* ex) {
+   XELOGE("{}", crash_msg);
+   FlushLog();
+ 
++  // Xbox360PS5 (fix 45): the port records the crash for its overlay and its
++  // STALL report before Pause(), which waits for the GPU and audio threads.
++  if (Xbox360PS5GuestCrashed) {
++    const uint32_t guest_pc =
++        guest_function->MapMachineCodeToGuestAddress(ex->pc());
++    const uint64_t fault_address =
++        ex->code() == Exception::Code::kAccessViolation ? ex->fault_address()
++                                                         : 0;
++    Xbox360PS5GuestCrashed(guest_pc, current_thread->handle(), fault_address);
++  }
++
+   // Pause the emulator and eat the exception.
+   Pause();
+ 
+diff --git a/port/guest_crash.hpp b/port/guest_crash.hpp
+new file mode 100644
+index 0000000..e96b9d3
+--- /dev/null
++++ b/port/guest_crash.hpp
+@@ -0,0 +1,145 @@
++// SPDX-License-Identifier: MIT
++// Fix 45: a guest crash, kept for the screen and the STALL report.
++//
++// When guest code faults, the core's Emulator::ExceptionCallback logs its crash dump, then calls
++// Pause() and shows an "Uh-oh!" dialog through display_window_/imgui_drawer_, which are not the
++// screen on the console; and Pause() may never return (Minecraft, 584111F7: XmaDecoder::Pause
++// waited for an idle worker, research/minecraft-online-hang/VERDICT.md). The player saw a picture
++// frozen at 0 FPS and the STALL report began with "no output is not proof of deadlock".
++// Before it pauses, the core now calls the weak hook Xbox360PS5GuestCrashed (canary_game_main.cpp),
++// which records the crash here: the overlay shows that the game crashed and how to leave it, and
++// the STALL report's first line names the crash.
++#pragma once
++
++#include <atomic>
++#include <chrono>
++#include <cinttypes>
++#include <cstdint>
++#include <cstdio>
++#include <string>
++
++namespace xbox360ps5 {
++namespace guest_crash {
++
++// The first guest crash of the run.
++struct Crash {
++  bool recorded = false;
++  uint32_t pc = 0;             // guest address of the faulting instruction
++  uint32_t thread = 0;         // the guest thread's handle (the log lines' prefix, F8000104)
++  uint64_t fault_address = 0;  // host address an access violation touched; 0 for other faults
++  int64_t at_ms = 0;           // NowMs() when it was recorded
++  uint32_t count = 0;          // guest crashes recorded in all (later ones only counted)
++};
++
++inline int64_t NowMs() {
++  return std::chrono::duration_cast<std::chrono::milliseconds>(
++             std::chrono::steady_clock::now().time_since_epoch())
++      .count();
++}
++
++// Written by the crashing guest thread from the exception handler: atomics only, no lock, no
++// allocation. Read by the frame loop, the overlay and the STALL report.
++class Recorder {
++ public:
++  // Keeps the first crash and counts the others; true when this one is kept.
++  bool Record(uint32_t pc, uint32_t thread, uint64_t fault_address, int64_t now_ms) {
++    count_.fetch_add(1, std::memory_order_relaxed);
++    bool expected = false;
++    if (!claimed_.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) return false;
++    pc_.store(pc, std::memory_order_relaxed);
++    thread_.store(thread, std::memory_order_relaxed);
++    fault_address_.store(fault_address, std::memory_order_relaxed);
++    at_ms_.store(now_ms, std::memory_order_relaxed);
++    recorded_.store(true, std::memory_order_release);
++    return true;
++  }
++  Crash Get() const {
++    Crash crash;
++    if (!recorded_.load(std::memory_order_acquire)) return crash;
++    crash.recorded = true;
++    crash.pc = pc_.load(std::memory_order_relaxed);
++    crash.thread = thread_.load(std::memory_order_relaxed);
++    crash.fault_address = fault_address_.load(std::memory_order_relaxed);
++    crash.at_ms = at_ms_.load(std::memory_order_relaxed);
++    crash.count = count_.load(std::memory_order_relaxed);
++    return crash;
++  }
++
++ private:
++  std::atomic<bool> claimed_{false}, recorded_{false};
++  std::atomic<uint32_t> pc_{0}, thread_{0}, count_{0};
++  std::atomic<uint64_t> fault_address_{0};
++  std::atomic<int64_t> at_ms_{0};
++};
++
++// Constant-initialized (no guard to take inside the exception handler).
++inline Recorder global_recorder;
++inline Recorder& Global() { return global_recorder; }
++
++// Whole seconds since the crash (0 when the clock reads earlier).
++inline int64_t SecondsAgo(const Crash& crash, int64_t now_ms) {
++  return now_ms > crash.at_ms ? (now_ms - crash.at_ms) / 1000 : 0;
++}
++
++// The STALL report's first line. Without a crash, the line it always was; after one, the crash
++// first, then what the frame watch saw.
++inline std::string StallHeadline(const Crash& crash, int64_t now_ms, uint32_t title_id,
++                                 const std::string& title, double seconds, uint64_t frames,
++                                 uint64_t swaps) {
++  char line[512];
++  if (!crash.recorded) {
++    std::snprintf(line, sizeof(line),
++                  "STALL title %08X '%s' after %.0fs, %" PRIu64 " refreshed outputs, %" PRIu64
++                  " submitted swaps; no output is not proof of deadlock",
++                  title_id, title.c_str(), seconds, frames, swaps);
++    return line;
++  }
++  char others[48] = "";
++  if (crash.count > 1) {
++    std::snprintf(others, sizeof(others), "; %u guest crashes in all", crash.count);
++  }
++  std::snprintf(line, sizeof(line),
++                "STALL after a guest crash on thread %08X at PC %08X, %" PRId64
++                " s ago; the emulator paused itself (title %08X '%s' after %.0fs, %" PRIu64
++                " refreshed outputs, %" PRIu64 " submitted swaps%s)",
++                crash.thread, crash.pc, SecondsAgo(crash, now_ms), title_id, title.c_str(), seconds,
++                frames, swaps, others);
++  return line;
++}
++
++// The STALL report's state of a thread: for the thread that crashed, the crash (it sits in the
++// exception handler, which "not in a wait" would hide); "" for any other thread.
++inline std::string ThreadNote(const Crash& crash, uint32_t thread, int64_t now_ms) {
++  if (!crash.recorded || crash.thread != thread) return "";
++  char note[160];
++  if (crash.fault_address) {
++    std::snprintf(note, sizeof(note),
++                  "crashed at PC %08X (access violation at %016" PRIX64 "), %" PRId64 " s ago",
++                  crash.pc, crash.fault_address, SecondsAgo(crash, now_ms));
++  } else {
++    std::snprintf(note, sizeof(note), "crashed at PC %08X, %" PRId64 " s ago", crash.pc,
++                  SecondsAgo(crash, now_ms));
++  }
++  return note;
++}
++
++// The overlay's notice (English keys, translated by Tr in canary_game_main.cpp's FpsOverlay; the
++// language files of tools/source-1.0.2/english/lang have both). The guide opens with the
++// touchpad, or OPTIONS + touchpad when the touchpad is the game's.
++constexpr const char* kNoticeTouchpad =
++    "The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return "
++    "to the menu";
++constexpr const char* kNoticeOptions =
++    "The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game "
++    "and return to the menu";
++
++// What follows the translated notice: where the game crashed.
++inline std::string NoticeDetail(const Crash& crash) {
++  if (!crash.recorded) return "";
++  char detail[32];
++  std::snprintf(detail, sizeof(detail), " (PC %08X)", crash.pc);
++  return detail;
++}
++
++}  // namespace guest_crash
++}  // namespace xbox360ps5
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+index cfafb43..2db68a8 100644
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -178,6 +178,7 @@ DECLARE_bool(upnp);
+ #include "guide_network.hpp"  // fix 22: the network mode from the guide
+ #include <fcntl.h>
+ #include "network_self_test.hpp"  // fix 42: the self-test's timing, lookups and TCP probe
++#include "guest_crash.hpp"  // fix 45: a guest crash for the overlay and the STALL report
+ extern "C" void ps5x_resolver_report(char* out, size_t size);  // port/ps5_resolver.cpp
+ 
+ namespace {
+@@ -377,13 +378,24 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
+         draw->PopClipRect();
+       }
+     }
+-    if (!shown_ && !stalled_) return;
++    // Fix 45: after a guest crash the game does not come back; the notice says so and how to
++    // leave it, in place of "no new frames" (the FPS counter alone showed 0).
++    const auto crash = xbox360ps5::guest_crash::Global().Get();
++    if (!shown_ && !stalled_ && !crash.recorded) return;
+     char text[32], output_text[128];
+     std::snprintf(text, sizeof(text), "Game %.0f FPS", fps_);
+     output_rates_.Label(output_text, sizeof(output_text));
+     ImDrawList* list = ImGui::GetForegroundDrawList();
+     const float scale = io.DisplaySize.y / 1080.0f;
+-    if(stalled_) {
++    if(crash.recorded) {
++      std::string notice=touchpad_menu_ ? Tr("The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu") : Tr("The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu");
++      notice += xbox360ps5::guest_crash::NoticeDetail(crash);
++      const float wrap=1800*scale;
++      const ImVec2 size=ImGui::GetFont()->CalcTextSizeA(24*scale,4096,wrap,notice.c_str());
++      const float top=1048*scale-size.y-24*scale;
++      list->AddRectFilled(ImVec2(24*scale,top),ImVec2(60*scale+size.x,1048*scale),IM_COL32(0,0,0,200),8*scale);
++      list->AddText(ImGui::GetFont(),24*scale,ImVec2(42*scale,top+12*scale),IM_COL32(255,150,130,255),notice.c_str(),nullptr,wrap);
++    } else if(stalled_) {
+       const char* notice=touchpad_menu_ ? Tr("No new frames (compiling shaders or loading). Touchpad: guide") : Tr("No new frames (compiling shaders or loading). OPTIONS + touchpad: guide");
+       const ImVec2 size=ImGui::GetFont()->CalcTextSizeA(24*scale,4096,0,notice);
+       list->AddRectFilled(ImVec2(24*scale,1000*scale),ImVec2((60+size.x/scale)*scale,1048*scale),IM_COL32(0,0,0,180),8*scale);
+@@ -869,6 +881,10 @@ void ReportStall(xe::Emulator& emulator, int pass) {
+   namespace oh = xbox360ps5::object_history;
+   const auto threads = emulator.kernel_state()->object_table()->GetObjectsByType<xe::kernel::XThread>();
+   XELOGW("STALL pass {}: {} threads", pass, threads.size());
++  // Fix 45: the thread a guest crash stopped sits in the exception handler; it is named as
++  // crashed (where, how long ago) instead of "not in a wait".
++  const auto crash = xbox360ps5::guest_crash::Global().Get();
++  const int64_t crash_now = xbox360ps5::guest_crash::NowMs();
+   StallReader reader{emulator.memory()};
+   const auto& thunks = ImportThunks(emulator);
+   std::set<uint32_t> handles_seen;  // objects whose history is logged after the threads
+@@ -895,7 +911,8 @@ void ReportStall(xe::Emulator& emulator, int pass) {
+         continue;
+       }
+     }
+-    XELOGW("STALL thread {:08X} {}; callers{}", thread->handle(), WaitText(*thread),
++    const std::string crashed = xbox360ps5::guest_crash::ThreadNote(crash, thread->handle(), crash_now);
++    XELOGW("STALL thread {:08X} {}; callers{}", thread->handle(), crashed.empty() ? WaitText(*thread) : crashed,
+            thread->is_guest_thread() ? CallersText(emulator.memory(), uint32_t(context->r[1])) : std::string(" -"));
+     XELOGW("STALL thread {:08X} id {} '{}' guest {} suspended {} lr {:08X} ctr {:08X} r1 {:08X} r3 {:08X} r4 {:08X} r5 {:08X}",
+            thread->handle(), thread->thread_id(), thread->thread_name(), thread->is_guest_thread() ? 1 : 0,
+@@ -2872,8 +2889,10 @@ int main(int argc, char** argv) {
+             const double watch_seconds=std::chrono::duration<double>(at-watch_started).count();
+             switch(frame_watch.Observe(frames,watch_seconds)) {
+               case xbox360ps5::FrameWatch::capture:
+-                XELOGW("STALL title {:08X} '{}' after {:.0f}s, {} refreshed outputs, {} submitted swaps; no output is not proof of deadlock",
+-                       emulator.title_id(),game_name,watch_seconds,frames,swaps);
++                // Fix 45: after a guest crash the line names it ("STALL after a guest crash on
++                // thread ... at PC ..."); otherwise it is the line it always was.
++                XELOGW("{}", xbox360ps5::guest_crash::StallHeadline(xbox360ps5::guest_crash::Global().Get(),
++                       xbox360ps5::guest_crash::NowMs(),emulator.title_id(),game_name,watch_seconds,frames,swaps));
+                 ReportStall(emulator, 1);
+                 // What the game asked of the system before it stopped.
+                 XELOGW("STALL recent lines, oldest first:");
+@@ -3048,6 +3067,14 @@ int main(int argc, char** argv) {
+ extern "C" void Xbox360PS5LoaderStage(const char* stage) {
+   xbox360ps5::Stage(stage);
+ }
++// Fix 45: the core's Emulator::ExceptionCallback calls this (weak there) when guest code faults,
++// before it pauses the emulator; from the faulting thread inside the exception handler, so the
++// record is atomics only (port/guest_crash.hpp).
++extern "C" void Xbox360PS5GuestCrashed(uint32_t guest_pc, uint32_t thread_handle,
++                                       uint64_t fault_address) {
++  xbox360ps5::guest_crash::Global().Record(guest_pc, thread_handle, fault_address,
++                                           xbox360ps5::guest_crash::NowMs());
++}
+ 
+ extern "C" void catchReturnFromMain(int status) {
+   char text[64];
