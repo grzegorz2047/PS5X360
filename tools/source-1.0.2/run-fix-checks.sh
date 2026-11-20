@@ -36,6 +36,15 @@ checks=(
   check-ui-lang-overlay.cpp        # fix 43
   check-game-info.cpp              # fix 43
   check-kinect-usb.cpp             # fix 44
+  check-media-voice.cpp            # fix 32
+  check-switch-title.cpp           # fix 33
+  check-pipeline-claim.cpp         # fix 34
+  check-readback-slots.cpp         # fix 35
+  check-unwatched-policy.cpp       # fix 36
+  check-exact-unwatch.cpp          # fix 37
+  check-jit-backports.cpp          # fix 38
+  check-net-log-drain.cpp          # fix 39
+  check-review-fix30.cpp           # fixes 35-37 with fix 30
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -44,9 +53,28 @@ declare -A arguments=(
   [check-ui-lang-overlay.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-game-info.cpp]="$repo/tools/source-1.0.2/fixtures/gameinfo-excerpt.txt"
 )
+# The fix each of these checks belongs to: when a test build leaves that fix out
+# (assemble.py --skip-fix, SOURCES.json fixes_skipped) its check is not run.
+declare -A fix_of=(
+  [check-media-voice.cpp]=32 [check-switch-title.cpp]=33 [check-pipeline-claim.cpp]=34
+  [check-readback-slots.cpp]=35 [check-unwatched-policy.cpp]=36 [check-exact-unwatch.cpp]=37
+  [check-jit-backports.cpp]=38 [check-net-log-drain.cpp]=39 [check-review-fix30.cpp]="35 36 37"
+)
+skipped_fixes=$("$python" -I -c 'import json, sys, os
+report = json.load(open(sys.argv[1], encoding="utf-8"))
+print(" ".join(os.path.basename(p).split("-", 1)[0] for p in report.get("fixes_skipped", [])))' "$tree/SOURCES.json")
 mkdir -p "$tree/tools" "$tree/build/fix-checks"
 status=0
 for name in "${checks[@]}"; do
+  left_out=
+  for fix in ${fix_of[$name]:-}; do
+    if [[ " $skipped_fixes " == *" $fix "* ]]; then left_out=$fix; fi
+  done
+  if [[ -n $left_out ]]; then
+    echo "=== $name"
+    echo "skip $name (fix $left_out left out of this build)"
+    continue
+  fi
   cp "$repo/tools/$name" "$tree/tools/$name"
   exe="$tree/build/fix-checks/${name%.cpp}"
   args=()

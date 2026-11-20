@@ -162,12 +162,12 @@ index 0000000..9293b8d
 +
 +}  // namespace xbox360ps5::network_self_test
 diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
-index 8b0be38..b1a1e75 100644
+index 4f04966..40412d2 100644
 --- a/src/canary_game_main.cpp
 +++ b/src/canary_game_main.cpp
-@@ -176,19 +176,30 @@ DECLARE_bool(upnp);
- #include "xenia/kernel/util/curl_utils.h"
+@@ -178,19 +178,30 @@ DECLARE_bool(upnp);
  #include "guide_network.hpp"  // fix 22: the network mode from the guide
+ #include "switch_title.hpp"  // fix 33: a title switch keeps the game's own options
  #include <fcntl.h>
 +#include "network_self_test.hpp"  // fix 42: the self-test's timing, lookups and TCP probe
 +extern "C" void ps5x_resolver_report(char* out, size_t size);  // port/ps5_resolver.cpp
@@ -199,7 +199,7 @@ index 8b0be38..b1a1e75 100644
    int ends[2] = {-1, -1};
    const int piped = pipe(ends);
    XELOGW("Network test: pipe {} (errno {})", piped == 0 ? "ok" : "refused", piped == 0 ? 0 : errno);
-@@ -213,8 +224,21 @@ void NetworkSelfTest(const std::string& server) {
+@@ -215,8 +226,21 @@ void NetworkSelfTest(const std::string& server) {
    const CURLcode result = curl_easy_perform(curl);
    long status = 0;
    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
