@@ -104,7 +104,7 @@ emulator's own logs.
 | Call of Duty: Modern Warfare 2 | runs; about 20 FPS (*binary build*) | No regressions in the source candidates. |
 | Army of Two | works | Regression run of `candidate_47`; started from a forwarder tile in `candidate_34`. |
 | Battlefield: Bad Company (`454107F9`) | 60 FPS after the first shader compile (*binary build*) | With the game's 60 FPS patch, the preset (FSI off, `readback=0`, `pipeline_threads=3`) and the VSync cap (fix 10). |
-| Fable II (`4D5307F1`) | 30 FPS, the game's own cap (*binary build*) | v1.0.3 uses the official preset again; `fast_locks` on makes the game ignore the controller. |
+| Fable II (`4D5307F1`) | 30 FPS, the game's own cap, with tuned settings (*binary build*) | Measured with `memory_boost` and `fast_dot` on and `fast_locks`, `readback` and `clear_pages` off in the game's settings (26.4 FPS before). v1.0.3 uses the official preset again (`clear_pages=1`, `readback=1`); `fast_locks` on makes the game ignore the controller. |
 | Fable III (`4D5308D6`) | about 22–24 FPS (*binary build*) | r2 preset, config and optional patches, unchanged in v1.0.3. |
 | Ninja Gaiden II (`544307D5`) | closes about 30 s after the intro videos | [#11](https://github.com/grzegorz2047/PS5X360Reloaded/issues/11) |
 | Dragon Ball Z for Kinect (`4E4D084E`) | the only game offered the emulated Kinect camera, as in the official 1.0.2 | Steady 30 FPS with a test relay (`candidate_49`). Other Kinect games (e.g. Kinect Sports) keep asking for the camera and stay on a white screen. |
@@ -119,9 +119,9 @@ emulator's own logs.
   USB camera and relay client are back (fix 44) and the relay client works on the console with a
   test relay, but nobody has tried it with a real Kinect for Xbox 360 (model 1414/1473) yet.
 - **Smaller gaps to the official 1.0.2** ([#9](https://github.com/grzegorz2047/PS5X360Reloaded/issues/9)):
-  done in v1.0.3 (fixes 40–43). What still differs does so on purpose: a private Fable II input
-  diagnostic is left out, the dark theme is reconstructed, and the debug-output wrapper belongs to
-  the missing OpenGL renderer.
+  fixes 40–43 in v1.0.3 close most of them. Still different: a private Fable II input diagnostic
+  is left out on purpose, the dark theme is reconstructed, and the debug-output wrapper belongs to
+  the missing OpenGL renderer (#6).
 - **Compiler flags** ([#2](https://github.com/grzegorz2047/PS5X360Reloaded/issues/2)): the title
   stays at `-O2`; `-O3` titles and ThinLTO gave no measurable gain.
 - **Newer upstream JIT work** ([#5](https://github.com/grzegorz2047/PS5X360Reloaded/issues/5)):
@@ -223,7 +223,7 @@ included log downloader can create a ZIP to share.
 | --- | --- |
 | [`source-1.0.2-patches`](https://github.com/grzegorz2047/PS5X360Reloaded/tree/source-1.0.2-patches) | Development: the assembly and build scripts of the source rebuild, the reconstructed files and every fix (`tools/source-1.0.2/fixes`). Fixes are made on `fix/*` branches and merged here. |
 | [`release/source-1.0.3`](https://github.com/grzegorz2047/PS5X360Reloaded/tree/release/source-1.0.3) | The v1.0.3 release commit. A push builds the draft release (`release-source.yml`). |
-| [`main`](https://github.com/grzegorz2047/PS5X360Reloaded/tree/main) | The landing page, the tools of the superseded binary releases (`tools/binary-release`), and the repository's older C++ (v0.5.7-fix.1, not used by the releases). |
+| [`main`](https://github.com/grzegorz2047/PS5X360Reloaded/tree/main) | The default branch: its landing page, the repository's older C++ (v0.5.7-fix.1, not used by the releases) and a copy of `build-source-1.0.2.yml` for the *Run workflow* button. The tools of the superseded binary releases (`tools/binary-release`) are on the source branches above. |
 
 ## Building from source
 
@@ -252,8 +252,8 @@ bash tools/source-1.0.2/build.sh build/src102 build/src102-out   # -> build/src1
 ```
 
 **In GitHub Actions:**
-- `source-fix-checks.yml` runs the host checks on every push to `source-1.0.2-patches` and the
-  `fix/*` branches.
+- `source-fix-checks.yml` runs the host checks on pushes to `source-1.0.2-patches` and the
+  `fix/*` branches that change the fixes or their checks.
 - `build-source-1.0.2.yml` (by hand: `gh workflow run build-source-1.0.2.yml --repo
   grzegorz2047/PS5X360Reloaded --ref source-1.0.2-patches`) runs the host checks, then builds a
   test `eboot.bin`. Its artifact `eboot-1.0.2-from-source-NOT-FOR-RELEASE` is for console tests

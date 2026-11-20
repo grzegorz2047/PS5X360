@@ -33,9 +33,9 @@ On the console (user's test of that build): the launcher, Modern Warfare 2, Blac
 Age II run like the official build; the visible difference was the missing dark home theme,
 reconstructed since.
 
-Build with the `gameinfo.txt` reader and the dark theme (before the release fixes): [run 44507850129](https://github.com/grzegorz2047/PS5X360Reloaded/actions/runs/44507850129),
-with the `gameinfo.txt` reader ([run 44502949131](https://github.com/grzegorz2047/PS5X360Reloaded/actions/runs/44502949131))
-and the dark theme: `eboot.bin` 37,574,693 bytes, SHA-256 `b7525acb…` (`eboot.elf` `a251fd04…`).
+Build with the `gameinfo.txt` reader ([run 44502949131](https://github.com/grzegorz2047/PS5X360Reloaded/actions/runs/44502949131))
+and the dark theme, before the release fixes: [run 44507850129](https://github.com/grzegorz2047/PS5X360Reloaded/actions/runs/44507850129),
+`eboot.bin` 37,574,693 bytes, SHA-256 `b7525acb…` (`eboot.elf` `a251fd04…`).
 Its official-only strings drop to 18,074; the dark theme's and `gameinfo.txt`'s are now in both.
 That build was not run on a console by itself; the later test builds that contain it, labelled
 `1.0.3_candidate_N` on the home screen (`tools/source-1.0.2/BUILD_VERSION`), were (see
