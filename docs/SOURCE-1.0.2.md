@@ -6,8 +6,9 @@ is missing, and how close a rebuild gets.
 
 Since **v1.0.3**, this repository's releases are built this way: the `eboot.bin` is compiled
 from the assembled tree with the fixes below, and the release carries its GPL-3.0 corresponding
-source (see [Releases](#releases)). The earlier binary releases (`v1.0.2-opt`,
-`v1.0.2-opt-r2`: the official executable with binary patches,
+source (see [Releases](#releases)). The released app is **PS5X360Reloaded** with its own title id
+`PPSA83600`, installed next to the official PS5X360 (`PPSA50011`). The earlier binary releases
+(`v1.0.2-opt`, `v1.0.2-opt-r2`: the official executable with binary patches,
 [`tools/binary-release`](../tools/binary-release/README.md)) are superseded.
 
 - Assembly: [`tools/source-1.0.2/assemble.py`](../tools/source-1.0.2/assemble.py)
@@ -254,17 +255,20 @@ workflow is on the default branch. A tag push does not start it: GitHub makes th
 draft is published, at the commit the draft targets.
 
 1. `build-source-1.0.2.yml` in release mode: the version label is `X.Y.Z` instead of
-   `BUILD_VERSION`'s candidate label (`PS5X360 vX.Y.Z` on the home screen, `BOOT version X.Y.Z` in
+   `BUILD_VERSION`'s candidate label (`PS5X360Reloaded vX.Y.Z` on the home screen, `BOOT version X.Y.Z` in
    `boot.log`), no fix may be left out, and the linked `eboot.elf` is checked for both strings and
    for no candidate label. Artifacts: `eboot-X.Y.Z-from-source` and `source-X.Y.Z`.
-2. The package: the official v1.0.2 `PPSA50011.zip` (SHA-256 `230359c2…`) with the source-built
-   `eboot.bin` as it was signed, the English-keyed `assets/lang/*.txt` of fix 25 in place of the
-   official Portuguese-keyed ones, this repository's `assets/presets.txt`, `assets/config` and
-   `assets/patches`, `VERSION`/`RELEASE.json`/`MANIFEST.json` for `X.Y.Z`, the GPL notice and the
-   licence texts the official package lacks (`tools/source-1.0.2/package.py`), then `PPSA50011.ffpkg` and `PPSA50011.ffpfsc`
-   (`tools/binary-release/make_images.sh`). Because the language files change with the
-   executable, the whole `PPSA50011` folder has to be installed, not `eboot.bin` alone.
-3. The draft `vX.Y.Z` (notes from `docs/release-notes/vX.Y.Z.md`) with `PPSA50011.zip` (and its
+2. The package: the official v1.0.2 `PPSA50011.zip` (SHA-256 `230359c2…`) is the base, read
+   under its `PPSA50011/` folder and written under `PPSA83600/`, with the source-built
+   `eboot.bin` as it was signed, its own `sce_sys/param.json` (title id `PPSA83600`, name
+   PS5X360Reloaded) and icon and backgrounds (`icon0.png`, `pic0.png`, `pic1.png`), the
+   English-keyed `assets/lang/*.txt` of fix 25 in place of the official Portuguese-keyed ones,
+   this repository's `assets/presets.txt`, `assets/config` and `assets/patches`,
+   `VERSION`/`RELEASE.json`/`MANIFEST.json` for `X.Y.Z`, the GPL notice and the licence texts the
+   official package lacks (`tools/source-1.0.2/package.py`), then `PPSA83600.ffpkg` and
+   `PPSA83600.ffpfsc` (`tools/binary-release/make_images.sh`). Because the language files change
+   with the executable, the whole `PPSA83600` folder has to be installed, not `eboot.bin` alone.
+3. The draft `vX.Y.Z` (notes from `docs/release-notes/vX.Y.Z.md`) with `PPSA83600.zip` (and its
    `.sha256`), `.ffpkg`, `.ffpfsc`, `SOURCES.json`, the build log, the corresponding source
    (`PS5X360-X.Y.Z-source.tar.xz`, the assembled tree that was compiled;
    `PS5X360-X.Y.Z-toolchain-source.tar.xz`, `PS5_Vulkan`, `PS5_Mesa` and `PS5_PayloadSDK` at the
@@ -278,9 +282,12 @@ The released `eboot.bin` is a new build of the tested candidate's commit: only t
 differs in the source, but its bytes (and SHA-256) are not the candidate's.
 
 **v1.0.3** is the first release made this way (branch `release/source-1.0.3`, notes in
-[`docs/release-notes/v1.0.3.md`](release-notes/v1.0.3.md)). It replaces the binary releases
-`v1.0.2-opt` and `v1.0.2-opt-r2`; `release-binary.yml` and `tools/binary-release` stay only to
-rebuild those (the image script `make_images.sh` is shared).
+[`docs/release-notes/v1.0.3.md`](release-notes/v1.0.3.md)), and the first under the title id
+`PPSA83600`: the binary releases and the earlier `1.0.3_candidate_N` test builds used the official
+`PPSA50011`. On its first start PS5X360Reloaded copies the saves and small settings files from
+`/data/homebrew/PPSA50011` once, without changing that folder; the notes say what does not carry
+over. It replaces the binary releases `v1.0.2-opt` and `v1.0.2-opt-r2`; `release-binary.yml` and
+`tools/binary-release` stay only to rebuild those (the image script `make_images.sh` is shared).
 
 ## Licensing
 

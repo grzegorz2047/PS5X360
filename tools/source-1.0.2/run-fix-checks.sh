@@ -13,6 +13,8 @@
 # label in the tree's VERSION and SOURCES.json, the release eboot check, the GPL source tarball
 # step), tools/check-source-package.py (package.py), tools/check-release-guard.py
 # (release-source.yml's decisions) and tools/check-core-commit.py (build.sh's core commit).
+# tools/check-docs-reloaded.py checks the user docs for the PS5X360Reloaded name and title id
+# (PPSA83600, next to the official PPSA50011).
 # check-game-info.cpp reads a committed excerpt of the official package's assets/gameinfo.txt, and
 # the whole file too when PS5X360_GAMEINFO names it (fix 43).
 set -euo pipefail
@@ -148,6 +150,13 @@ if "$python" -I "$repo/tools/check-core-commit.py"; then
   echo "pass check-core-commit.py"
 else
   echo "FAIL check-core-commit.py"
+  status=1
+fi
+echo "=== check-docs-reloaded.py"
+if "$python" -I "$repo/tools/check-docs-reloaded.py"; then
+  echo "pass check-docs-reloaded.py"
+else
+  echo "FAIL check-docs-reloaded.py"
   status=1
 fi
 echo "=== check-kinect-fake-relay.py"

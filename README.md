@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/banner.png" alt="PS5X360 — Xbox 360 emulation on PlayStation 5" width="100%">
+  <img src="docs/images/banner.png" alt="PS5X360Reloaded — Xbox 360 emulation on PlayStation 5" width="100%">
 </p>
 
 <p align="center">
@@ -10,7 +10,7 @@
   <a href="https://github.com/grzegorz2047/PS5X360Reloaded/issues">Report an issue</a>
 </p>
 
-# PS5X360 Reloaded
+# PS5X360Reloaded
 
 An **Xbox 360 emulator for PlayStation 5**, built on Xenia Canary with native DualSense input,
 audio output and RADV Vulkan graphics.
@@ -21,6 +21,12 @@ author published, reassembled, with this fork's fixes on top. The `eboot.bin` is
 patched; it is **Vulkan only** and released under **GPL-3.0** with its complete source attached
 to the release.
 
+Since v1.0.3 the fork is a separate app, **PS5X360Reloaded**, with its own title id
+**`PPSA83600`**, its own home screen tile and its own data folder `/data/homebrew/PPSA83600`. It
+installs **next to** the official PS5X360 (`PPSA50011`) and never writes to the official app's
+folder. On its first start it copies your PS5X360 saves once (see
+[Next to the official PS5X360](#next-to-the-official-ps5x360)).
+
 The earlier releases of this fork, `v1.0.2-opt` and `v1.0.2-opt-r2`, were the official v1.0.2
 executable with binary patches. They are superseded: every patch they carried (and the ones made
 after r2) is now a source change in v1.0.3. See [tools/binary-release](tools/binary-release/README.md).
@@ -30,9 +36,11 @@ some titles. There is no promise of full-library compatibility or 60 FPS.
 
 ## v1.0.3
 
-The home screen shows **PS5X360 v1.0.3**. The full notes, with what was confirmed on the console
-and what only by host tests, are in [docs/release-notes/v1.0.3.md](docs/release-notes/v1.0.3.md).
+The home screen shows **PS5X360Reloaded v1.0.3**. The full notes, with what was confirmed on the
+console and what only by host tests, are in [docs/release-notes/v1.0.3.md](docs/release-notes/v1.0.3.md).
 
+- **New name and title id:** PS5X360Reloaded, `PPSA83600`, next to the official PS5X360
+  (`PPSA50011`), with a one-time copy of its saves and small settings files on the first start.
 - **Game fixes:** Battlefield 3 works (with its built-in `memexport` preset), Handball 16 starts
   and gets past START, Naruto: The Broken Bond no longer closes at start, and Minecraft runs at
   60 FPS in the world instead of about 1 FPS.
@@ -50,42 +58,116 @@ and what only by host tests, are in [docs/release-notes/v1.0.3.md](docs/release-
 
 ## Installation
 
-<img src="docs/images/installation.png" alt="Download the ZIP, copy PPSA50011 via FTP, add one folder per game, and launch PS5X360" width="100%">
+<img src="docs/images/installation.png" alt="Download the ZIP, copy PPSA83600 via FTP, add one folder per game, and launch PS5X360Reloaded" width="100%">
 
 The [v1.0.3 release](https://github.com/grzegorz2047/PS5X360Reloaded/releases) has:
-- `PPSA50011.ffpkg`: a UFS2 image, mounted by etaHEN / ShadowMountPlus.
-- `PPSA50011.ffpfsc`: a compressed PFS image, mounted by ShadowMountPlus.
-- `PPSA50011.zip`: the `PPSA50011` folder to copy over FTP (checksum in `PPSA50011.zip.sha256`).
+- `PPSA83600.ffpkg`: a UFS2 image, mounted by etaHEN / ShadowMountPlus.
+- `PPSA83600.ffpfsc`: a compressed PFS image, mounted by ShadowMountPlus.
+- `PPSA83600.zip`: the `PPSA83600` folder to copy over FTP (checksum in `PPSA83600.zip.sha256`).
 - The game patch files (`*.patch.toml`, also inside the packages), the GPL-3.0 source archives
   (see [Licenses](#credits-and-licenses)) and `SHA256SUMS.txt` over all files.
 
-**Image (`.ffpkg` / `.ffpfsc`):** close the emulator, replace the previous PS5X360 image with the
-new one in the place ShadowMountPlus mounts it from, and start PS5X360 again. If a game hung on
-exit, restart the console first: the old image can stay mounted until then. Settings saved in
+Install **one** of them: the image or the ZIP folder, not both (two copies of `PPSA83600` are a
+duplicate for ShadowMountPlus).
+
+**Image (`.ffpkg` / `.ffpfsc`):** copy `PPSA83600.ffpkg` to the place ShadowMountPlus mounts
+images from (on the development setup, the USB drive), keeping the file name: ShadowMountPlus
+names the mount after it (`/mnt/shadowmnt/PPSA83600_*`). Then open **PS5X360Reloaded** from the
+PS5 home screen. To update, close the emulator, replace the image with the new one and start it
+again; if a game hung on exit, restart the console first, because the old image can stay mounted
+until then. With an image install, `/data/homebrew/PPSA83600` holds only the emulator's data
+(saves, cache, logs): do not put `eboot.bin` or `sce_sys` there. Settings saved in
 `/download0/xbox360ps5` are not part of the image. An image is read-only, so put the games on
 another drive and add the folder in **Settings → Game folders**.
 
 **ZIP:**
-1. Extract `PPSA50011.zip` on your computer.
-2. Using FTP, copy the **whole** `PPSA50011` folder to `/data/homebrew/`, overwriting existing
-   files. Keep the `saves`, `cache` and `logs` subfolders of the previous install. The executable
-   must end up at `/data/homebrew/PPSA50011/eboot.bin`.
-3. Let ShadowMountPlus register the title, then open **PS5X360** from the PS5 home screen.
-4. Put each game in its own folder under `PPSA50011/assets/roms/`, or in a folder added in
+1. Extract `PPSA83600.zip` on your computer.
+2. Using FTP, copy the **whole** `PPSA83600` folder to `/data/homebrew/`, overwriting existing
+   files. When you update, keep the `saves`, `cache` and `logs` subfolders of the previous
+   install. The executable must end up at `/data/homebrew/PPSA83600/eboot.bin`.
+3. Let ShadowMountPlus register the title, then open **PS5X360Reloaded** from the PS5 home screen.
+4. Put each game in its own folder under `PPSA83600/assets/roms/`, or in a folder added in
    **Settings → Game folders**. Reopen the emulator or select **Settings → Refresh game list**.
 
-> **Do not replace only `eboot.bin`** in an existing 1.0.2 or r2 install. The v1.0.3 executable
+> **Do not copy only `eboot.bin`** into an existing 1.0.2 or r2 install. The v1.0.3 executable
 > reads language files keyed in English (`assets/lang/*.txt`, 16 files including `pt-BR.txt`);
 > with the official files the whole interface is in English whatever language is selected, and
 > the r2 `eboot.bin` does not match the v1.0.3 language files either. Always install the whole
-> package. To go back to r2, install the whole r2 package.
+> package.
 
 The development setup uses **PS5 firmware 13.60 with homebrew access, etaHEN, ShadowMountPlus
 and kstuff**. Other setups have not been verified. You need an already working homebrew
-environment. The Helper (autoload ELF) of the official releases updates from the official
-releases page, so it may replace this build with the official one (not checked).
+environment. The Helper (autoload ELF) of the official releases updates the official PS5X360
+from the official releases page; whether it does anything with `PPSA83600` is not checked.
 
-[Full installation and usage guide →](docs/INSTALLATION.md)
+The [full installation and usage guide](docs/INSTALLATION.md) still describes the official
+PS5X360: where it says `PPSA50011`, PS5X360Reloaded uses `PPSA83600`.
+
+### Next to the official PS5X360
+
+PS5X360Reloaded (`PPSA83600`) and the official PS5X360 (`PPSA50011`) are two apps with two
+tiles, and both can stay installed. Each has its own data folder (`/data/homebrew/<title id>`)
+and its own `/download0`. Only one runs at a time.
+
+**Remove the old images of this fork.** Earlier builds of this fork (`v1.0.2-opt`, r2 and the
+`1.0.3_candidate_N` test images made before the rename) used the official title id. Delete any
+`PPSA50011.ffpkg` / `PPSA50011.ffpfsc` of this fork from the USB drive: ShadowMountPlus treats
+it as a duplicate of the official PS5X360. Your data in `/data/homebrew/PPSA50011` is not in the
+image and stays where it is.
+
+**Automatic import on the first start.** When PS5X360Reloaded starts for the first time, it copies
+once from `/data/homebrew/PPSA50011` (the folder the official app, `v1.0.2-opt`, r2 and the
+earlier test builds used) into `/data/homebrew/PPSA83600`:
+- `saves` (profiles, achievements, game saves, and the DLC and title updates installed there);
+- small settings files and folders it does not have yet: `network.conf`, `vibration.conf`,
+  `framegen.conf`, `ui-dark.on`, `ui-classic.on`, `dashboard.off`, `skin/`, `game-art/`,
+  `dashboard/` and the achievements cache.
+
+It only **reads** the official folder: nothing there is changed, moved or deleted. It copies the
+saves only when the drive has enough free space for them; otherwise it copies no saves. It never
+copies over saves PS5X360Reloaded already has. The shader cache and the logs are not copied (the
+cache is built again). A file it cannot read is skipped and named in the log.
+
+To copy the saves by hand instead (for example after the import was skipped for lack of space):
+with both apps closed, copy `/data/homebrew/PPSA50011/saves` over FTP to
+`/data/homebrew/PPSA83600/saves`. Do it before you play in PS5X360Reloaded, because it replaces
+saves made there.
+
+**Settings in `/download0` do not carry over.** `/download0` belongs to each title id, so
+PS5X360Reloaded starts with an empty one. This covers `settings.txt`, `profile.txt`, the game
+folders (`game_paths.txt`), recent games (`recent.txt`), per-game settings (`game-settings/`),
+the FSI choices (`fsi.c`, `fsi.1`), `framegen.conf`, `covers/`, `patches/` and `game-configs/`.
+To move them by hand over FTP:
+1. Close PS5X360Reloaded. Open the official PS5X360: its `/download0` is reachable only while
+   it runs.
+2. Download `/mnt/sandbox/PPSA50011_000/download0/xbox360ps5` to your computer. The `_000`
+   suffix can differ; use the `PPSA50011_*` folder that has `download0`.
+3. Close the official PS5X360 completely. Open PS5X360Reloaded and stay on the home screen
+   without changing any setting.
+4. Upload the files and folders listed above into
+   `/mnt/sandbox/PPSA83600_000/download0/xbox360ps5/`, replacing the ones there. Leave out
+   `LOGS/`, `boot.log` and `library/` (logs and the game list cache, which is rebuilt).
+5. Close PS5X360Reloaded completely and open it again: the settings are read when it starts.
+
+**Games.** The official app's `PPSA50011/assets/roms` is not one of PS5X360Reloaded's game
+folders. Put games in `/data/xbox360` or in `xbox360` on a USB or M.2 drive: both apps list
+those. Adding `/data/homebrew/PPSA50011/assets/roms` in **Settings → Game folders** is not
+advised: PS5X360Reloaded installs and moves the DLC and update packages it finds in a game
+folder's inboxes, so it would change files in the official app's folder.
+
+**Saves on other drives** (fix 27) stay in `<drive>/PS5X360/saves` (the folder name did not
+change), so nothing needs moving there.
+
+**Forwarders.** Forwarder Manager tiles made for the `PS5X360` target start the official app
+(`PPSA50011`). For PS5X360Reloaded, a tile needs the target `PPSA83600`: choose the **Generic**
+target and enter `PPSA83600`, or change `"target"` in the tile's `forwarder.json`. Steps in
+[docs/FORWARDER.md](docs/FORWARDER.md).
+
+**Kinect tracker.** The official `kinect-tracker.elf` sends its frames with the web-settings key
+from `/data/homebrew/PPSA50011`. PS5X360Reloaded also accepts that key (read only) for tracker
+frames sent from the console itself (127.0.0.1); requests from the network still need its own
+key. This works only if that key file exists, i.e. the official app or an earlier build of this
+fork has run once.
 
 ## Game status on the console
 
@@ -132,18 +214,19 @@ emulator's own logs.
 
 ## Start a game from the PS5 home screen (forwarders)
 
-A forwarder is a small app with its own home screen tile that starts PS5X360 straight into one
-game (fix 21): `--rom <game>` with a full path, a path in the game folders, a folder or a title
-ID, and `--exit-after-game` to return to the PS5 home screen when the game closes. Tiles are made
-with Forwarder Manager. Close PS5X360 before using a tile: arguments only reach a new PS5X360
-process. When the forwarder launcher is already running, ShadowMountPlus may refuse the start
+A forwarder is a small app with its own home screen tile that starts PS5X360Reloaded straight
+into one game (fix 21): `--rom <game>` with a full path, a path in the game folders, a folder or a
+title ID, and `--exit-after-game` to return to the PS5 home screen when the game closes. Tiles are
+made with Forwarder Manager, with the target title id `PPSA83600` (its `PS5X360` target starts
+the official app). Close PS5X360Reloaded before using a tile: arguments only reach a new
+PS5X360Reloaded process. When the forwarder launcher is already running, ShadowMountPlus may refuse the start
 (`0x80940033`, [drakmor/ShadowMountPlus#196](https://github.com/drakmor/ShadowMountPlus/issues/196)).
 Setup and workarounds: [docs/FORWARDER.md](docs/FORWARDER.md).
 
 ## Organize your games
 
 ```text
-PPSA50011/
+PPSA83600/
 ├── eboot.bin
 ├── sce_module/
 ├── sce_sys/
@@ -182,7 +265,7 @@ The guide offers resume, the library over the running game, settings, Xbox BACK 
 the touchpad as Xbox BACK instead, change **Settings → Touchpad click**; the guide then opens with
 **OPTIONS + touchpad**.
 
-## What PS5X360 includes
+## What PS5X360Reloaded includes
 
 - A home screen and cover library for extracted games (XEX), ISO images and GOD/STFS packages,
   with folders and filters.
@@ -210,12 +293,13 @@ Booting into a menu is not the same as completing gameplay. The
 When you report a bug, include the game, title ID, region and version; the enabled patches; the
 firmware and the emulator version (the home screen shows it); the exact point where the game
 fails; a short video or screenshot if you can; and the matching game-session logs. Logs are in
-`PPSA50011/logs`, or in `download0/xbox360ps5/LOGS` if that folder cannot be written. The
+`/data/homebrew/PPSA83600/logs`, or in `download0/xbox360ps5/LOGS` if that folder cannot be
+written. The
 included log downloader can create a ZIP to share.
 
-- **This build (v1.0.3, source builds):** report on
+- **PS5X360Reloaded (`PPSA83600`, v1.0.3 and its test builds):** report on
   [this repository](https://github.com/grzegorz2047/PS5X360Reloaded/issues).
-- **The official build:** report on [BrinooTk/PS5X360](https://github.com/BrinooTk/PS5X360/issues).
+- **The official PS5X360 (`PPSA50011`):** report on [BrinooTk/PS5X360](https://github.com/BrinooTk/PS5X360/issues).
 
 ## Branches
 
@@ -257,7 +341,7 @@ bash tools/source-1.0.2/build.sh build/src102 build/src102-out   # -> build/src1
 - `build-source-1.0.2.yml` (by hand: `gh workflow run build-source-1.0.2.yml --repo
   grzegorz2047/PS5X360Reloaded --ref source-1.0.2-patches`) runs the host checks, then builds a
   test `eboot.bin`. Its artifact `eboot-1.0.2-from-source-NOT-FOR-RELEASE` is for console tests
-  only; test builds are labelled **PS5X360 v1.0.3_candidate_N** on the home screen
+  only; test builds are labelled **PS5X360Reloaded v1.0.3_candidate_N** on the home screen
   (`tools/source-1.0.2/BUILD_VERSION`).
 - `release-source.yml` runs on a push to `release/source-X.Y.Z`: a release build (version label
   `X.Y.Z`, no fix left out), the package (`tools/source-1.0.2/package.py`), the images and a
@@ -278,7 +362,7 @@ and Microsoft's image server.
 Licenses:
 - **The released `eboot.bin` is GPL-3.0** as a whole: it links wolfSSL and ps5-framegen (both
   GPL-3.0-or-later). Each part keeps its own licence too: PS5X360 code is MIT, Xenia is
-  BSD-3-Clause. The package's `PPSA50011/licenses/` folder has every licence text and the notice
+  BSD-3-Clause. The package's `PPSA83600/licenses/` folder has every licence text and the notice
   `PS5X360-1.0.3-NOTICE.txt`.
 - **The source is attached to each release:** `PS5X360-1.0.3-source.tar.xz` (the tree the
   `eboot.bin` was compiled from, with `SOURCES.json`), `PS5X360Reloaded-1.0.3-scripts.tar.gz`
@@ -289,7 +373,8 @@ Licenses:
 - This repository's own code is MIT ([LICENSE](LICENSE)); bundled third-party components keep
   their licenses ([licenses/](licenses/), the font's [SIL Open Font License](assets/fonts/OFL.txt)).
 
-PS5X360 is an independent community project and is not affiliated with Sony or Microsoft. The
+PS5X360Reloaded, like PS5X360, is an independent community project and is not affiliated with
+Sony or Microsoft. The
 README artwork is illustrative branding, not an emulator screenshot.
 
 ## Support the projects
@@ -305,4 +390,6 @@ Older M0–M8 milestones and Portuguese research notes are preserved in
 The optional **AutoLog ELF preview** of the official releases reads game logs on the PS5 and
 sends them to the developer of the official build, without a PC. It is loaded separately once per
 console boot. Before enabling it, read the [reporting notice and instructions](native/autolog/README.md)
-(opt-out and limits); for the optional PC fallback see [AutoLog setup](docs/AUTOLOG.md).
+(opt-out and limits); for the optional PC fallback see [AutoLog setup](docs/AUTOLOG.md). It reads
+the official app's logs in `/data/homebrew/PPSA50011/logs`, so it does not see PS5X360Reloaded's
+logs (`/data/homebrew/PPSA83600/logs`).
