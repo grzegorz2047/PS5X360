@@ -9,6 +9,13 @@
 #include "../port/stall_dump.hpp"  // the assembled tree's port/ (run from <tree>/tools)
 #include "xenia/kernel/object_history.h"
 #include "xenia/gpu/cp_trace.h"
+// Fix 45: the thread a guest crash stopped (port/guest_crash.hpp; absent when fix 45 is left out).
+#if __has_include("../port/guest_crash.hpp")
+#include "../port/guest_crash.hpp"
+#define CHECK_GUEST_CRASH 1
+#else
+#define CHECK_GUEST_CRASH 0
+#endif
 
 #include <cassert>
 #include <cstdint>
@@ -136,6 +143,25 @@ void ThreadStates() {
   assert(sd::Classify(false, false, false) == ThreadState::kNotStarted);
   assert(std::string(sd::ThreadStateName(ThreadState::kExited)) == "exited (object still referenced)");
   std::printf("  thread states: running, exited (object still referenced), not started\n");
+}
+// Fix 45: after a guest crash the faulting thread sits in the exception handler, which the wait
+// text calls "not in a wait"; the report names it as crashed instead, and only that thread.
+void CrashedThread() {
+#if CHECK_GUEST_CRASH
+  namespace gc = xbox360ps5::guest_crash;
+  gc::Recorder recorder;
+  assert(gc::ThreadNote(recorder.Get(), 0xF8000104, 21000).empty());  // nothing crashed: wait text
+  // Minecraft on the v1.0.3 draft: thread F8000104 read guest address 0 at 824F849C.
+  recorder.Record(0x824F849C, 0xF8000104, 0x0000001000000000ull, 5000);
+  const gc::Crash crash = recorder.Get();
+  assert(gc::ThreadNote(crash, 0xF8000104, 21000) ==
+         "crashed at PC 824F849C (access violation at 0000001000000000), 16 s ago");
+  assert(gc::ThreadNote(crash, 0xF8000110, 21000).empty());  // the Server thread: its wait text
+  assert(gc::ThreadNote(crash, 0xF8000008, 21000).empty());  // the main thread spinning: likewise
+  std::printf("  a crashed thread: \"crashed at PC ...\", not \"not in a wait\"\n");
+#else
+  std::printf("  a crashed thread: fix 45 left out, not checked\n");
+#endif
 }
 
 void CallsDecoded() {
@@ -346,6 +372,7 @@ int main() {
   BackChainStops();
   DataPointers();
   ThreadStates();
+  CrashedThread();
   CallsDecoded();
   ChangesOverTime();
   ObjectHistory();

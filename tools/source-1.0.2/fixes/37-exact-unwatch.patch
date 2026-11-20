@@ -1,0 +1,131 @@
+diff --git a/.deps/xenia-canary/src/xenia/exact_unwatch.h b/.deps/xenia-canary/src/xenia/exact_unwatch.h
+new file mode 100644
+index 0000000..f45732c
+--- /dev/null
++++ b/.deps/xenia-canary/src/xenia/exact_unwatch.h
+@@ -0,0 +1,63 @@
++/**
++ ******************************************************************************
++ * Xbox360PS5: fix 37, exact invalidations stay exact on 16 KiB host pages.   *
++ ******************************************************************************
++ * PhysicalHeap::TriggerCallbacks with unwatch_exact_range (Alloc, AllocRange,
++ * Decommit, Release, Protect) still widened the range to whole host pages
++ * before calling the invalidation callbacks, and unprotected and unwatched
++ * those whole pages. On the PS5 a host page is 16 KiB (four guest 4 KiB pages,
++ * and the 0xE0000000 view is offset by 4 KiB), so allocating, freeing or
++ * reprotecting one 4 KiB page cleared the GPU copy of up to three neighbouring
++ * pages (shared_memory.cc dropped their valid and GPU-written bits: a resolve
++ * target next to a new allocation lost the picture the GPU drew there, read back
++ * from guest memory that never had it) and left them unwatched.
++ *
++ * Now the callbacks get the exact physical range, and only host pages lying
++ * wholly inside it are unprotected and unwatched; a page shared with memory
++ * outside the range keeps its protection and watch, so its other pages stay
++ * valid and a write to the range's part of it faults and invalidates as usual.
++ ******************************************************************************
++ */
++
++#ifndef XENIA_EXACT_UNWATCH_H_
++#define XENIA_EXACT_UNWATCH_H_
++
++#include <algorithm>
++#include <cstdint>
++
++namespace xe {
++namespace exact_unwatch {
++
++struct Range {
++  uint32_t physical_start;   // for the invalidation callbacks
++  uint32_t physical_length;
++  bool pages;                // any host page wholly inside
++  uint32_t page_first;       // host pages wholly inside (if `pages`)
++  uint32_t page_last;
++};
++
++// `heap_relative` and `length` as clamped to the heap; host pages of
++// 1 << page_shift bytes start `host_offset` bytes before the heap's address 0;
++// `physical_offset` is the heap base's physical address; `page_count` host
++// pages in the heap.
++inline Range Compute(uint32_t heap_relative, uint32_t length,
++                     uint32_t host_offset, uint32_t page_shift,
++                     uint32_t physical_offset, uint32_t page_count) {
++  Range r;
++  r.physical_start = heap_relative + physical_offset;
++  r.physical_length = length;
++  const uint64_t page = uint64_t(1) << page_shift;
++  const uint64_t host_first = uint64_t(heap_relative) + host_offset;
++  const uint64_t first = (host_first + page - 1) >> page_shift;
++  const uint64_t end = (host_first + length) >> page_shift;  // exclusive
++  r.pages = end > first && first < page_count;
++  r.page_first = uint32_t(first);
++  r.page_last =
++      r.pages ? uint32_t(std::min<uint64_t>(end, page_count) - 1) : 0;
++  return r;
++}
++
++}  // namespace exact_unwatch
++}  // namespace xe
++
++#endif  // XENIA_EXACT_UNWATCH_H_
+diff --git a/.deps/xenia-canary/src/xenia/memory.cc b/.deps/xenia-canary/src/xenia/memory.cc
+index 46c7818..043e509 100644
+--- a/.deps/xenia-canary/src/xenia/memory.cc
++++ b/.deps/xenia-canary/src/xenia/memory.cc
+@@ -8,6 +8,7 @@
+  */
+ 
+ #include "xenia/memory.h"
++#include "xenia/exact_unwatch.h"
+ 
+ #include <cstring>
+ #include <random>
+@@ -2414,6 +2415,8 @@ bool PhysicalHeap::TriggerCallbacks(
+   }
+ 
+   // Trigger callbacks.
++  // Xbox360PS5 (fix 37): what the caller asked for, before the line below.
++  const bool caller_exact = unwatch_exact_range;
+   if (!unprotect) {
+     // If not doing anything with protection, no point in unwatching excess
+     // pages.
+@@ -2429,6 +2432,19 @@ bool PhysicalHeap::TriggerCallbacks(
+                   host_address_offset()) +
+           physical_address_offset - physical_address_start,
+       heap_size_ - (physical_address_start - physical_address_offset));
++#if XE_PLATFORM_PS5
++  // Xbox360PS5 (fix 37): an exact request invalidates its exact range, not the
++  // whole 16 KiB host pages around it (exact_unwatch.h); 1.0.2 dropped the GPU
++  // copy of up to three neighbouring 4 KiB pages at each allocation.
++  exact_unwatch::Range exact = {};
++  if (caller_exact) {
++    exact = exact_unwatch::Compute(heap_relative_address, length,
++                                   host_address_offset(), system_page_shift_,
++                                   physical_address_offset, system_page_count_);
++    physical_address_start = exact.physical_start;
++    physical_length = exact.physical_length;
++  }
++#endif
+   uint32_t unwatch_first = 0;
+   uint32_t unwatch_last = UINT32_MAX;
+ #if XE_PLATFORM_PS5
+@@ -2514,6 +2530,20 @@ bool PhysicalHeap::TriggerCallbacks(
+     block_index_last = system_page_last >> 6;
+   }
+ 
++#if XE_PLATFORM_PS5
++  // Fix 37: only host pages wholly inside an exact range are unprotected and
++  // unwatched; one shared with memory outside it keeps its protection and
++  // watch (a write to the range's part faults and invalidates as usual).
++  if (caller_exact) {
++    if (!exact.pages) {
++      return true;
++    }
++    system_page_first = exact.page_first;
++    system_page_last = exact.page_last;
++    block_index_first = system_page_first >> 6;
++    block_index_last = system_page_last >> 6;
++  }
++#endif
+   // Unprotect ranges that need unprotection.
+   if (unprotect) {
+     uint8_t* protect_base = membase_ + heap_base_;

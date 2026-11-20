@@ -210,6 +210,15 @@ USB drive usb5 = Unidade USB usb5
 USB drive usb6 = Unidade USB usb6
 USB drive usb7 = Unidade USB usb7
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \ssem\scapa\sno\sXboxUnity\snem\sna\sMicrosoft
+# Fix 45: the overlay's notice after a guest crash (the same two keys in every section).
+The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = O jogo travou e o emulador o pausou. Touchpad: guia, depois Fechar o jogo e voltar ao menu
+The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = O jogo travou e o emulador o pausou. OPTIONS + touchpad: guia, depois Fechar o jogo e voltar ao menu
+# Fix 46: the notices after the first start's copy from the official PS5X360 (the same five keys in every section).
+Saves and settings were copied from PS5X360. Its own files were not changed. = Os salvamentos e as configurações foram copiados do PS5X360. Os arquivos dele não foram alterados.
+Saves and settings were not copied from PS5X360: not enough free space. = Os salvamentos e as configurações não foram copiados do PS5X360: falta espaço livre.
+Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed. = Alguns salvamentos ou configurações não puderam ser copiados do PS5X360 (o log os lista). Os arquivos dele não foram alterados.
+Saves were not copied from PS5X360: this app already has saves of its own. = Os salvamentos não foram copiados do PS5X360: este app já tem salvamentos próprios.
+Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Os salvamentos e as configurações não foram copiados do PS5X360: uma pasta não pôde ser verificada (o log diz o motivo). A próxima inicialização tenta de novo.
 
 [added pt]
 Console storage = Armazenamento da consola
@@ -237,6 +246,13 @@ USB drive usb5 = Unidade USB usb5
 USB drive usb6 = Unidade USB usb6
 USB drive usb7 = Unidade USB usb7
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \ssem\scapa\sno\sXboxUnity\snem\sna\sMicrosoft
+The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = O jogo bloqueou e o emulador colocou-o em pausa. Touchpad: guia, depois Fechar o jogo e voltar ao menu
+The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = O jogo bloqueou e o emulador colocou-o em pausa. OPTIONS + touchpad: guia, depois Fechar o jogo e voltar ao menu
+Saves and settings were copied from PS5X360. Its own files were not changed. = Os jogos guardados e as definições foram copiados do PS5X360. Os ficheiros dele não foram alterados.
+Saves and settings were not copied from PS5X360: not enough free space. = Os jogos guardados e as definições não foram copiados do PS5X360: não há espaço livre suficiente.
+Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed. = Alguns jogos guardados ou definições não puderam ser copiados do PS5X360 (o registo indica quais). Os ficheiros dele não foram alterados.
+Saves were not copied from PS5X360: this app already has saves of its own. = Os jogos guardados não foram copiados do PS5X360: esta aplicação já tem jogos guardados próprios.
+Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Os jogos guardados e as definições não foram copiados do PS5X360: não foi possível verificar uma pasta (o registo indica o motivo). O próximo arranque tenta novamente.
 
 [added es]
 Console storage = Almacenamiento de la consola
@@ -264,6 +280,13 @@ USB drive usb5 = Unidad USB usb5
 USB drive usb6 = Unidad USB usb6
 USB drive usb7 = Unidad USB usb7
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \ssin\sportada\sen\sXboxUnity\sni\sen\sMicrosoft
+The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = El juego se ha bloqueado y el emulador lo ha pausado. Touchpad: guía, luego Close the game and return to the menu
+The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = El juego se ha bloqueado y el emulador lo ha pausado. OPTIONS + touchpad: guía, luego Close the game and return to the menu
+Saves and settings were copied from PS5X360. Its own files were not changed. = Las partidas guardadas y los ajustes se han copiado de PS5X360. Sus propios archivos no se han modificado.
+Saves and settings were not copied from PS5X360: not enough free space. = Las partidas guardadas y los ajustes no se han copiado de PS5X360: no hay suficiente espacio libre.
+Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed. = Algunas partidas guardadas o ajustes no se han podido copiar de PS5X360 (el registro los indica). Sus propios archivos no se han modificado.
+Saves were not copied from PS5X360: this app already has saves of its own. = Las partidas guardadas no se han copiado de PS5X360: esta aplicación ya tiene sus propias partidas guardadas.
+Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Las partidas guardadas y los ajustes no se han copiado de PS5X360: no se ha podido comprobar una carpeta (el registro indica el motivo). El próximo inicio lo intentará de nuevo.
 
 [added es-419]
 Console storage = Almacenamiento de la consola
@@ -291,6 +314,13 @@ USB drive usb5 = Unidad USB usb5
 USB drive usb6 = Unidad USB usb6
 USB drive usb7 = Unidad USB usb7
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \ssin\sportada\sen\sXboxUnity\sni\sen\sMicrosoft
+The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = El juego falló y el emulador lo pausó. Touchpad: guía, luego Cerrar el juego y volver al menú
+The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = El juego falló y el emulador lo pausó. OPTIONS + touchpad: guía, luego Cerrar el juego y volver al menú
+Saves and settings were copied from PS5X360. Its own files were not changed. = Las partidas guardadas y la configuración se copiaron de PS5X360. Sus propios archivos no se modificaron.
+Saves and settings were not copied from PS5X360: not enough free space. = Las partidas guardadas y la configuración no se copiaron de PS5X360: no hay suficiente espacio libre.
+Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed. = Algunas partidas guardadas o parte de la configuración no se pudieron copiar de PS5X360 (el registro las indica). Sus propios archivos no se modificaron.
+Saves were not copied from PS5X360: this app already has saves of its own. = Las partidas guardadas no se copiaron de PS5X360: esta aplicación ya tiene sus propias partidas guardadas.
+Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Las partidas guardadas y la configuración no se copiaron de PS5X360: no se pudo comprobar una carpeta (el registro indica el motivo). El próximo inicio lo intentará de nuevo.
 
 [added de]
 Console storage = Konsolenspeicher
@@ -318,6 +348,13 @@ USB drive usb5 = USB-Laufwerk usb5
 USB drive usb6 = USB-Laufwerk usb6
 USB drive usb7 = USB-Laufwerk usb7
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \sohne\sCover\sbei\sXboxUnity\soder\sauf\sdem\sServer\svon\sMicrosoft
+The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = Das Spiel ist abgestürzt und der Emulator hat es angehalten. Touchpad: Guide, dann Spiel schließen und zum Menü zurückkehren
+The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = Das Spiel ist abgestürzt und der Emulator hat es angehalten. OPTIONS + Touchpad: Guide, dann Spiel schließen und zum Menü zurückkehren
+Saves and settings were copied from PS5X360. Its own files were not changed. = Spielstände und Einstellungen wurden aus PS5X360 kopiert. Dessen eigene Dateien wurden nicht geändert.
+Saves and settings were not copied from PS5X360: not enough free space. = Spielstände und Einstellungen wurden nicht aus PS5X360 kopiert: nicht genügend freier Speicherplatz.
+Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed. = Einige Spielstände oder Einstellungen konnten nicht aus PS5X360 kopiert werden (das Protokoll nennt sie). Dessen eigene Dateien wurden nicht geändert.
+Saves were not copied from PS5X360: this app already has saves of its own. = Spielstände wurden nicht aus PS5X360 kopiert: Diese App hat bereits eigene Spielstände.
+Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Spielstände und Einstellungen wurden nicht aus PS5X360 kopiert: Ein Ordner konnte nicht geprüft werden (das Protokoll nennt den Grund). Der nächste Start versucht es erneut.
 
 [added fr]
 Console storage = Stockage de la console
@@ -345,6 +382,13 @@ USB drive usb5 = Périphérique USB usb5
 USB drive usb6 = Périphérique USB usb6
 USB drive usb7 = Périphérique USB usb7
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \ssans\sjaquette\ssur\sXboxUnity\sni\ssur\sle\sserveur\sde\sMicrosoft
+The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = Le jeu a planté et l'émulateur l'a mis en pause. Pavé tactile : guide, puis Fermer le jeu et revenir au menu
+The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = Le jeu a planté et l'émulateur l'a mis en pause. OPTIONS + pavé tactile : guide, puis Fermer le jeu et revenir au menu
+Saves and settings were copied from PS5X360. Its own files were not changed. = Les sauvegardes et les réglages ont été copiés depuis PS5X360. Ses propres fichiers n'ont pas été modifiés.
+Saves and settings were not copied from PS5X360: not enough free space. = Les sauvegardes et les réglages n'ont pas été copiés depuis PS5X360 : espace libre insuffisant.
+Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed. = Certaines sauvegardes ou certains réglages n'ont pas pu être copiés depuis PS5X360 (le journal les indique). Ses propres fichiers n'ont pas été modifiés.
+Saves were not copied from PS5X360: this app already has saves of its own. = Les sauvegardes n'ont pas été copiées depuis PS5X360 : cette application a déjà ses propres sauvegardes.
+Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Les sauvegardes et les réglages n'ont pas été copiés depuis PS5X360 : un dossier n'a pas pu être vérifié (le journal indique pourquoi). Le prochain démarrage réessaiera.
 
 [added it]
 Console storage = Memoria della console
@@ -372,6 +416,13 @@ USB drive usb5 = Unità USB usb5
 USB drive usb6 = Unità USB usb6
 USB drive usb7 = Unità USB usb7
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \ssenza\scopertina\ssu\sXboxUnity\sné\ssul\sserver\sdi\sMicrosoft
+The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = Il gioco si è bloccato e l'emulatore lo ha messo in pausa. Touchpad: guida, poi Chiudi il gioco e torna al menu
+The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = Il gioco si è bloccato e l'emulatore lo ha messo in pausa. OPTIONS + touchpad: guida, poi Chiudi il gioco e torna al menu
+Saves and settings were copied from PS5X360. Its own files were not changed. = Salvataggi e impostazioni sono stati copiati da PS5X360. I suoi file non sono stati modificati.
+Saves and settings were not copied from PS5X360: not enough free space. = Salvataggi e impostazioni non sono stati copiati da PS5X360: spazio libero insufficiente.
+Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed. = Alcuni salvataggi o impostazioni non sono stati copiati da PS5X360 (il registro li elenca). I suoi file non sono stati modificati.
+Saves were not copied from PS5X360: this app already has saves of its own. = I salvataggi non sono stati copiati da PS5X360: questa app ha già salvataggi propri.
+Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Salvataggi e impostazioni non sono stati copiati da PS5X360: non è stato possibile controllare una cartella (il registro indica il motivo). Il prossimo avvio riproverà.
 
 [added ja]
 Console storage = 本体ストレージ
@@ -399,6 +450,13 @@ USB drive usb5 = USBドライブ usb5
 USB drive usb6 = USBドライブ usb6
 USB drive usb7 = USBドライブ usb7
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \sXboxUnity\sにも\sMicrosoft\sのサーバーにもカバーなし
+The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = ゲームがクラッシュし、エミュレーターが一時停止しました。タッチパッド：ガイド、次に「ゲームを閉じてメニューに戻る」
+The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = ゲームがクラッシュし、エミュレーターが一時停止しました。OPTIONS ＋ タッチパッド：ガイド、次に「ゲームを閉じてメニューに戻る」
+Saves and settings were copied from PS5X360. Its own files were not changed. = PS5X360 からセーブデータと設定をコピーしました。PS5X360 のファイルは変更されていません。
+Saves and settings were not copied from PS5X360: not enough free space. = PS5X360 からセーブデータと設定をコピーできませんでした：空き容量が足りません。
+Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed. = PS5X360 から一部のセーブデータまたは設定をコピーできませんでした（ログに記録されています）。PS5X360 のファイルは変更されていません。
+Saves were not copied from PS5X360: this app already has saves of its own. = PS5X360 からセーブデータをコピーしませんでした：このアプリにはすでに独自のセーブデータがあります。
+Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = PS5X360 からセーブデータと設定をコピーできませんでした：フォルダーを確認できませんでした（理由はログに記録されています）。次回の起動時に再試行します。
 
 [added ko]
 Console storage = 본체 저장 공간
@@ -426,6 +484,13 @@ USB drive usb5 = USB 드라이브 usb5
 USB drive usb6 = USB 드라이브 usb6
 USB drive usb7 = USB 드라이브 usb7
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \sXboxUnity와\sMicrosoft\s서버에\s표지\s없음
+The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = 게임이 충돌하여 에뮬레이터가 일시 중지했습니다. 터치패드: 가이드, 그다음 게임을 닫고 메뉴로 돌아가기
+The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = 게임이 충돌하여 에뮬레이터가 일시 중지했습니다. OPTIONS + 터치패드: 가이드, 그다음 게임을 닫고 메뉴로 돌아가기
+Saves and settings were copied from PS5X360. Its own files were not changed. = PS5X360에서 저장 데이터와 설정을 복사했습니다. PS5X360의 파일은 변경되지 않았습니다.
+Saves and settings were not copied from PS5X360: not enough free space. = PS5X360에서 저장 데이터와 설정을 복사하지 못했습니다: 여유 공간이 부족합니다.
+Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed. = PS5X360에서 일부 저장 데이터 또는 설정을 복사하지 못했습니다(로그에 기록됨). PS5X360의 파일은 변경되지 않았습니다.
+Saves were not copied from PS5X360: this app already has saves of its own. = PS5X360에서 저장 데이터를 복사하지 않았습니다: 이 앱에 이미 자체 저장 데이터가 있습니다.
+Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = PS5X360에서 저장 데이터와 설정을 복사하지 못했습니다: 폴더를 확인할 수 없었습니다(로그에 이유가 기록됨). 다음 시작 시 다시 시도합니다.
 
 [added nl]
 Console storage = Consoleopslag
@@ -453,6 +518,13 @@ USB drive usb5 = USB-station usb5
 USB drive usb6 = USB-station usb6
 USB drive usb7 = USB-station usb7
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \szonder\shoes\sop\sXboxUnity\sof\sde\sserver\svan\sMicrosoft
+The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = De game is gecrasht en de emulator heeft hem gepauzeerd. Touchpad: gids, daarna Game sluiten en terug naar het menu
+The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = De game is gecrasht en de emulator heeft hem gepauzeerd. OPTIONS + touchpad: gids, daarna Game sluiten en terug naar het menu
+Saves and settings were copied from PS5X360. Its own files were not changed. = Opgeslagen spellen en instellingen zijn gekopieerd uit PS5X360. De eigen bestanden daarvan zijn niet gewijzigd.
+Saves and settings were not copied from PS5X360: not enough free space. = Opgeslagen spellen en instellingen zijn niet gekopieerd uit PS5X360: onvoldoende vrije ruimte.
+Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed. = Sommige opgeslagen spellen of instellingen konden niet uit PS5X360 worden gekopieerd (het logboek noemt ze). De eigen bestanden daarvan zijn niet gewijzigd.
+Saves were not copied from PS5X360: this app already has saves of its own. = Opgeslagen spellen zijn niet gekopieerd uit PS5X360: deze app heeft al eigen opgeslagen spellen.
+Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Opgeslagen spellen en instellingen zijn niet gekopieerd uit PS5X360: een map kon niet worden gecontroleerd (het logboek noemt de reden). De volgende start probeert het opnieuw.
 
 [added pl]
 Console storage = Pamięć konsoli
@@ -480,6 +552,13 @@ USB drive usb5 = Dysk USB usb5
 USB drive usb6 = Dysk USB usb6
 USB drive usb7 = Dysk USB usb7
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \sbez\sokładki\sw\sXboxUnity\sani\sna\sserwerze\sMicrosoftu
+The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = Gra uległa awarii i emulator ją wstrzymał. Touchpad: przewodnik, potem Zamknij grę i wróć do menu
+The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = Gra uległa awarii i emulator ją wstrzymał. OPTIONS + touchpad: przewodnik, potem Zamknij grę i wróć do menu
+Saves and settings were copied from PS5X360. Its own files were not changed. = Zapisy i ustawienia zostały skopiowane z PS5X360. Jego własne pliki nie zostały zmienione.
+Saves and settings were not copied from PS5X360: not enough free space. = Zapisy i ustawienia nie zostały skopiowane z PS5X360: za mało wolnego miejsca.
+Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed. = Części zapisów lub ustawień nie udało się skopiować z PS5X360 (log je wymienia). Jego własne pliki nie zostały zmienione.
+Saves were not copied from PS5X360: this app already has saves of its own. = Zapisy nie zostały skopiowane z PS5X360: ta aplikacja ma już własne zapisy.
+Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Zapisy i ustawienia nie zostały skopiowane z PS5X360: nie udało się sprawdzić folderu (log podaje powód). Następne uruchomienie spróbuje ponownie.
 
 [added ru]
 Console storage = Память консоли
@@ -507,6 +586,13 @@ USB drive usb5 = USB-накопитель usb5
 USB drive usb6 = USB-накопитель usb6
 USB drive usb7 = USB-накопитель usb7
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \sбез\sобложки\sна\sXboxUnity\sи\sна\sсервере\sMicrosoft
+The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = Игра завершилась со сбоем, и эмулятор приостановил её. Сенсорная панель: меню, затем Закрыть игру и вернуться в меню
+The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = Игра завершилась со сбоем, и эмулятор приостановил её. OPTIONS + сенсорная панель: меню, затем Закрыть игру и вернуться в меню
+Saves and settings were copied from PS5X360. Its own files were not changed. = Сохранения и настройки скопированы из PS5X360. Его собственные файлы не изменены.
+Saves and settings were not copied from PS5X360: not enough free space. = Сохранения и настройки не скопированы из PS5X360: недостаточно свободного места.
+Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed. = Некоторые сохранения или настройки не удалось скопировать из PS5X360 (они указаны в журнале). Его собственные файлы не изменены.
+Saves were not copied from PS5X360: this app already has saves of its own. = Сохранения не скопированы из PS5X360: у этого приложения уже есть собственные сохранения.
+Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Сохранения и настройки не скопированы из PS5X360: не удалось проверить папку (причина указана в журнале). При следующем запуске будет новая попытка.
 
 [added tr]
 Console storage = Konsol depolama alanı
@@ -534,6 +620,13 @@ USB drive usb5 = USB sürücü usb5
 USB drive usb6 = USB sürücü usb6
 USB drive usb7 = USB sürücü usb7
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \sXboxUnity'de\sve\sMicrosoft\ssunucusunda\skapak\syok
+The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = Oyun çöktü ve emülatör onu duraklattı. Dokunmatik yüzey: rehber, ardından Oyunu kapat ve menüye dön
+The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = Oyun çöktü ve emülatör onu duraklattı. OPTIONS + dokunmatik yüzey: rehber, ardından Oyunu kapat ve menüye dön
+Saves and settings were copied from PS5X360. Its own files were not changed. = Kayıtlar ve ayarlar PS5X360'tan kopyalandı. Onun kendi dosyaları değiştirilmedi.
+Saves and settings were not copied from PS5X360: not enough free space. = Kayıtlar ve ayarlar PS5X360'tan kopyalanmadı: yeterli boş alan yok.
+Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed. = Bazı kayıtlar veya ayarlar PS5X360'tan kopyalanamadı (günlükte listelenir). Onun kendi dosyaları değiştirilmedi.
+Saves were not copied from PS5X360: this app already has saves of its own. = Kayıtlar PS5X360'tan kopyalanmadı: bu uygulamanın zaten kendi kayıtları var.
+Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Kayıtlar ve ayarlar PS5X360'tan kopyalanmadı: bir klasör denetlenemedi (nedeni günlükte yazıyor). Bir sonraki başlatmada yeniden denenecek.
 
 [added zh-Hans]
 Console storage = 主机存储空间
@@ -561,6 +654,13 @@ USB drive usb5 = USB 驱动器 usb5
 USB drive usb6 = USB 驱动器 usb6
 USB drive usb7 = USB 驱动器 usb7
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \sXboxUnity\s和微软服务器上都没有封面
+The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = 游戏崩溃，模拟器已将其暂停。触摸板：指南，然后选择关闭游戏并返回菜单
+The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = 游戏崩溃，模拟器已将其暂停。OPTIONS + 触摸板：指南，然后选择关闭游戏并返回菜单
+Saves and settings were copied from PS5X360. Its own files were not changed. = 已从 PS5X360 复制存档和设置。PS5X360 自身的文件未被更改。
+Saves and settings were not copied from PS5X360: not enough free space. = 未从 PS5X360 复制存档和设置：可用空间不足。
+Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed. = 部分存档或设置未能从 PS5X360 复制（日志中列出）。PS5X360 自身的文件未被更改。
+Saves were not copied from PS5X360: this app already has saves of its own. = 未从 PS5X360 复制存档：此应用已有自己的存档。
+Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = 未从 PS5X360 复制存档和设置：无法检查某个文件夹（原因见日志）。下次启动时将重试。
 
 [added zh-Hant]
 Console storage = 主機儲存空間
@@ -588,3 +688,10 @@ USB drive usb5 = USB 磁碟機 usb5
 USB drive usb6 = USB 磁碟機 usb6
 USB drive usb7 = USB 磁碟機 usb7
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \sXboxUnity\s和微軟伺服器上都沒有封面
+The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = 遊戲當機，模擬器已將其暫停。觸控板：指南，然後選擇關閉遊戲並返回選單
+The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = 遊戲當機，模擬器已將其暫停。OPTIONS + 觸控板：指南，然後選擇關閉遊戲並返回選單
+Saves and settings were copied from PS5X360. Its own files were not changed. = 已從 PS5X360 複製存檔和設定。PS5X360 本身的檔案未被變更。
+Saves and settings were not copied from PS5X360: not enough free space. = 未從 PS5X360 複製存檔和設定：可用空間不足。
+Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed. = 部分存檔或設定未能從 PS5X360 複製（記錄中列出）。PS5X360 本身的檔案未被變更。
+Saves were not copied from PS5X360: this app already has saves of its own. = 未從 PS5X360 複製存檔：此應用程式已有自己的存檔。
+Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = 未從 PS5X360 複製存檔和設定：無法檢查某個資料夾（原因見記錄）。下次啟動時將重試。

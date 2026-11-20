@@ -469,7 +469,7 @@ def is_release(argument, environment):
 def resolve_version(argument, environment, build_version=HERE / 'BUILD_VERSION', release=False):
     """The version label of this build and where it came from, as (version, source).
 
-    The label on the home screen ("PS5X360 v<VERSION>") is --version, else PS5X360_BUILD_VERSION,
+    The label on the home screen ("PS5X360Reloaded v<VERSION>", fix 46) is --version, else PS5X360_BUILD_VERSION,
     else tools/source-1.0.2/BUILD_VERSION, bumped for every console test build
     (1.0.3_candidate_N) so the running build is visible, else 1.0.2. A blank override counts as
     unset. A release takes its version only from --version or PS5X360_BUILD_VERSION, never from

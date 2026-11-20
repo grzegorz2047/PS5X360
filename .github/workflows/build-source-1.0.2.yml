@@ -15,7 +15,7 @@ name: Rebuild v1.0.2 from source drops (not for release)
 # Release mode (workflow_call from release-source.yml with release: true and version: X.Y.Z):
 # the version label is that version (assemble.py --release, PS5X360_BUILD_VERSION) instead of
 # tools/source-1.0.2/BUILD_VERSION's candidate label, no fix is left out, and after the link
-# tools/source-1.0.2/check_release_elf.py checks eboot.elf/eboot.bin carry "PS5X360 v<version>"
+# tools/source-1.0.2/check_release_elf.py checks eboot.elf/eboot.bin carry "PS5X360Reloaded v<version>"
 # and "BOOT version <version>" and no candidate label, and SOURCES.json leaves no fix out. Only
 # then is the artifact named eboot-<version>-from-source (a failed release run uploads its logs
 # under the old NOT-FOR-RELEASE name), and the assembled tree build/src102 goes out as the GPL-3.0
@@ -27,6 +27,14 @@ on:
     inputs:
       skip_fixes:
         description: Fixes to leave out of this build (comma-separated, e.g. 01), for a test build
+        required: false
+        default: ''
+      lto:
+        description: thin for ThinLTO of the core and the title (GitHub issue 2), empty for none
+        required: false
+        default: ''
+      title_opt:
+        description: Optimization level of the title objects (default -O2 as 1.0.2; -O3 for a test build)
         required: false
         default: ''
   workflow_call:
@@ -198,6 +206,8 @@ jobs:
         run: |
           set -o pipefail
           export CCACHE_DIR=$HOME/.cache/ccache CCACHE_MAXSIZE=2G CCACHE_BASEDIR=$GITHUB_WORKSPACE CCACHE_COMPILERCHECK=content
+          export PS5X360_LTO='${{ inputs.lto }}'
+          export PS5X360_TITLE_OPT='${{ inputs.title_opt }}'
           bash tools/source-1.0.2/build.sh build/src102 build/src102-out 2>&1 | tee build/src102-build.log
           ccache -s || true
 

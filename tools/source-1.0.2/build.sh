@@ -22,6 +22,20 @@ if command -v ccache > /dev/null; then
   launcher=(-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache)
 fi
 log() { printf '\n=== %s\n' "$*"; }
+# PS5X360_LTO=thin: ThinLTO for the core and the title (GitHub issue 2): bitcode objects, archives
+# made by llvm-ar (an index lld can read), and the link optimizes across them.
+lto=${PS5X360_LTO:-}
+cmake_lto=()
+link_lto=()
+if [[ $lto == thin ]]; then
+  cmake_lto=(-DPS5X360_LTO=thin -DCMAKE_AR="$(command -v llvm-ar-18)" -DCMAKE_RANLIB="$(command -v llvm-ranlib-18)")
+  link_lto=(--lto-O3 "--thinlto-jobs=$jobs")
+elif [[ -n $lto ]]; then
+  echo "PS5X360_LTO=$lto: only thin is known" >&2
+  exit 1
+fi
+# PS5X360_TITLE_OPT=-O3: the title objects at another level (default -O2, as 1.0.2), for a test build.
+if [[ -n ${PS5X360_TITLE_OPT:-} ]]; then cmake_lto+=("-DPS5X360_TITLE_OPT=$PS5X360_TITLE_OPT"); fi
 
 log 'AGC import stubs'
 for pair in 'libSceAgc:agc_canary_link_stub.c' 'libSceAgcDriver:agc_driver_canary_link_stub.c'; do
@@ -38,7 +52,27 @@ ninja -C "$build/net-libs" -j"$jobs" wolfssl libcurl_static cacert libminiupnpc-
 
 log 'Configure core and title'
 cmake -S "$tree/canary" -B "$build/canary" -G Ninja -DCMAKE_BUILD_TYPE=Release "${launcher[@]}" \
-  -DCMAKE_TOOLCHAIN_FILE="$sdk/toolchain/prospero.cmake"
+  -DCMAKE_TOOLCHAIN_FILE="$sdk/toolchain/prospero.cmake" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+  "${cmake_lto[@]}"
+# GitHub issue 2: the optimization, target and LTO flags each part is compiled with (the last -O
+# wins), from the compile commands.
+log 'Compile flags in effect'
+python3 - "$build/canary/compile_commands.json" <<'PY'
+import json, shlex, sys
+commands = json.load(open(sys.argv[1]))
+samples = {'core (x64 JIT)': 'xenia/cpu/backend/x64/x64_emitter.cc',
+           'core (GPU)': 'xenia/gpu/vulkan/vulkan_command_processor.cc',
+           'title': 'src/canary_game_main.cpp', 'title (platform)': 'platform/ps5/memory_ps5.cpp'}
+for label, tail in samples.items():
+    entry = next((c for c in commands if c['file'].endswith(tail)), None)
+    if not entry:
+        print(f'{label}: {tail} not compiled')
+        continue
+    args = shlex.split(entry['command']) if 'command' in entry else entry['arguments']
+    opts = [a for a in args if a.startswith(('-O', '-march', '-mavx', '-mfma', '-mbmi', '-flto'))]
+    level = [a for a in opts if a.startswith('-O')]
+    print(f'{label} ({tail}): {" ".join(opts)} -> {level[-1] if level else "no -O"}')
+PY
 # core commit (begin): git in an assembled tree; the GPL source tarball has no .git, so the
 # commit SOURCES.json records as core.base (the same HEAD, the fixes are not committed).
 if [[ -e "$tree/.deps/xenia-canary/.git" ]]; then
@@ -97,7 +131,7 @@ net_archives=("$build/net-libs/libcurl/lib/libcurl.a" "$build/net-libs/wolfssl/l
                "$build/net-libs/libcacert.a" "$build/net-libs/miniupnpc/libminiupnpc.a")
 for archive in "${net_archives[@]}"; do [[ -f $archive ]] || { echo "missing $archive" >&2; find "$build/net-libs" -name '*.a'; exit 1; }; done
 link_native() {
-  "$sdk/bin/prospero-lld" "${radv_linker_script[@]}" --eh-frame-hdr --gc-sections --error-limit=0 "$@" \
+  "$sdk/bin/prospero-lld" "${radv_linker_script[@]}" --eh-frame-hdr --gc-sections --error-limit=0 "${link_lto[@]}" "$@" \
     "${radv_link_flags[@]}" --wrap=mmap --wrap=mprotect --wrap=munmap --wrap=ffs --wrap=stat --wrap=lstat \
     --wrap=timegm --wrap=getaddrinfo --wrap=freeaddrinfo --wrap=gai_strerror --wrap=getnameinfo \
     --wrap=fnmatch --wrap=curlx_nonblock \

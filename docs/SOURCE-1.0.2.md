@@ -176,7 +176,7 @@ the source-only fixes 20 and up; the console results of those builds are in the
 | 3 | no 256-byte XMM copy for access violations | ported (`03`) | general registers always copied (as in the binary); a handler that changes an XMM register without its state copied is passed on rather than writing zeros (no handler does today) |
 | 4 | GPU command thread on its own core (CPU 2) | ported (`04`) | the dedicated core is on from the start instead of two forced branches |
 | 5 | FSI choice files in `/download0/xbox360ps5` | ported (`05`) | same file names as the binary release (`fsi.c`, `fsi.1`, `fsi.c.new`), so a choice survives switching builds; the official `/app0/render-target-fsi.conf` is still read when there is no `fsi.c` |
-| 6 | caches in `/data/homebrew/PPSA50011/cache` | ported (`06`) | `/app0/cache` stays as the second candidate (the binary replaced it) |
+| 6 | caches in `/data/homebrew/PPSA50011/cache` (`/data/homebrew/PPSA83600/cache` since fix 46) | ported (`06`) | `/app0/cache` stays as the second candidate (the binary replaced it) |
 | 7 | Vulkan cache exit checkpoint 30 s | ported (`07`) | none |
 | 8 | selective pipeline waits (RT0 overwritten, ≤ 6 indices or target ≤ 256 px) | ported (`08`) | none |
 | 8b | those pipelines compile first (priority 4) | ported (`08b`) | none |
@@ -187,6 +187,18 @@ the source-only fixes 20 and up; the console results of those builds are in the
 | 13 | per-game `fsi` option (Desligada / Padrão / Ligada) | ported (`13`) | a field of its own, `Settings::fsi` (the binary reused the unread `resolution_scale` and forced the draw resolution scale to 1) |
 | 14 | — | not applicable | reverted in the binary release |
 | lang overrides | English and Polish texts of the new and changed strings (`assets/lang-overrides`) | not applicable to the executable | they are package data: `tools/binary-release/build_package.py` merges them into the package's `assets/lang/*.txt`, which the official executable reads; for the rebuild, fix 25 carries their texts into the English-keyed files of `tools/source-1.0.2/english/lang` (with the 13 other languages of the fork's overrides) |
+
+## Fixes made in source after the port
+
+Fixes numbered from 20 are not binary patch groups: they are changes made in source for problems
+found on the console, each with a host check. [`fixes/README.md`](../tools/source-1.0.2/fixes/README.md)
+lists all of them; the ones that change how the emulator behaves when something goes wrong are
+also listed here.
+
+| Fix | What | Status |
+|---|---|---|
+| 45 (`45-guest-crash-notice`) | a game that crashes (Minecraft in System Link mode on the v1.0.3 draft, `research/minecraft-online-hang/VERDICT.md`) no longer leaves a silent picture at 0 FPS: the core's crash handler no longer waits forever in `XmaDecoder::Pause` (an idle XMA worker is woken; without a dedicated XMA thread, as started, there is nothing to wait for), it tells the port first (weak hook `Xbox360PS5GuestCrashed`) and then leaves its own "Uh-oh!" modal out, the overlay says the game crashed and how to close it (all interface languages), the STALL report's first line names the crashed thread and its PC, the exit skips the Vulkan cache checkpoint the paused GPU worker cannot serve, and a guest thread is not suspended while it holds the log's lock | host-checked (`tools/check-guest-crash.cpp`); candidate 51 not yet tested on a console. The game's own crash is not fixed: it is the game's code |
+| 46 (`46-ps5x360reloaded-identity`) | PS5X360Reloaded has a title ID (PPSA83600), a data folder (`/data/homebrew/PPSA83600`) and a name of its own (window, guide, notifications, web settings, phone camera certificate, version label `PS5X360Reloaded v<VERSION>`), so it installs beside the official PS5X360 (PPSA50011) and never writes to the official app's folder: every path goes through `include/xbox360ps5/app_identity.hpp`, and `tools/check-title-id.py` fails on any other `PPSA50011`. The first start copies the official app's saves and small settings files once, only when the disk has room for all of it (`official_import.hpp`; the official files are only read; marker `.official-import`); settings kept in `/download0` stay with each app. The official Kinect tracker's key is accepted for its two requests (the motion status, then the motion frames) from the console itself. The save folder on drives stays `<drive>/PS5X360/saves` (fix 27) | host checks (`check-app-identity.cpp`, `check-official-import.cpp`, `check-title-id.py`); candidate 53 on the console installed beside PS5X360 and made its own folder, but read the official folder as missing (its checks used `lstat` and `realpath`) and wrote no marker; `1.0.3_candidate_54` looks with `stat`, as the drive scan does there, logs each error with its errno and writes no marker when a folder could not be checked; **the import not yet tested on a console** |
 
 ## Comparison with the official executable
 

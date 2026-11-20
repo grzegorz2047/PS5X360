@@ -12,7 +12,8 @@ it is made by reversing fix 25 in a copy. Checks:
       names, no FramegenText, and the lookup code is the one this check simulates;
   (c) every English key the code uses (fix 25's, extra.txt's [added <code>] ones, and every
       literal the tree passes to Tr, fixes after fix 25 included) is in pt-BR.txt and in each of
-      the 13 full language files (MISSING_ALLOWED lists the ones no official file had);
+      the 13 full language files (MISSING_ALLOWED lists the ones no official file had); a key a
+      later fix renames (rekey.RENAMES, fix 46) under its new name only, the old one gone from the code;
   (d) each language file: UTF-8 without BOM, LF, "\\s" for spaces, "key = value", no duplicate or
       unknown key, no empty value, the printf specifiers of the English in the same order, the
       English's leading and trailing spaces;
@@ -22,7 +23,8 @@ it is made by reversing fix 25 in a copy. Checks:
       binary release ships them, english/official-lang; Tr's built-in table; FramegenText's and
       CoreUiText's own English and Spanish; fix 23's fallbacks, exactly as in the tree before fix
       25) is the text the new lookup shows (English keys, english/lang), except Portuguese that
-      leaked into another language, which now shows English or a translation.
+      leaked into another language, which now shows English or a translation; for a renamed key,
+      the old text with the rename's replacement.
 The old side's data comes from the tree before fix 25 (built-in tables) and the committed snapshot
 english/official-lang, so no package download is needed.
 """
@@ -149,7 +151,7 @@ def check_code(before, after, data, problems):
     keys = set(data.key.values()) | set(data.core_key.values()) | added
     for key in sorted((keys - added) - present_25) + sorted(added - present):
         problems.add('b', f'English key {key!r} is not in the code')
-    dropped = sorted((keys - added) & present_25 - present)
+    dropped = sorted((keys - added) & present_25 - present - set(rekey.RENAMED))
     if dropped:
         print(f'    {len(dropped)} keys of fix 25 no longer in the code (a later fix dropped them; still in '
               f'the language files): {dropped[:5]}')
@@ -159,8 +161,16 @@ def check_code(before, after, data, problems):
     for rel, text in after.items():
         _, lits = rekey.literals(text, rel)
         tr_literals |= {lit.value for lit in lits if lit.call and lit.call[0] == 'Tr' and not lit.raw}
+    # Keys a later fix renames (rekey.RENAMES): the language files have the new key, and the code
+    # must not use the old one any more.
+    for key, old, new, fix in rekey.RENAMES:
+        if key in present:
+            problems.add('b', f'{key!r} is still in the code; fix {fix} renames it to {rekey.renamed_key(key)!r}')
+        if rekey.renamed_key(key) not in tr_literals:
+            problems.add('b', f'{rekey.renamed_key(key)!r} (fix {fix}) is not passed to Tr')
+    keys = {rekey.renamed_key(key) for key in keys}
     print(f'    keys: {len(keys)} from fix 25 and extra.txt [added], {len(tr_literals)} literals passed to Tr, '
-          f'{len(tr_literals - keys)} of them not from the map')
+          f'{len(tr_literals - keys)} of them not from the map; {len(rekey.RENAMES)} renamed by later fixes')
     return keys | tr_literals
 
 
@@ -311,16 +321,19 @@ def check_equivalence(data, lang, problems):
     pairs = same = 0
     for kind, site, key in sites:
         pt = site['pt']
+        # A key a later fix renames (rekey.RENAMES, fix 46): the language files have it renamed, and
+        # the old lookup's text is expected with the same replacement.
+        shown_key, shown_pt = rekey.renamed_key(key), rekey.renamed_text(key, pt)
         for language in sorted(rekey.LANGUAGES):
-            old = old_text(kind, site, language, official, before.builtin)
-            new = new_text(key, language, lang)
+            old = rekey.renamed_text(key, old_text(kind, site, language, official, before.builtin))
+            new = new_text(shown_key, language, lang)
             pairs += 1
             if old == new:
                 same += 1
                 continue
             code = rekey.CODE_OF[language]
-            english = new_text(key, 1, lang)
-            if old == pt and language not in (9, 19) and pt != english:
+            english = new_text(shown_key, 1, lang)
+            if old == shown_pt and language not in (9, 19) and shown_pt != english:
                 category = ('Portuguese leak -> English' if new == english else
                             'Portuguese leak -> translation')
             elif ((old == english or (language == 19 and old == pt)) and language not in (1, 9)
