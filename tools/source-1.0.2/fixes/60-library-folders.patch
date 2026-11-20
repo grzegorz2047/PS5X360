@@ -1,0 +1,140 @@
+diff --git a/include/xbox360ps5/game_paths.hpp b/include/xbox360ps5/game_paths.hpp
+--- a/include/xbox360ps5/game_paths.hpp
++++ b/include/xbox360ps5/game_paths.hpp
+@@ -1,11 +1,22 @@
+ // SPDX-License-Identifier: MIT
+ #pragma once
++#include <sys/stat.h>
++
+ #include <filesystem>
+ #include <fstream>
++#include <optional>
+ #include <set>
+ #include <string>
+ #include <vector>
++
++#include "xbox360ps5/app_identity.hpp"  // fix 60: XBOX360PS5_DATA_ROOT
+ namespace xbox360ps5 {
++// Fix 60 (issue #12): the title's own data folder's assets/roms. In a folder install it is /app0
++// itself (the same directory as /app0/assets/roms, scanned once: DirectoryIdentity); in an image
++// install (.ffpkg / .ffpfsc) /app0 is the read-only image and this is where games copied by FTP to
++// the title's folder are, which the library did not look at ("0 games"). Never the official
++// app's folder: the library moves DLC and update packages out of its game folders.
++inline constexpr char kTitleRoms[] = XBOX360PS5_DATA_ROOT "/assets/roms";
+ inline std::string NormalizeGamePath(std::string path) {
+   const auto first = path.find_first_not_of(" \t\r\n");
+   if (first == std::string::npos) return {};
+@@ -17,9 +28,31 @@ inline std::string NormalizeGamePath(std::string path) {
+   return path == "/" ? std::string{} : path;
+ }
+ inline std::vector<std::string> DefaultGamePaths() {
+-  return {"/app0/assets/roms", "/data/xbox360", "/mnt/usb0/xbox360", "/mnt/usb1/xbox360",
++  return {"/app0/assets/roms", kTitleRoms, "/data/xbox360", "/mnt/usb0/xbox360", "/mnt/usb1/xbox360",
+           "/mnt/ext0/xbox360", "/mnt/ext1/xbox360"};
+ }
++// Fix 60: a saved list (game_paths.txt) gains kTitleRoms once, right after /app0/assets/roms (or
++// first); nothing is removed or reordered. Returns whether it was added.
++inline bool AddTitleRoms(std::vector<std::string>& paths) {
++  for (const auto& path : paths)
++    if (NormalizeGamePath(path) == kTitleRoms) return false;
++  auto at = paths.begin();
++  for (auto it = paths.begin(); it != paths.end(); ++it)
++    if (NormalizeGamePath(*it) == "/app0/assets/roms") { at = it + 1; break; }
++  paths.insert(at, kTitleRoms);
++  return true;
++}
++// Fix 60: two roots that are one directory (/app0/assets/roms and the title's assets/roms in a
++// folder install) are scanned once. stat only (the sandbox refuses lstat); the device number is left
++// out because /app0 is a null mount of the title's folder there and reports a device of its own.
++inline std::optional<std::string> DirectoryIdentity(const std::filesystem::path& path) {
++  struct stat info {};
++  if (::stat(path.c_str(), &info) != 0 || !S_ISDIR(info.st_mode)) return std::nullopt;
++  return std::to_string(static_cast<unsigned long long>(info.st_ino)) + ":" +
++         std::to_string(static_cast<long long>(info.st_mtime)) + ":" +
++         std::to_string(static_cast<unsigned long long>(info.st_nlink)) + ":" +
++         std::to_string(static_cast<long long>(info.st_size));
++}
+ inline bool ReadGamePaths(const std::filesystem::path& file, std::vector<std::string>& paths) {
+   std::ifstream input(file);
+   if (!input) return false;
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -538,6 +538,16 @@ void Settings::Load() {
+     ReadGamePaths("/app0/assets/game_paths.txt", game_paths);
+     WriteGamePaths(kStorage / "game_paths.txt", game_paths);
+   }
++  // Fix 60 (issue #12): a list saved before 1.0.4 gains the title's own assets/roms once (an
++  // image install's games copied there were not found); a folder the user removed later stays out.
++  {
++    std::error_code marker_error;
++    const fs::path marker = kStorage / "game_paths.fix60";
++    if (!fs::exists(marker, marker_error)) {
++      if (AddTitleRoms(game_paths)) WriteGamePaths(kStorage / "game_paths.txt", game_paths);
++      std::ofstream(marker.string(), std::ios::trunc) << "the title's assets/roms added to game_paths.txt once\n";
++    }
++  }
+   int logging_policy = 0;
+   for (const auto& [key, value] : ReadValues(kStorage / "settings.txt")) {
+     if (key == "language") language = value;
+@@ -774,11 +784,13 @@ uint64_t LibrarySignature(const std::vector<std::string>& roots) {
+       }
+     }
+   };
++  std::set<std::string> seen_directories;  // fix 60: one directory, scanned once
+   for (const auto& configured : roots) {
+     const fs::path root(configured);
+     std::error_code error;
+     const auto identity = NormalizeGamePath(root.generic_string());
+     if (identity.empty() || !seen_roots.insert(identity).second) continue;
++    if (const auto directory = DirectoryIdentity(root); directory && !seen_directories.insert(*directory).second) continue;
+     const bool visible = fs::is_directory(root, error);
+     mix(identity, visible ? 1 : 0);
+     if (visible) look(root, 0, root);
+@@ -993,11 +1005,16 @@ void Launcher::Scan() {
+       }
+     }
+   };
++  std::set<std::string> seen_directories;  // fix 60: one directory, scanned once
+   for (const auto& configured : settings_.game_paths) {
+     const fs::path root(configured);
+     std::error_code error;
+     const auto identity = NormalizeGamePath(root.generic_string());
+     if (identity.empty() || !seen_roots.insert(identity).second) continue;
++    if (const auto directory = DirectoryIdentity(root); directory && !seen_directories.insert(*directory).second) {
++      XELOGI("LAUNCHER root {} is the same folder as one already scanned", root.string());
++      continue;
++    }
+     const bool visible = fs::is_directory(root, error);
+     XELOGI("LAUNCHER root {} {}", root.string(), visible ? "visible" : "not visible");
+     if (visible) scan(root, 0, root);
+@@ -2699,9 +2716,11 @@ void Launcher::DrawShelf(Canvas& c) {
+       NxeText(c, Tr("Your library is empty"), 960, 380, 48, 1.0f, 1);
+       NxeText(c, Tr("Copy each game by FTP into its own folder in"), 960, 470, 24, 0.9f, 1);
+       NxeText(c, XBOX360PS5_DATA_ROOT "/assets/roms/", 960, 510, 28, 1.0f, 1, 0, 0xe6ffcf);
+-      NxeText(c, Tr("Use an extracted folder (with default.xex), an .iso image or a GOD/STFS package."), 960, 570, 24, 0.9f, 1);
+-      NxeText(c, Tr("The game shows up here by itself a few seconds after the copy ends."), 960, 610, 24, 0.9f, 1);
+-      NxeText(c, Tr("Or a burned disc in the USB DVD drive (a burned game, or a DVD with .iso files)."), 960, 650, 24, 0.9f, 1);
++      // Fix 60 (issue #12): the other folders the library scans, for every kind of install.
++      NxeText(c, Tr("or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive."), 960, 548, 22, 0.9f, 1);
++      NxeText(c, Tr("Use an extracted folder (with default.xex), an .iso image or a GOD/STFS package."), 960, 600, 24, 0.9f, 1);
++      NxeText(c, Tr("The game shows up here by itself a few seconds after the copy ends."), 960, 640, 24, 0.9f, 1);
++      NxeText(c, Tr("Or a burned disc in the USB DVD drive (a burned game, or a DVD with .iso files)."), 960, 680, 24, 0.9f, 1);
+     } else if (!count && !g_search.empty()) {
+       NxeText(c, Tr("No game with \"") + g_search + "\"", 960, 420, 36, 1.0f, 1);
+       NxeText(c, Tr("Delete letters from the search or change the filter with L1 and R1."), 960, 480, 24, 0.9f, 1);
+@@ -2808,9 +2827,11 @@ void Launcher::DrawShelf(Canvas& c) {
+     c.Text(Tr("Your library is empty"), 960, 380, 48, kText, 1.0f, 1);
+     c.Text(Tr("Copy each game by FTP into its own folder in"), 960, 470, 24, kMuted, 1.0f, 1);
+     c.Text(XBOX360PS5_DATA_ROOT "/assets/roms/", 960, 510, 28, kAccent, 1.0f, 1);
+-    c.Text(Tr("Use an extracted folder (with default.xex), an .iso image or a GOD/STFS package."), 960, 570, 24, kMuted, 1.0f, 1);
+-    c.Text(Tr("Or a burned disc in the USB DVD drive (a burned game, or a DVD with .iso files)."), 960, 650, 24, kMuted, 1.0f, 1);
+-    c.Text(Tr("The game shows up here by itself a few seconds after the copy ends."), 960, 610, 24, kMuted, 1.0f, 1);
++    // Fix 60 (issue #12): the other folders the library scans, for every kind of install.
++    c.Text(Tr("or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive."), 960, 548, 22, kMuted, 1.0f, 1);
++    c.Text(Tr("Use an extracted folder (with default.xex), an .iso image or a GOD/STFS package."), 960, 600, 24, kMuted, 1.0f, 1);
++    c.Text(Tr("Or a burned disc in the USB DVD drive (a burned game, or a DVD with .iso files)."), 960, 680, 24, kMuted, 1.0f, 1);
++    c.Text(Tr("The game shows up here by itself a few seconds after the copy ends."), 960, 640, 24, kMuted, 1.0f, 1);
+   } else if (!count && !g_search.empty()) {
+     c.Text(Tr("No game with \"") + g_search + "\"", 960, 420, 36, kText, 1.0f, 1);
+     c.Text(Tr("Delete letters from the search or change the filter with L1 and R1."), 960, 480, 24, kMuted, 1.0f, 1);

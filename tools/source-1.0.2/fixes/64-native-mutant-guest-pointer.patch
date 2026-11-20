@@ -1,0 +1,17 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xmutant.cc b/.deps/xenia-canary/src/xenia/kernel/xmutant.cc
+index f83c2f2..a7b91c4 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xmutant.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xmutant.cc
+@@ -39,6 +39,12 @@ void XMutant::InitializeNative(void* native_ptr,
+   mutant_ = xe::threading::Mutant::Create(initial_owner);
+   assert_not_null(mutant_);
+   if (initial_owner) owning_thread_ = XThread::GetCurrentThread();
++  // Xbox360PS5 (fix 64): bound to its guest KMUTANT, as XEvent and XSemaphore are. Without
++  // it guest_object() stayed 0, so fix 20 took the handle recorded in the header for another
++  // object's and made a new mutant at every Ke* call on it (Dragon Ball Z for Kinect: about
++  // 30 a second, each with its own host mutex, never freed, until pthread_mutex_lock failed
++  // with ENOMEM after about two minutes), and the guest's lock never excluded anything.
++  SetNativePointer(memory()->HostToGuestVirtual(native_ptr), true);
+ }
+ 
+ X_STATUS XMutant::ReleaseMutant(uint32_t priority_increment, bool abandon,

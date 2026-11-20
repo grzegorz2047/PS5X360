@@ -16,8 +16,9 @@ when the tree has the core):
       READERS: the first start's import and the official Kinect tracker's key;
   (d) the product name: each RENAMED text is gone and its new form is there (window, log, guide,
       notifications, web pages, phone camera, version label, User-Agent); the phone camera's
-      instructions name the certificate the title makes; KEPT texts are still there (the save
-      folder on drives, fix 27; the session log's header, which tools/autolog.py reads);
+      instructions name the certificate the title makes; KEPT texts are still there (the session
+      log's header, which tools/autolog.py reads; fix 50: the drives' save folder named after the
+      product, and its old name, still known so that it is moved);
   (e) the import runs before the saves are prepared and before the settings are read;
   (f) english/lang: no "PPSA50011", and no key that fix 46 renames (english/rekey.py RENAMES).
 """
@@ -81,8 +82,14 @@ RENAMED = [
 KEPT = [
     ('include/xbox360ps5/session_log.hpp', '"PS5X360 " + version',
      'the session log\'s first line, which tools/autolog.py parses (^PS5X360 (.*)$)'),
-    ('.deps/xenia-canary/src/xenia/kernel/xam/storage_devices.h', 'folder / "PS5X360" / "saves"',
-     'the save folder on a drive (fix 27) keeps its name, so testers\' saves stay where they are'),
+    # Fix 50: the drives' saves folder follows the product's name; the old one is still named, so
+    # a tester's <drive>/PS5X360/saves is found and moved (tools/check-save-folder.cpp).
+    ('.deps/xenia-canary/src/xenia/kernel/xam/storage_devices.h',
+     'inline constexpr const char kSaveFolder[] = XBOX360PS5_PRODUCT_NAME;',
+     'the save folder on a drive (fix 27) is named after the product (fix 50)'),
+    ('.deps/xenia-canary/src/xenia/kernel/xam/storage_devices.h',
+     'inline constexpr const char kLegacySaveFolder[] = "PS5X360";',
+     "the drives' old save folder is still known, so it is moved, not lost (fix 50)"),
 ]
 
 

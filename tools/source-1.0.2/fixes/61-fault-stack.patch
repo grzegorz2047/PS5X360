@@ -1,0 +1,394 @@
+diff --git a/include/xbox360ps5/hang_watch.hpp b/include/xbox360ps5/hang_watch.hpp
+--- a/include/xbox360ps5/hang_watch.hpp
++++ b/include/xbox360ps5/hang_watch.hpp
+@@ -153,9 +153,40 @@ inline std::atomic<uint64_t> log_appended{0}, log_written{0};
+ inline constexpr size_t kGuestCalls = 8;
+ inline std::atomic<uint64_t> guest_calls{0};
+ inline std::array<std::atomic<const char*>, kGuestCalls> guest_call_names{};
++
++// Fix 61: how deep the host stacks of the guest's threads go. 1.0.4_candidate_22: Ninja Gaiden
++// II ended at the same moment on every run (right after the same two textures, as a scene
++// loads: NtReadFile, MmSetAddressProtect, KeSetCurrentStackPointers), healthy until then and
++// with no handler output. The console gives every thread a 2 MiB stack (Xenia asks 16 MiB for
++// a guest thread: guest calls nest on the host stack), and a fault on an exhausted stack ended
++// the process before any handler could run. Set by the title (platform/ps5/crash_report.cpp):
++// the bytes in use on the calling thread's stack and its size; false for a thread it does not
++// know. Sampled in every 1024th kernel call; the beat says the deepest seen.
++using HostStackQuery = bool (*)(size_t* used, size_t* size);
++inline std::atomic<HostStackQuery> host_stack_query{nullptr};
++inline std::atomic<uint64_t> host_stack_deepest{0}, host_stack_size{0};
++inline void SampleHostStack() {
++  const HostStackQuery query = host_stack_query.load(std::memory_order_acquire);
++  size_t used = 0, size = 0;
++  if (!query || !query(&used, &size)) return;
++  uint64_t deepest = host_stack_deepest.load(std::memory_order_relaxed);
++  while (used > deepest &&
++         !host_stack_deepest.compare_exchange_weak(deepest, used, std::memory_order_relaxed)) {
++  }
++  if (used >= deepest) host_stack_size.store(size, std::memory_order_relaxed);
++}
++inline std::string HostStackPart() {
++  const HostStackQuery query = host_stack_query.load(std::memory_order_acquire);
++  size_t used = 0, size = 0;
++  if (!query || !query(&used, &size)) return "host stack unknown";
++  char text[64];
++  std::snprintf(text, sizeof(text), "host stack %zu KiB of %zu KiB", used >> 10, size >> 10);
++  return text;
++}
+ inline void NoteGuestCall(const char* name) {
+   const uint64_t n = guest_calls.fetch_add(1, std::memory_order_relaxed);
+   guest_call_names[n % kGuestCalls].store(name, std::memory_order_relaxed);
++  if ((n & 1023) == 0) SampleHostStack();  // fix 61
+ }
+ // "HANG guest +t s: N calls (r/s), last: newest, ..., oldest"
+ inline std::string GuestLine(double seconds, uint64_t calls_before, double interval_s) {
+@@ -169,7 +200,13 @@ inline std::string GuestLine(double seconds, uint64_t calls_before, double inter
+   char head[96];
+   std::snprintf(head, sizeof(head), "HANG guest +%.2f s: %llu kernel calls (%.0f/s), last: ", seconds,
+                 (unsigned long long)calls, interval_s > 0 ? double(calls - calls_before) / interval_s : 0.0);
+-  return head + (names.empty() ? std::string("none") : names);
++  char deepest[96] = "";  // fix 61
++  if (const uint64_t size = host_stack_size.load(std::memory_order_relaxed)) {
++    std::snprintf(deepest, sizeof(deepest), "; deepest host stack %llu KiB of %llu KiB",
++                  (unsigned long long)(host_stack_deepest.load(std::memory_order_relaxed) >> 10),
++                  (unsigned long long)(size >> 10));
++  }
++  return head + (names.empty() ? std::string("none") : names) + deepest;
+ }
+ // GPU command thread phases.
+ enum : uint32_t { kGpuExecute = 1, kGpuIdle = 2 };
+@@ -376,6 +413,32 @@ inline std::string GuestAllocation(const char* what, bool physical, uint32_t add
+   Raw(line);
+   return line;
+ }
++// Fix 61: each guest stack switch (KeSetCurrentStackPointers: a fiber's stack, re-entered by a
++// jump when the fiber is the calling thread's) and each change of guest page protection
++// (MmSetAddressProtect) is a raw line, written at once with the calling thread's host stack,
++// up to kRareLines of each per run: Ninja Gaiden II made both just before it ended.
++inline constexpr uint32_t kRareLines = 400;
++inline std::atomic<uint32_t> stack_switch_lines{0}, protect_lines{0};
++// Whether one more line of this kind is written; the one after the last says that none follow.
++inline bool TakeRareLine(std::atomic<uint32_t>& lines, const char* what) {
++  const uint32_t n = lines.fetch_add(1, std::memory_order_relaxed);
++  if (n == kRareLines) Raw(Format("HANG %s: %u lines written, no more this run", what, kRareLines));
++  return n < kRareLines;
++}
++inline std::string StackSwitchLine(uint32_t thread_handle, uint32_t stack_pointer, uint32_t base, uint32_t limit,
++                                   uint32_t fiber, bool reentered, uint32_t return_address,
++                                   const std::string& host_stack) {
++  char how[48];
++  if (reentered) std::snprintf(how, sizeof(how), "re-entered at %08X", return_address);
++  else std::snprintf(how, sizeof(how), "%s", fiber ? "another thread's fiber" : "no fiber, returns");
++  return Format("HANG stack switch %08X: guest stack %08X in %08X-%08X (%u KiB), fiber %08X, %s; %s", thread_handle,
++                stack_pointer, limit, base, base >= limit ? (base - limit) >> 10 : 0u, fiber, how, host_stack.c_str());
++}
++inline std::string ProtectLine(uint32_t thread_handle, uint32_t address, uint32_t bytes, uint32_t protect_bits,
++                               const char* outcome, const std::string& host_stack) {
++  return Format("HANG protect %08X: %08X-%08X (%u bytes) to %X, %s; %s", thread_handle, address,
++                address + (bytes ? bytes - 1 : 0), bytes, protect_bits, outcome, host_stack.c_str());
++}
+ inline std::string MemoryPart(const BeatInput& in) {
+   const auto mib = [](int64_t bytes) { return bytes < 0 ? -1LL : (long long)(bytes >> 20); };
+   return Format(" mem: direct free %lld MiB, flexible free %lld MiB; guest heaps 4K %llu 64K %llu phys %llu MiB, "
+diff --git a/include/xbox360ps5/crash_report.hpp b/include/xbox360ps5/crash_report.hpp
+--- a/include/xbox360ps5/crash_report.hpp
++++ b/include/xbox360ps5/crash_report.hpp
+@@ -12,6 +12,14 @@ void DrainNetLog();
+ // Opens `path` for the report and installs handlers for fatal signals. Call
+ // before the engine installs its own handlers so unhandled faults chain here.
+ void InstallCrashReport(const char* path);
++// Fix 61: gives the calling thread an alternate signal stack (the fault handlers run on it, so a
++// fault on an exhausted or broken stack is still reported) and remembers where its own stack
++// starts and how large it is, for the report and HostStackUse. The emulator's threads call it
++// as they start; InstallCrashReport does for the thread that calls it.
++void UseSignalStack();
++// Fix 61: bytes in use on the calling thread's stack and its size; false for a thread that did
++// not call UseSignalStack.
++bool HostStackUse(size_t* used, size_t* size);
+ // Redirects the already-installed signal reporter; does not replace handlers.
+ bool SetCrashReportFile(const char* path);
+ // Fix 47, candidate 11: a second descriptor (logs/hang-watch.txt while a game runs, -1 for none)
+diff --git a/platform/ps5/crash_report.cpp b/platform/ps5/crash_report.cpp
+--- a/platform/ps5/crash_report.cpp
++++ b/platform/ps5/crash_report.cpp
+@@ -3,6 +3,7 @@
+ // uses only system calls and static buffers. Code addresses are printed as
+ // eboot+offset, which is the address in the build's llvm-pie.elf.
+ #include "xbox360ps5/crash_report.hpp"
++#include "xbox360ps5/hang_watch.hpp"  // fix 61: host_stack_query
+ #include <cstring>
+ #include <atomic>
+ #include <cstddef>
+@@ -76,6 +77,26 @@ void Hex(uint64_t value) {
+   do { digits[count++] = "0123456789abcdef"[value & 15]; value >>= 4; } while (value);
+   while (count) Put(digits[--count]);
+ }
++void Decimal(uint64_t value) {
++  char digits[24]; int count = 0;
++  do { digits[count++] = char('0' + value % 10); value /= 10; } while (value);
++  while (count) Put(digits[--count]);
++}
++// Fix 61: the threads that have a signal stack, where their stacks start (an address taken as
++// they started, a few KiB below the real start) and their sizes. Read by the fault handler:
++// a fixed table, written with atomics.
++struct StackSlot {
++  std::atomic<uintptr_t> thread{0};
++  std::atomic<uintptr_t> top{0}, size{0};
++};
++constexpr size_t kStackSlots = 512;
++StackSlot stack_slots[kStackSlots];
++StackSlot* FindStackSlot() {
++  const uintptr_t self = reinterpret_cast<uintptr_t>(pthread_self());
++  for (StackSlot& slot : stack_slots)
++    if (slot.thread.load(std::memory_order_acquire) == self) return &slot;
++  return nullptr;
++}
+ void Address(uint64_t address) {
+   if (InCode(address)) { Put("eboot+0x"); Hex(address - CodeStart()); }
+   else { Put("0x"); Hex(address); }
+@@ -119,6 +140,28 @@ void Handle(int number, siginfo_t* info, void* context) {
+   Put(" addr="); Address(info ? reinterpret_cast<uint64_t>(info->si_addr) : 0);
+   Put(" rip="); Address(m[20]); Put(" trap="); Hex(m[16] & 0xffffffffu); Put(" err="); Hex(m[19]);
+   Flush();
++  // Fix 61: where the fault and rsp are on this thread's stack: a fault at its end is an
++  // overflow, which before this ended the process with no line at all.
++  if (StackSlot* slot = FindStackSlot()) {
++    const uint64_t top = slot->top.load(std::memory_order_relaxed);
++    const uint64_t size = slot->size.load(std::memory_order_relaxed);
++    const uint64_t fault = info ? reinterpret_cast<uint64_t>(info->si_addr) : 0;
++    const auto below = [&](uint64_t at) {
++      if (at && at <= top) { Decimal((top - at) >> 10); Put(" KiB below its start"); }
++      else { Put("0x"); Hex(at); Put(" (not on it)"); }
++    };
++    Put("[X360] CRASH thread stack: starts near 0x"); Hex(top); Put(", ");
++    if (size) { Decimal(size >> 10); Put(" KiB"); } else Put("size unknown");
++    Put("; rsp "); below(m[23]); Put("; fault "); below(fault);
++    if (size && fault && fault <= top && top - fault + 0x10000 >= size && top - fault <= size + 0x40000)
++      Put(": a STACK OVERFLOW (the fault is at the end of this thread's stack)");
++    stack_t now{};
++    if (!sigaltstack(nullptr, &now) && (now.ss_flags & SS_ONSTACK)) Put("; reported from the signal stack");
++    Flush();
++  } else {
++    Put("[X360] CRASH thread stack: a thread without the emulator's signal stack (fix 61)");
++    Flush();
++  }
+   const char* names[] = {"rdi", "rsi", "rdx", "rcx", "r8", "r9", "rax", "rbx", "rbp",
+                          "r10", "r11", "r12", "r13", "r14", "r15"};
+   Put("[X360]");
+@@ -317,18 +360,91 @@ void HandleEnding(int number, siginfo_t* info, void*) {
+   raise(number);
+ }
+ }  // namespace
++namespace {
++// Fix 61: 256 KiB per thread (the emulator's own access faults are handled on it too, and they
++// can log); freed by a key's destructor when the thread ends.
++constexpr size_t kSignalStackBytes = 256 * 1024;
++pthread_key_t signal_stack_key;
++std::atomic<bool> signal_stack_ready{false};
++size_t thread_stack_bytes = 0;  // the system's stack for a new thread
++std::atomic<uint32_t> signal_stacks{0}, signal_stack_failures{0};
++void ReleaseSignalStack(void* memory) {
++  stack_t off{};
++  off.ss_flags = SS_DISABLE;
++  sigaltstack(&off, nullptr);
++  std::free(memory);
++  if (StackSlot* slot = FindStackSlot()) slot->thread.store(0, std::memory_order_release);
++}
++void StackFailure(const char* what) {
++  if (signal_stack_failures.fetch_add(1) != 0) return;
++  char text[120];
++  std::snprintf(text, sizeof(text), "signal stack: %s failed (errno %d); a thread without one", what, errno);
++  Stage(text);
++}
++}  // namespace
++void UseSignalStack() {
++  if (!signal_stack_ready.load(std::memory_order_acquire)) return;
++  void* memory = std::malloc(kSignalStackBytes);
++  if (!memory) { StackFailure("malloc"); return; }
++  stack_t stack{};
++  stack.ss_sp = memory;
++  stack.ss_size = kSignalStackBytes;
++  if (sigaltstack(&stack, nullptr)) { std::free(memory); StackFailure("sigaltstack"); return; }
++  pthread_setspecific(signal_stack_key, memory);
++  char here = 0;
++  const uintptr_t self = reinterpret_cast<uintptr_t>(pthread_self());
++  for (StackSlot& slot : stack_slots) {
++    uintptr_t empty = 0;
++    if (slot.thread.load(std::memory_order_relaxed) != 0) continue;
++    if (!slot.thread.compare_exchange_strong(empty, self, std::memory_order_acq_rel)) continue;
++    slot.top.store(reinterpret_cast<uintptr_t>(&here), std::memory_order_relaxed);
++    slot.size.store(thread_stack_bytes, std::memory_order_relaxed);
++    break;
++  }
++  signal_stacks.fetch_add(1, std::memory_order_relaxed);
++}
++bool HostStackUse(size_t* used, size_t* size) {
++  const StackSlot* slot = FindStackSlot();
++  if (!slot) return false;
++  char here = 0;
++  const uintptr_t top = slot->top.load(std::memory_order_relaxed);
++  const uintptr_t at = reinterpret_cast<uintptr_t>(&here);
++  *used = at <= top ? top - at : 0;
++  *size = slot->size.load(std::memory_order_relaxed);
++  return true;
++}
+ void InstallCrashReport(const char* path) {
+   report_file = open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
+   if (report_file < 0) report_file = open("/download0/xbox360ps5/boot.log", O_WRONLY | O_CREAT | O_APPEND, 0644);
+   (void)!pipe(probe_pipe);
++  {  // Fix 61: the system's thread stack size, the key that frees signal stacks, this thread's.
++    pthread_attr_t attr;
++    if (!pthread_attr_init(&attr)) {
++      size_t bytes = 0;
++      if (!pthread_attr_getstacksize(&attr, &bytes)) thread_stack_bytes = bytes;
++      pthread_attr_destroy(&attr);
++    }
++    if (!pthread_key_create(&signal_stack_key, ReleaseSignalStack)) {
++      signal_stack_ready.store(true, std::memory_order_release);
++      hang_watch::host_stack_query.store(&HostStackUse, std::memory_order_release);
++    }
++    const size_t new_threads = thread_stack_bytes;
++    thread_stack_bytes = 0;  // this thread's (the process's first) size is not known
++    UseSignalStack();
++    thread_stack_bytes = new_threads;
++    char text[120];
++    std::snprintf(text, sizeof(text), "signal stacks: %zu KiB each; a new thread's stack is %zu KiB",
++                  kSignalStackBytes >> 10, thread_stack_bytes >> 10);
++    Stage(text);
++  }
+   struct sigaction action{};
+   action.sa_sigaction = Handle;
+-  action.sa_flags = SA_SIGINFO;
++  action.sa_flags = SA_SIGINFO | SA_ONSTACK;  // fix 61
+   sigemptyset(&action.sa_mask);
+   for (int signal : kSignals) sigaction(signal, &action, nullptr);
+   struct sigaction ending{};
+   ending.sa_sigaction = HandleEnding;
+-  ending.sa_flags = SA_SIGINFO | SA_RESTART;
++  ending.sa_flags = SA_SIGINFO | SA_RESTART | SA_ONSTACK;  // fix 61
+   sigemptyset(&ending.sa_mask);
+   for (int signal : kEndingSignals) sigaction(signal, &ending, nullptr);
+   std::set_terminate(OnTerminate);
+diff --git a/platform/ps5/exception_handler.cpp b/platform/ps5/exception_handler.cpp
+--- a/platform/ps5/exception_handler.cpp
++++ b/platform/ps5/exception_handler.cpp
+@@ -114,7 +114,9 @@ void ExceptionHandler::Install(Handler handler, void* data) {
+   std::lock_guard lock(administration);
+   if (!handler) FatalError("Null native exception handler");
+   if (!installed) {
+-    struct sigaction action{}; action.sa_sigaction = callback; action.sa_flags = SA_SIGINFO;
++    // Fix 61: on the thread's alternate signal stack when it has one (crash_report.cpp), so a
++    // fault on an exhausted stack reaches the crash report instead of ending the process.
++    struct sigaction action{}; action.sa_sigaction = callback; action.sa_flags = SA_SIGINFO | SA_ONSTACK;
+     sigemptyset(&action.sa_mask);
+     if (sigaction(SIGSEGV, &action, &old_segv)) FatalError("Cannot install SIGSEGV transport");
+     if (sigaction(SIGILL, &action, &old_ill)) {
+diff --git a/.deps/xenia-canary/src/xenia/base/threading_posix.cc b/.deps/xenia-canary/src/xenia/base/threading_posix.cc
+--- a/.deps/xenia-canary/src/xenia/base/threading_posix.cc
++++ b/.deps/xenia-canary/src/xenia/base/threading_posix.cc
+@@ -1158,6 +1158,7 @@ thread_local PosixThread* current_thread_ = nullptr;
+ // Xbox360PS5: platform/ps5/thread_place.cpp.
+ namespace xbox360ps5 {
+ void PlaceCallingThread(bool gpu);
++void UseSignalStack();  // fix 61: platform/ps5/crash_report.cpp
+ }
+ namespace xe {
+ namespace threading {
+@@ -1169,6 +1170,8 @@ void* PosixCondition<Thread>::ThreadStartRoutine(void* parameter) {
+   // one takes its place in the title's arrangement (off the GPU command
+   // thread's core, when that thread has one to itself).
+   xbox360ps5::PlaceCallingThread(false);
++  // Fix 61: an alternate signal stack, so a fault on this thread's exhausted stack is reported.
++  xbox360ps5::UseSignalStack();
+ #endif
+ #if !XE_PLATFORM_ANDROID
+   if (pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, nullptr) != 0) {
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_threading.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_threading.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_threading.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_threading.cc
+@@ -21,6 +21,7 @@
+ #include "xenia/kernel/xsemaphore.h"
+ #include "xenia/kernel/xtimer.h"
+ #include "xenia/xbox.h"
++#include "xbox360ps5/hang_watch.hpp"  // fix 61: stack switches
+ 
+ namespace xe {
+ namespace kernel {
+@@ -339,6 +340,18 @@ void KeSetCurrentStackPointers_entry(lpvoid_t stack_ptr,
+   pcr->stack_end_ptr = stack_limit.guest_address();
+   context->r[1] = stack_ptr.guest_address();
+ 
++#if XE_PLATFORM_PS5
++  // Fix 61: written before the jump below, which does not come back.
++  if (xbox360ps5::hang_watch::TakeRareLine(xbox360ps5::hang_watch::stack_switch_lines, "stack switch")) {
++    xbox360ps5::hang_watch::Raw(xbox360ps5::hang_watch::StackSwitchLine(
++        current_thread ? current_thread->handle() : 0, stack_ptr.guest_address(),
++        stack_base.guest_address(), stack_limit.guest_address(), uint32_t(thread->fiber_ptr),
++        thread->fiber_ptr && current_thread &&
++            current_thread->guest_object() == thread.guest_address(),
++        static_cast<uint32_t>(context->lr), xbox360ps5::hang_watch::HostStackPart()));
++  }
++#endif
++
+   // If a fiber is set, and the thread matches, reenter to avoid issues with
+   // host stack overflowing.
+   if (thread->fiber_ptr &&
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_memory.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_memory.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_memory.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_memory.cc
+@@ -13,6 +13,7 @@
+ #include "xenia/kernel/util/shim_utils.h"
+ #include "xenia/kernel/xboxkrnl/xboxkrnl_private.h"
+ #include "xenia/xbox.h"
++#include "xenia/kernel/xthread.h"  // fix 61: the calling thread's handle
+ #if XE_PLATFORM_PS5
+ #include "xbox360ps5/hang_watch.hpp"  // fix 47: big and failed allocations
+ #endif
+@@ -567,25 +568,46 @@ void MmSetAddressProtect_entry(lpvoid_t base_address, dword_t region_size,
+   constexpr uint32_t required_protect_bits =
+       X_PAGE_NOACCESS | X_PAGE_READONLY | X_PAGE_READWRITE |
+       X_PAGE_EXECUTE_READ | X_PAGE_EXECUTE_READWRITE;
++#if XE_PLATFORM_PS5
++  // Fix 61: each change, and what came of it, at once (Ninja Gaiden II made them just before
++  // it ended).
++  const auto note = [&](const char* outcome) {
++    if (!xbox360ps5::hang_watch::TakeRareLine(xbox360ps5::hang_watch::protect_lines, "protect")) return;
++    auto* thread = XThread::GetCurrentThread();
++    xbox360ps5::hang_watch::Raw(xbox360ps5::hang_watch::ProtectLine(
++        thread ? thread->handle() : 0, base_address.guest_address(), uint32_t(region_size),
++        uint32_t(protect_bits), outcome, xbox360ps5::hang_watch::HostStackPart()));
++  };
++#else
++  const auto note = [](const char*) {};
++#endif
+ 
+   if (xe::bit_count(protect_bits & required_protect_bits) != 1) {
+     // Many titles use invalid combination with zero valid bits set.
+     // We're skipping assertion for these cases to prevent unnecessary spam.
+     assert_false(xe::bit_count(protect_bits & required_protect_bits) > 1);
++    note("ignored (no single access kind)");
+     return;
+   }
+ 
+   uint32_t protect = FromXdkProtectFlags(protect_bits);
+   auto heap = kernel_memory()->LookupHeap(base_address);
++  if (!heap) {
++    note("ignored (no heap)");
++    return;
++  }
+ 
+   // More research required: 544307D1 uses it with base_address in xex range,
+   // which causes write exception in long term. Probably console disables
+   // modification of xex range page protection for security reasons.
+   if (heap->heap_type() == HeapType::kGuestXex) {
++    note("ignored (the executable's range)");
+     return;
+   }
+ 
+-  heap->Protect(base_address.guest_address(), region_size, protect);
++  note("about to apply");
++  const bool applied = heap->Protect(base_address.guest_address(), region_size, protect);
++  note(applied ? "applied" : "REFUSED by the heap");
+ }
+ DECLARE_XBOXKRNL_EXPORT1(MmSetAddressProtect, kMemory, kImplemented);
+ 
