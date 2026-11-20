@@ -14,11 +14,19 @@
 //      time, the timestamp pool made, written at a submission's start and end and read once it
 //      completed, the causes around the waits (frames in flight, memexport readback, resolve
 //      readback, queries), the pipeline waits, and the line in the 30-second summary.
+//  (d) 1.0.4_candidate_6 (candidate 3: the GPU thread busy 800-900 ms/s on its own work, the GPU
+//      ~150 ms/s): exclusive sections timed with the time-stamp counter (a nested section pauses
+//      the outer one; only the GPU thread counts), the detail line converting ticks to ms with the
+//      steady clock, the rest of executing; the hooks: draws, resolves, submissions, the memexport
+//      readback, uploads, texture requests, fence waits; the build's symbol list (eboot-symbols.txt)
+//      in the artifact, to name the guide's "Measure performance" offsets.
 // Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh).
 #undef NDEBUG
 #include "../include/xbox360ps5/frame_cost.hpp"
 
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -146,6 +154,51 @@ void ExpectIn(const std::string& path, const std::vector<std::string>& parts) {
   for (const auto& part : parts) Expect(Contains(text, part), path + " has: " + part);
 }
 
+void Spin(uint64_t ns) {
+  const uint64_t until = fc::NowNs() + ns;
+  while (fc::NowNs() < until) {
+  }
+}
+
+void CheckSections() {
+  for (uint32_t n = 0; n < fc::kSections; ++n) fc::section_ticks[n] = fc::section_count[n] = 0;
+  fc::SectionReporter reporter;
+  (void)reporter.Line(1, 0);  // starts the window
+  { fc::SectionScope not_gpu(fc::kDraw); }
+  Expect(fc::section_count[fc::kDraw] == 0, "sections count on the GPU thread only");
+  const uint64_t start = fc::NowNs();
+  std::thread([] {
+    fc::MarkGpuThread();
+    fc::SectionScope draw(fc::kDraw);
+    Spin(20000000);  // 20 ms drawing
+    {
+      fc::SectionScope submit(fc::kSubmit);
+      Spin(10000000);  // 10 ms submitting
+      {
+        fc::SectionScope wait(fc::kWait);
+        Spin(30000000);  // 30 ms waiting
+      }
+    }
+    Spin(10000000);  // 10 ms more drawing
+  }).join();
+  const double seconds = double(fc::NowNs() - start) / 1e9;
+  const std::string line = reporter.Line(seconds, uint64_t(80000000));  // 80 ms executing
+  std::printf("   %s\n", line.c_str());
+  const auto ms = [&](const char* name) {
+    const size_t at = line.find(name);
+    if (at == std::string::npos) return -1.0;
+    return std::atof(line.c_str() + at + std::strlen(name) + 1) * seconds;
+  };
+  const double draw = ms("draws"), submit = ms("submissions"), wait = ms("GPU waits");
+  Expect(draw > 25 && draw < 40, "draws: 30 ms of their own, not the nested 40 (" + std::to_string(draw) + ")");
+  Expect(submit > 7 && submit < 15, "submissions: 10 ms without the wait inside (" + std::to_string(submit) + ")");
+  Expect(wait > 25 && wait < 40, "the wait: 30 ms (" + std::to_string(wait) + ")");
+  Expect(fc::section_count[fc::kDraw] == 1 && fc::section_count[fc::kSubmit] == 1 && fc::section_count[fc::kWait] == 1,
+         "one of each");
+  Expect(line.find("Frame time detail (GPU thread, exclusive): draws ") == 0, "the detail line");
+  Expect(line.find("the rest of executing (packets, registers, constants) ") != std::string::npos, "the rest");
+}
+
 void CheckTree() {
   const std::string x = ".deps/xenia-canary/src/xenia/";
   ExpectIn(x + "ui/vulkan/functions/device_1_0.inc",
@@ -173,6 +226,14 @@ void CheckTree() {
   Expect(Contains(vk, "is_opening_frame ? xbox360ps5::frame_cost::kThrottle"), "the frames-in-flight wait");
   Expect(Count(Read(x + "gpu/vulkan/vulkan_pipeline_cache.cc"), "xbox360ps5::frame_cost::WaitTimer frame_cost_wait") == 2,
          "both pipeline waits timed");
+  // Candidate 6.
+  ExpectIn(x + "gpu/vulkan/vulkan_command_processor.cc",
+           {"xbox360ps5::frame_cost::kDraw);", "xbox360ps5::frame_cost::kCopy);", "xbox360ps5::frame_cost::kSubmit);",
+            "xbox360ps5::frame_cost::kReadback);"});
+  ExpectIn(x + "gpu/vulkan/vulkan_shared_memory.cc", {"xbox360ps5::frame_cost::kUpload);"});
+  ExpectIn(x + "gpu/texture_cache.cc", {"xbox360ps5::frame_cost::kTexture);"});
+  ExpectIn(x + "ui/vulkan/vulkan_gpu_completion_timeline.cc", {"xbox360ps5::frame_cost::kWait);"});
+  ExpectIn("src/canary_game_main.cpp", {"static xbox360ps5::frame_cost::SectionReporter frame_cost_sections;"});
   ExpectIn("src/canary_game_main.cpp", {"static xbox360ps5::frame_cost::Reporter frame_cost_reporter;"});
 }
 
@@ -182,6 +243,7 @@ int main() {
   CheckGpuBusy();
   CheckWaits();
   CheckLine();
+  CheckSections();
   CheckTree();
   if (failures) {
     std::printf("check-frame-cost: %d failure(s)\n", failures);

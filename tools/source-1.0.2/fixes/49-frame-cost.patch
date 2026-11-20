@@ -2,7 +2,7 @@ diff --git a/include/xbox360ps5/frame_cost.hpp b/include/xbox360ps5/frame_cost.h
 new file mode 100644
 --- /dev/null
 +++ b/include/xbox360ps5/frame_cost.hpp
-@@ -0,0 +1,213 @@
+@@ -0,0 +1,315 @@
 +// SPDX-License-Identifier: MIT
 +// Fix 49 of the source rebuild (tools/source-1.0.2/fixes/49-frame-cost.patch): where a frame's
 +// time goes, for Call of Duty (MW2, Black Ops: about 20 FPS) and Battlefield 3 (25-30 FPS),
@@ -25,6 +25,9 @@ new file mode 100644
 +#include <cstdint>
 +#include <cstdio>
 +#include <string>
++#if defined(__x86_64__) || defined(_M_X64)
++#include <x86intrin.h>
++#endif
 +
 +namespace xbox360ps5 {
 +namespace frame_cost {
@@ -96,6 +99,105 @@ new file mode 100644
 + private:
 +  uint32_t of_;
 +  uint64_t start_;
++};
++
++// 1.0.4_candidate_6: where the GPU thread's own time goes. Exclusive sections (a nested section
++// pauses the one around it), timed with the CPU's time-stamp counter: the system clock is a
++// system call on the console, and draws are tens of thousands a second. The summary converts
++// ticks to time with the steady clock over the same 30 s.
++enum Section : uint32_t { kNoSection = 0, kDraw, kCopy, kSubmit, kReadback, kUpload, kTexture, kWait, kSections };
++inline const char* SectionName(uint32_t section) {
++  static const char* const names[] = {"-", "draws", "resolves", "submissions", "memexport readback",
++                                      "uploads", "textures", "GPU waits"};
++  return section < kSections ? names[section] : "?";
++}
++inline uint64_t Ticks() {
++#if defined(__x86_64__) || defined(_M_X64)
++  return __rdtsc();
++#else
++  return NowNs();
++#endif
++}
++inline std::array<std::atomic<uint64_t>, kSections> section_ticks{}, section_count{};
++struct SectionState {
++  uint32_t current = kNoSection;
++  uint64_t since = 0;
++};
++inline thread_local SectionState section_state;
++class SectionScope {
++ public:
++  explicit SectionScope(uint32_t section) : active_(gpu_thread) {
++    if (!active_) return;
++    const uint64_t now = Ticks();
++    SectionState& state = section_state;
++    if (state.current != kNoSection)
++      section_ticks[state.current].fetch_add(now - state.since, std::memory_order_relaxed);
++    previous_ = state.current;
++    state.current = section;
++    state.since = now;
++    section_count[section].fetch_add(1, std::memory_order_relaxed);
++  }
++  ~SectionScope() {
++    if (!active_) return;
++    const uint64_t now = Ticks();
++    SectionState& state = section_state;
++    section_ticks[state.current].fetch_add(now - state.since, std::memory_order_relaxed);
++    state.current = previous_;
++    state.since = now;
++  }
++  SectionScope(const SectionScope&) = delete;
++  SectionScope& operator=(const SectionScope&) = delete;
++
++ private:
++  bool active_;
++  uint32_t previous_ = kNoSection;
++};
++
++// The detail line: each section's exclusive time and count per second, and the executing time
++// no section covers (the command processor's packets, register writes, constants).
++class SectionReporter {
++ public:
++  std::string Line(double seconds, uint64_t execute_ns_delta) {
++    const uint64_t ticks_now = Ticks(), ns_now = NowNs();
++    std::array<uint64_t, kSections> ticks{}, counts{};
++    for (uint32_t s = 1; s < kSections; ++s) {
++      ticks[s] = section_ticks[s].load(std::memory_order_relaxed);
++      counts[s] = section_count[s].load(std::memory_order_relaxed);
++    }
++    double ns_per_tick = 1.0;
++    if (last_ticks_ && ticks_now > last_ticks_ && ns_now > last_ns_)
++      ns_per_tick = double(ns_now - last_ns_) / double(ticks_now - last_ticks_);
++    else if (last_ns_per_tick_ > 0)
++      ns_per_tick = last_ns_per_tick_;
++    last_ns_per_tick_ = ns_per_tick;
++    last_ticks_ = ticks_now;
++    last_ns_ = ns_now;
++    const double s = seconds > 0 ? seconds : 1;
++    std::string parts;
++    double covered_ms = 0;
++    for (uint32_t n = 1; n < kSections; ++n) {
++      const double ms = double(ticks[n] - last_[n]) * ns_per_tick / 1e6 / s;
++      if (n != kWait) covered_ms += ms;
++      char item[96];
++      std::snprintf(item, sizeof(item), "%s%s %.0f ms/s in %.0f/s", parts.empty() ? "" : ", ", SectionName(n), ms,
++                    double(counts[n] - last_counts_[n]) / s);
++      parts += item;
++      last_[n] = ticks[n];
++      last_counts_[n] = counts[n];
++    }
++    const double execute_ms = double(execute_ns_delta) / 1e6 / s;
++    char text[640];
++    std::snprintf(text, sizeof(text),
++                  "Frame time detail (GPU thread, exclusive): %s; the rest of executing (packets, registers, "
++                  "constants) %.0f ms/s",
++                  parts.c_str(), execute_ms > covered_ms ? execute_ms - covered_ms : 0.0);
++    return text;
++  }
++
++ private:
++  std::array<uint64_t, kSections> last_{}, last_counts_{};
++  uint64_t last_ticks_ = 0, last_ns_ = 0;
++  double last_ns_per_tick_ = 0;
 +};
 +
 +// GPU busy time from submissions' start and end timestamps, in completion order: the union of
@@ -243,12 +345,15 @@ diff --git a/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_gpu_completion_timeli
 +#include "xbox360ps5/frame_cost.hpp"  // fix 49
 +
  #include "xenia/base/assert.h"
-@@ -153,2 +155,4 @@ void VulkanGPUCompletionTimeline::AwaitSubmissionImpl(
+@@ -153,2 +155,7 @@ void VulkanGPUCompletionTimeline::AwaitSubmissionImpl(
    }
 +  // Fix 49: the time waited for the GPU, by cause on the GPU thread.
 +  const uint64_t frame_cost_start = xbox360ps5::frame_cost::NowNs();
++  // Candidate 6: the wait as a section of its own (taken out of the one around it).
++  xbox360ps5::frame_cost::SectionScope frame_cost_section(
++      xbox360ps5::frame_cost::kWait);
    if (submission_end_iterator != pending_submission_fences_.cbegin()) {
-@@ -158,2 +162,4 @@ void VulkanGPUCompletionTimeline::AwaitSubmissionImpl(
+@@ -158,2 +165,4 @@ void VulkanGPUCompletionTimeline::AwaitSubmissionImpl(
              &std::prev(submission_end_iterator)->second, VK_TRUE, UINT64_MAX);
 +    xbox360ps5::frame_cost::AddFenceWait(xbox360ps5::frame_cost::NowNs() -
 +                                         frame_cost_start);
@@ -286,6 +391,26 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/command_processor.cc b/.deps/xenia
 +        xbox360ps5::frame_cost::NowNs() - frame_cost_execute_start,
 +        std::memory_order_relaxed);
  
+diff --git a/.deps/xenia-canary/src/xenia/gpu/texture_cache.cc b/.deps/xenia-canary/src/xenia/gpu/texture_cache.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/texture_cache.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/texture_cache.cc
+@@ -9,6 +9,7 @@
+  */
+ 
+ #include "xenia/gpu/texture_cache.h"
++#include "xbox360ps5/frame_cost.hpp"  // fix 49, candidate 6
+ 
+ #include <cstdio>
+ #include <cstdlib>
+@@ -334,6 +335,8 @@ uint32_t TextureCache::GuestToHostSwizzle(uint32_t guest_swizzle,
+ }
+ 
+ void TextureCache::RequestTextures(uint32_t used_texture_mask) {
++  xbox360ps5::frame_cost::SectionScope frame_cost_section(  // fix 49, candidate 6
++      xbox360ps5::frame_cost::kTexture);
+   const auto& regs = register_file();
+ 
+   if (texture_became_outdated_.exchange(false, std::memory_order_acquire)) {
 diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
 --- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
 +++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
@@ -418,7 +543,29 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
  
    ShutdownQueryResources();
    host_query_pool_.reset();
-@@ -3570,6 +3657,10 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+@@ -2648,6 +2735,10 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type,
+                                        bool major_mode_explicit) {
+   const bool is_copy = register_file_->Get<reg::RB_MODECONTROL>().edram_mode ==
+                        xenos::EdramMode::kCopy;
++#if XE_PLATFORM_PS5
++  xbox360ps5::frame_cost::SectionScope frame_cost_section(  // candidate 6
++      xbox360ps5::frame_cost::kDraw);
++#endif
+   const bool drawn = IssueDrawInner(prim_type, index_count, index_buffer_info,
+                                     major_mode_explicit);
+   if (!is_copy) {
+@@ -3526,6 +3617,10 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+   // CPU readback for memexport data (if enabled, or small: fix 30).
+   if (memexport_readback && memexport_before_copied &&
+       !memexport_ranges_.empty()) {
++#if XE_PLATFORM_PS5
++    xbox360ps5::frame_cost::SectionScope frame_cost_section(  // candidate 6
++        xbox360ps5::frame_cost::kReadback);
++#endif
+     // Calculate total size of all memexport ranges.
+     uint32_t memexport_total_size = 0;
+     for (const draw_util::MemExportRange& memexport_range : memexport_ranges_) {
+@@ -3570,6 +3665,10 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
          SubmitBarriers(true);
  
          // Wait for GPU to finish (SYNCHRONIZATION STALL)
@@ -429,7 +576,16 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
          if (AwaitAllQueueOperationsCompletion()) {
            // Map staging buffer and copy to guest memory.
            void* mapped_data;
-@@ -4044,6 +4135,10 @@ bool VulkanCommandProcessor::IssueCopy() {
+@@ -3724,6 +3823,8 @@ const char* ResolveDumpFolder() {
+ bool VulkanCommandProcessor::IssueCopy() {
+ #if XE_PLATFORM_PS5
+   xbox360ps5::gpu_diag::Scope ps5_stage(xbox360ps5::gpu_diag::Kind::cpu_copy);
++  xbox360ps5::frame_cost::SectionScope frame_cost_section(  // candidate 6
++      xbox360ps5::frame_cost::kCopy);
+ #endif
+ #if XE_GPU_FINE_GRAINED_DRAW_SCOPES
+   SCOPE_profile_cpu_f("gpu");
+@@ -4044,6 +4145,10 @@ bool VulkanCommandProcessor::IssueCopy() {
          if (resolve_downscale_buffer_ != VK_NULL_HANDLE) {
            // The old buffer may still be referenced by commands recorded for
            // previous resolves - growth is rare, so just await completion.
@@ -440,7 +596,7 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
            if (!AwaitAllQueueOperationsCompletion() || device_lost_ ||
                !BeginSubmission(true)) {
              return true;
-@@ -4264,6 +4359,10 @@ bool VulkanCommandProcessor::IssueCopy() {
+@@ -4264,6 +4369,10 @@ bool VulkanCommandProcessor::IssueCopy() {
  
      if (readback_mode != ReadbackResolveMode::kFast) {
        // Wait for GPU to finish (accurate but slow)
@@ -451,7 +607,7 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
        if (!AwaitAllQueueOperationsCompletion()) {
          XELOGE(
              "VulkanCommandProcessor: Failed to complete queue operations for "
-@@ -4278,6 +4377,10 @@ bool VulkanCommandProcessor::IssueCopy() {
+@@ -4278,6 +4387,10 @@ bool VulkanCommandProcessor::IssueCopy() {
        // Delayed sync, but the previous buffer doesn't exist - use the current
        // buffer with a sync as a fallback.
        read_index = write_index;
@@ -462,7 +618,7 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
        if (!AwaitAllQueueOperationsCompletion()) {
          XELOGE(
              "VulkanCommandProcessor: Failed to complete queue operations for "
-@@ -4632,6 +4735,10 @@ CommandProcessor::QueryOpenResult VulkanCommandProcessor::OpenQuery(
+@@ -4632,6 +4745,10 @@ CommandProcessor::QueryOpenResult VulkanCommandProcessor::OpenQuery(
      }
  
      if (wait_for > GetCompletedSubmission()) {
@@ -473,7 +629,7 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
        completion_timeline_.AwaitSubmissionAndUpdateCompleted(wait_for);
        PumpQueryResolves();
      }
-@@ -4817,6 +4924,10 @@ bool VulkanCommandProcessor::AwaitQueryResolve(ReportHandle report_handle,
+@@ -4817,6 +4934,10 @@ bool VulkanCommandProcessor::AwaitQueryResolve(ReportHandle report_handle,
    }
  
    if (wait_for_submission > GetCompletedSubmission()) {
@@ -484,7 +640,7 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
      completion_timeline_.AwaitSubmissionAndUpdateCompleted(wait_for_submission);
    }
  
-@@ -4963,6 +5074,10 @@ void VulkanCommandProcessor::AwaitVIZQueryResolve(
+@@ -4963,6 +5084,10 @@ void VulkanCommandProcessor::AwaitVIZQueryResolve(
    }
  
    if (wait_for_submission > GetCompletedSubmission()) {
@@ -495,7 +651,7 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
      completion_timeline_.AwaitSubmissionAndUpdateCompleted(wait_for_submission);
    }
  
-@@ -5112,7 +5227,15 @@ bool VulkanCommandProcessor::BeginSubmission(bool is_guest_command) {
+@@ -5112,7 +5237,15 @@ bool VulkanCommandProcessor::BeginSubmission(bool is_guest_command) {
        is_opening_frame
            ? closed_frame_submissions_[frame_current_ % kMaxFramesInFlight]
            : 0;
@@ -512,7 +668,18 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
    const uint64_t completed_submission = GetCompletedSubmission();
    if (device_lost_ || completed_submission < await_submission) {
      return false;
-@@ -5429,12 +5552,37 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
+@@ -5278,6 +5411,10 @@ bool VulkanCommandProcessor::BeginSubmission(bool is_guest_command) {
+ }
+ 
+ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
++#if XE_PLATFORM_PS5
++  xbox360ps5::frame_cost::SectionScope frame_cost_section(  // candidate 6
++      xbox360ps5::frame_cost::kSubmit);
++#endif
+   ui::vulkan::VulkanDevice* const vulkan_device = GetVulkanDevice();
+   const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
+   const VkDevice device = vulkan_device->device();
+@@ -5429,12 +5566,37 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
        XELOGE("Failed to begin a Vulkan command buffer");
        return false;
      }
@@ -580,6 +747,28 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_pipeline_cache.cc b/
    ShaderTraceScope shader_trace(shader_trace_budget,
        ShaderTraceEnabled(), shader_stutter::Stage::kTargetWait,
        0);
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_shared_memory.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_shared_memory.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_shared_memory.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_shared_memory.cc
+@@ -8,6 +8,7 @@
+  */
+ 
+ #include "xenia/gpu/vulkan/vulkan_shared_memory.h"
++#include "xbox360ps5/frame_cost.hpp"  // fix 49, candidate 6
+ 
+ #include <cstdio>
+ #include <cstring>
+@@ -423,6 +424,10 @@ bool VulkanSharedMemory::UploadRanges(
+   if (!num_upload_ranges) {
+     return true;
+   }
++#if XE_PLATFORM_PS5
++  xbox360ps5::frame_cost::SectionScope frame_cost_section(  // fix 49, candidate 6
++      xbox360ps5::frame_cost::kUpload);
++#endif
+ 
+   auto& range_front = upload_page_ranges[0];
+   auto& range_back = upload_page_ranges[num_upload_ranges - 1];
 diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
 --- a/src/canary_game_main.cpp
 +++ b/src/canary_game_main.cpp
@@ -591,7 +780,7 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
  #include "xbox360ps5/autotest.hpp"
  #include "xbox360ps5/launcher.hpp"
  #include "xbox360ps5/forward.hpp"
-@@ -3002,6 +3003,11 @@ int main(int argc, char** argv) {
+@@ -3002,6 +3003,17 @@ int main(int argc, char** argv) {
                  }
                  wait_swaps = swaps;
                }
@@ -599,6 +788,12 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
 +              {
 +                static xbox360ps5::frame_cost::Reporter frame_cost_reporter;
 +                XELOGW("{}", frame_cost_reporter.Line(double(summary_samples), xbox360ps5::frame_cost::timestamps.load()));
++                // Candidate 6: the GPU thread's own time by section.
++                static xbox360ps5::frame_cost::SectionReporter frame_cost_sections;
++                static uint64_t frame_cost_execute_ns = 0;
++                const uint64_t execute_ns = xbox360ps5::frame_cost::totals.execute_ns.load();
++                XELOGW("{}", frame_cost_sections.Line(double(summary_samples), execute_ns - frame_cost_execute_ns));
++                frame_cost_execute_ns = execute_ns;
 +              }
                // Draws made while their shader was still being compiled show
                // a stand-in: brief gaps in a frame, lasting ones in what a game
