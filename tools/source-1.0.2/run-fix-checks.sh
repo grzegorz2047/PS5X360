@@ -11,7 +11,8 @@
 # guest paths, linked with the tree's xenia/base and disc image device) with bash.
 # The source release's checks run with python3 too: tools/check-release-version.py (the version
 # label in the tree's VERSION and SOURCES.json, the release eboot check, the GPL source tarball
-# step), tools/check-source-package.py (package.py), tools/check-release-guard.py
+# step), tools/check-source-package.py (package.py), tools/check-release-images.py
+# (make_images.sh's title id and the release workflows' image names), tools/check-release-guard.py
 # (release-source.yml's decisions) and tools/check-core-commit.py (build.sh's core commit).
 # check-game-info.cpp reads a committed excerpt of the official package's assets/gameinfo.txt, and
 # the whole file too when PS5X360_GAMEINFO names it (fix 43).
@@ -134,6 +135,13 @@ if "$python" -I "$repo/tools/check-source-package.py"; then
   echo "pass check-source-package.py"
 else
   echo "FAIL check-source-package.py"
+  status=1
+fi
+echo "=== check-release-images.py"
+if "$python" -I "$repo/tools/check-release-images.py"; then
+  echo "pass check-release-images.py"
+else
+  echo "FAIL check-release-images.py"
   status=1
 fi
 echo "=== check-release-guard.py"

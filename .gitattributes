@@ -10,3 +10,5 @@ tools/source-1.0.2/fixes/*.patch -text
 # Made by tools/source-1.0.2/english/rekey.py and compared byte for byte by its --check.
 tools/source-1.0.2/english/lang/*.txt -text
 tools/source-1.0.2/english/official-lang/* -text
+# Package art, checked by SHA-256 in tools/source-1.0.2/package.py.
+*.png binary

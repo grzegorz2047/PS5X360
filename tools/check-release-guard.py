@@ -75,7 +75,9 @@ def check_sources():
 def check_sums(root):
     folder = root / 'release'
     folder.mkdir()
-    files = {'PPSA50011.zip': b'zip', 'PPSA50011.ffpkg': b'image', 'PS5X360-1.0.3-source.tar.xz': b'tree',
+    # The source release's assets: PS5X360Reloaded's PPSA83600 package and images.
+    files = {'PPSA83600.zip': b'zip', 'PPSA83600.zip.sha256': b'sum', 'PPSA83600.ffpkg': b'image',
+             'PPSA83600.ffpfsc': b'pfs', 'PS5X360-1.0.3-source.tar.xz': b'tree',
              'Fable_III.patch.toml': b'toml', 'SOURCES.json': b'{}'}
     for name, data in files.items():
         (folder / name).write_bytes(data)
@@ -93,9 +95,9 @@ def check_sums(root):
     guard.write_sums(folder)
     assert (folder / guard.SUMS).read_bytes().decode('ascii') == text
 
-    (folder / 'PPSA50011.zip').write_bytes(b'changed')
+    (folder / 'PPSA83600.zip').write_bytes(b'changed')
     assert refused(guard.verify_sums, folder)
-    (folder / 'PPSA50011.zip').write_bytes(b'zip')
+    (folder / 'PPSA83600.zip').write_bytes(b'zip')
     guard.verify_sums(folder)
     (folder / 'extra.bin').write_bytes(b'x')
     assert refused(guard.verify_sums, folder)  # not listed
@@ -145,7 +147,9 @@ def check_sums(root):
 
 def view(**fields):
     release = {'tagName': 'v1.0.3', 'isDraft': True, 'isImmutable': False,
-               'targetCommitish': SHA, 'assets': [{'name': 'PPSA50011.zip'}, {'name': 'old-name.zip'}]}
+               'targetCommitish': SHA,
+               # A draft uploaded before the rename still has the old PPSA50011 package.
+               'assets': [{'name': 'PPSA83600.zip'}, {'name': 'PPSA50011.zip'}]}
     release.update(fields)
     return json.dumps(release)
 
@@ -230,7 +234,7 @@ def check_cli(root, folder):
 
     out.write_text(view(), encoding='utf-8')
     result = run('stale', folder, '--view-stdout', out)
-    assert result.returncode == 0 and result.stdout == 'old-name.zip\n', result
+    assert result.returncode == 0 and result.stdout == 'PPSA50011.zip\n', result
 
 
 def main():

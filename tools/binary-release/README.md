@@ -49,5 +49,10 @@ draft GitHub release `vX.Y.Z` with its GPL-3.0 corresponding source: it is not
 patched here. Its package comes from the same official v1.0.2 `PPSA50011.zip`
 through `tools/source-1.0.2/package.py` (the source-built `eboot.bin` as signed,
 English-keyed language files, no `patches.py`, no `assets/lang-overrides`
-merge), and its images from `make_images.sh` unchanged. A source build's test
+merge). That package is PS5X360Reloaded with its own title id `PPSA83600` (its own
+`sce_sys/param.json` and art), so it installs next to the official PS5X360
+(`PPSA50011`): the files move to `PPSA83600/` and the images come from
+`make_images.sh <stage/PPSA83600> <out-dir> PPSA83600` (`PPSA83600.ffpkg`,
+`PPSA83600.ffpfsc`). Without the third argument the title id is `PPSA50011`, as for the
+binary releases above. A source build's test
 artifact (`…-NOT-FOR-RELEASE`) is still not for distribution.

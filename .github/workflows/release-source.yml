@@ -1,7 +1,8 @@
 name: Source release (draft)
 
 # Turns the source build (build-source-1.0.2.yml, release mode) into a DRAFT GitHub release
-# v<version> with the PPSA50011 package and its GPL-3.0 corresponding source.
+# v<version> with the PS5X360Reloaded package (title id PPSA83600, next to the official PS5X360's
+# PPSA50011) and its GPL-3.0 corresponding source.
 #
 # Start: push the release commit to a branch release/source-X.Y.Z (the version is the branch
 # name's suffix, e.g. release/source-1.0.3 -> 1.0.3); workflow_dispatch on such a branch does the
@@ -14,8 +15,9 @@ name: Source release (draft)
 # 2. build: build-source-1.0.2.yml with release: true (version label checked in the ELF, no fix
 #    left out); artifacts eboot-<version>-from-source and source-<version>
 #    (PS5X360-<version>-source.tar.xz, the assembled tree that was compiled).
-# 3. package: the official v1.0.2 PPSA50011.zip (SHA-256 pinned) with the source-built eboot.bin
-#    and English-keyed language files (tools/source-1.0.2/package.py), the .ffpkg and .ffpfsc
+# 3. package: PPSA83600.zip, made from the official v1.0.2 PPSA50011.zip (SHA-256 pinned) with
+#    the source-built eboot.bin, English-keyed language files and PS5X360Reloaded's param.json and
+#    art (tools/source-1.0.2/package.py), the PPSA83600.ffpkg and .ffpfsc
 #    images (tools/binary-release/make_images.sh), the source tarball, the toolchain source
 #    (PS5_Vulkan, PS5_Mesa, PS5_PayloadSDK at the build's pins: RADV, app_crt and the payload SDK
 #    runtime are linked into eboot.bin), a git archive of this repository at the commit (the
@@ -80,7 +82,7 @@ jobs:
       release: true
 
   package:
-    name: Package PPSA50011 and the sources
+    name: Package PPSA83600 and the sources
     needs: [prepare, build]
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -131,7 +133,7 @@ jobs:
           python3 -I tools/source-1.0.2/release_guard.py check-sources \
             --sources-json dist/build/src102/SOURCES.json --version "$VERSION"
 
-      - name: Build PPSA50011.zip from the official package and the source build
+      - name: Build PPSA83600.zip from the official package and the source build
         run: |
           set -euo pipefail
           # The notice's date is the commit's, so a rerun of the same commit gives the same zip.
@@ -146,8 +148,8 @@ jobs:
             --source-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/tree/$GITHUB_SHA" \
             --out-dir dist/source-release
 
-      - name: Make PPSA50011.ffpkg and PPSA50011.ffpfsc
-        run: bash tools/binary-release/make_images.sh dist/source-release/stage/PPSA50011 dist/source-release
+      - name: Make PPSA83600.ffpkg and PPSA83600.ffpfsc
+        run: bash tools/binary-release/make_images.sh dist/source-release/stage/PPSA83600 dist/source-release PPSA83600
 
       # RADV (PS5_Mesa), app_crt and the payload SDK runtime (PS5_Vulkan, PS5_PayloadSDK) are
       # linked into eboot.bin, so their source at the build's pinned commits is corresponding
@@ -192,7 +194,7 @@ jobs:
           rel=dist/release
           mkdir -p "$rel"
           out=dist/source-release
-          cp "$out/PPSA50011.zip" "$out/PPSA50011.zip.sha256" "$out/PPSA50011.ffpkg" "$out/PPSA50011.ffpfsc" "$rel/"
+          cp "$out/PPSA83600.zip" "$out/PPSA83600.zip.sha256" "$out/PPSA83600.ffpkg" "$out/PPSA83600.ffpfsc" "$rel/"
           cp dist/build/src102/SOURCES.json "$rel/SOURCES.json"
           cp dist/build/src102-build.log "$rel/PS5X360-$VERSION-build.log"
           # GPL-3.0 corresponding source: the assembled tree that was compiled ...
@@ -276,7 +278,7 @@ jobs:
               --remote-tag "$RUNNER_TEMP/tags.txt"
           }
           notes=docs/release-notes/v$VERSION.md
-          title="PS5X360 v$VERSION"
+          title="PS5X360Reloaded v$VERSION"
           action=$(decide)
           echo "Release $TAG: $action"
           if [[ $action == create ]]; then
