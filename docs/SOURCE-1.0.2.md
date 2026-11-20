@@ -177,7 +177,7 @@ the source-only fixes 20 and up; the console results of those builds are in the
 | 3 | no 256-byte XMM copy for access violations | ported (`03`) | general registers always copied (as in the binary); a handler that changes an XMM register without its state copied is passed on rather than writing zeros (no handler does today) |
 | 4 | GPU command thread on its own core (CPU 2) | ported (`04`) | the dedicated core is on from the start instead of two forced branches |
 | 5 | FSI choice files in `/download0/xbox360ps5` | ported (`05`) | same file names as the binary release (`fsi.c`, `fsi.1`, `fsi.c.new`), so a choice survives switching builds; the official `/app0/render-target-fsi.conf` is still read when there is no `fsi.c` |
-| 6 | caches in `/data/homebrew/PPSA50011/cache` (`/data/homebrew/PPSA83600/cache` since fix 46) | ported (`06`) | `/app0/cache` stays as the second candidate (the binary replaced it) |
+| 6 | caches in `/data/homebrew/PPSA50011/cache` | ported (`06`) | `/app0/cache` stays as the second candidate (the binary replaced it); since the rename the folder is `/data/homebrew/PPSA83600/cache` |
 | 7 | Vulkan cache exit checkpoint 30 s | ported (`07`) | none |
 | 8 | selective pipeline waits (RT0 overwritten, ≤ 6 indices or target ≤ 256 px) | ported (`08`) | none |
 | 8b | those pipelines compile first (priority 4) | ported (`08b`) | none |
