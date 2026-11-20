@@ -70,6 +70,8 @@ void CheckUrlAndLayout() {
   CHECK(at.code_y + at.code_size <= at.text_y);
   CHECK(at.text_x + at.text_width <= at.right);
   CHECK(at.text_y + 6 * at.text_size * 1.2f <= at.bottom);  // up to six wrapped lines
+  // Top left: the same box on the screen's left, below the FPS counter (it ends at y 94).
+  CHECK(at.left + m::kQrPanelLeftShift == 24 && at.right + m::kQrPanelLeftShift < 1920 / 2 && at.top > 94);
   // Readable modules: at least 4 pixels at 1080p, twice that at 4K (2160 / 1080).
   for (int size : {21, 25, 29, 33, 37}) {
     const float m1080 = m::QrModulePixels(size, at.card, 1.0f), m4k = m::QrModulePixels(size, at.card, 2.0f);
@@ -146,7 +148,7 @@ void CheckLanguages(const std::string& folder) {
   const char* kTexts[] = {"Motion: no phone connected", "Scan with your phone to use it as Kinect.",
                           "Same Wi-Fi, stand 2-3 m back, full body visible.", "Code: ",
                           "Step back", "Step closer", "Show your whole body to the camera",
-                          "Hand reach (the game needs %.2f)"};
+                          "Hand reach (the game needs %.2f)", "Motion panel", "Top right", "Top left"};
   const char* kLanguages[] = {"de", "en", "es", "es-419", "fr", "it", "ja", "ko", "nl", "pl",
                               "pt", "pt-BR", "ru", "tr", "zh-Hans", "zh-Hant"};
   for (const char* language : kLanguages) {
@@ -175,7 +177,15 @@ void CheckTree() {
         std::string::npos);
   CHECK(launcher.find("plain + \"camera?k=\" + key") != std::string::npos);  // the library's link, same form
   // The panel's box is the one it always had.
-  CHECK(game.find("draw->AddRectFilled(ImVec2(1550*scale,100*scale),ImVec2(1900*scale,640*scale)") != std::string::npos);
+  CHECK(game.find("draw->AddRectFilled(ImVec2((1550 + shift_)*scale,100*scale),ImVec2((1900 + shift_)*scale,640*scale)") !=
+        std::string::npos);
+  // Its place: the "Motion panel" option (top right, top left, off: the code only).
+  CHECK(game.find("shift_ = motion_panel_ == 1 ? xbox360ps5::motion::kQrPanelLeftShift : 0.0f;") != std::string::npos);
+  CHECK(game.find("settings.touchpad_menu,settings.motion_panel)") != std::string::npos);
+  CHECK(game.find("} else if (!panel_off) {") != std::string::npos);
+  CHECK(game.find("const auto pose = xbox360ps5::motion::NormalizedSnapshot();") != std::string::npos);
+  CHECK(launcher.find("{\"motion_panel\", &S::motion_panel, 3, W::live, 0, true, \"Motion panel\",") != std::string::npos);
+  CHECK(launcher.find("{\"Top right\", \"Top left\", \"Off\"}") != std::string::npos);
   // Its texts go through Tr (English keys, fix 25).
   for (const char* key : {"Tr(\"Motion: no phone connected\")", "Tr(\"Scan with your phone to use it as Kinect.\")",
                           "Tr(\"Same Wi-Fi, stand 2-3 m back, full body visible.\")", "Tr(\"Code: \")"})

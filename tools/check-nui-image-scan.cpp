@@ -21,6 +21,8 @@
 
 #include "xbox360ps5/nui_image_scan.hpp"
 #include "xbox360ps5/virtual_skeleton.hpp"
+#include "xbox360ps5/body_scale.hpp"
+#include "xbox360ps5/kinect_hand_view.hpp"
 
 namespace m = xbox360ps5::motion;
 
@@ -204,6 +206,76 @@ void CheckHandSeamAndCalls() {
   CHECK(calls.size() == 1 && calls[0] == 0x82000500);
 }
 
+// body_scale.hpp: the phone's body brought to an adult's size, arms rebuilt from the shoulder.
+m::Frame Body(float size, bool bent) {
+  // A standing body facing the sensor, hips at the origin, `size` times an adult's (0.52 m torso).
+  m::Frame pose;
+  pose.tracked = true;
+  pose.session = 7;
+  pose.sequence = 1;
+  for (auto& j : pose.joints) j = {0, 0, 0, 0.9f};
+  auto at = [&](int n, float x, float y, float z) { pose.joints[size_t(n)] = {x * size, y * size, z * size, 0.9f}; };
+  at(0, 0, 0, 0); at(1, 0, 0.26f, 0); at(2, 0, 0.52f, 0); at(3, 0, 0.75f, 0);
+  // Left arm straight out to the side (+X picture), right arm bent (forearm up, hand by the shoulder).
+  at(4, 0.18f, 0.5f, 0); at(5, 0.48f, 0.5f, 0); at(6, 0.74f, 0.5f, 0); at(7, 0.82f, 0.5f, 0);
+  at(8, -0.18f, 0.5f, 0);
+  if (bent) { at(9, -0.18f, 0.2f, 0.05f); at(10, -0.2f, 0.45f, 0.12f); at(11, -0.2f, 0.53f, 0.12f); }
+  else { at(9, -0.48f, 0.5f, 0); at(10, -0.74f, 0.5f, 0); at(11, -0.82f, 0.5f, 0); }
+  return pose;
+}
+
+void CheckBodyScale() {
+  // A body the phone made 0.6 of an adult: scaled x1/0.6 around the hips, arms back to adult length.
+  m::BodyScaleState state;
+  const m::Frame small = Body(0.6f, false);
+  for (int n = 0; n < 60; ++n) m::ObserveBody(state, small);
+  CHECK(std::fabs(state.torso - 0.312f) < 1e-3f);
+  float factor = 0;
+  const m::Frame out = m::NormalizeBody(state, small, &factor);
+  CHECK(std::fabs(factor - 1 / 0.6f) < 1e-3f);
+  CHECK(out.joints[0].x == 0 && out.joints[0].y == 0 && out.joints[0].z == 0);  // the hips stay
+  CHECK(std::fabs(m::Distance(out.joints[0], out.joints[2]) - m::kTorsoMetres) < 1e-3f);
+  const float arm = m::Distance(out.joints[4], out.joints[7]);
+  CHECK(arm > 0.6f && arm < 0.7f);  // an adult's straight arm (0.64 m)
+  CHECK(m::PhoneArmLength(small, false) < 0.4f && m::PhoneArmLength(out, false) > 0.6f);
+  // Directions are kept: the straight arm stays horizontal.
+  CHECK(std::fabs(out.joints[7].y - out.joints[4].y) < 1e-4f && out.joints[7].x > out.joints[4].x);
+  // A bent arm keeps its bend; its bones get adult lengths (at least 90 %).
+  m::BodyScaleState bent_state;
+  const m::Frame bent = Body(0.6f, true);
+  for (int n = 0; n < 60; ++n) m::ObserveBody(bent_state, bent);
+  const m::Frame bent_out = m::NormalizeBody(bent_state, bent);
+  CHECK(m::Distance(bent_out.joints[8], bent_out.joints[9]) >= 0.9f * m::kUpperArmMetres - 1e-3f);
+  CHECK(m::Distance(bent_out.joints[9], bent_out.joints[10]) >= 0.9f * m::kForearmMetres - 1e-3f);
+  CHECK(bent_out.joints[10].y > bent_out.joints[9].y);  // the forearm still points up
+  // An adult stays an adult; a huge or tiny reading is clamped (x0.8 .. x2).
+  m::BodyScaleState adult;
+  m::ObserveBody(adult, Body(1.0f, false));
+  m::NormalizeBody(adult, Body(1.0f, false), &factor);
+  CHECK(std::fabs(factor - 1) < 1e-3f);
+  m::BodyScaleState tiny;
+  m::ObserveBody(tiny, Body(0.2f, false));
+  m::NormalizeBody(tiny, Body(0.2f, false), &factor);
+  CHECK(factor == m::kLargestBodyScale);
+  // No body, or no torso yet: the frame as it came.
+  m::Frame lost = small;
+  lost.tracked = false;
+  CHECK(m::NormalizeBody(state, lost).joints[7].x == small.joints[7].x);
+  m::BodyScaleState empty;
+  CHECK(m::NormalizeBody(empty, small).joints[7].x == small.joints[7].x);
+  // A new phone session starts its averages again.
+  m::Frame other = Body(1.0f, false);
+  other.session = 8;
+  m::ObserveBody(state, other);
+  CHECK(state.session == 8 && std::fabs(state.torso - 0.52f) < 1e-3f);
+  // Unseen joints are not moved by the averages (their bones are not measured).
+  m::BodyScaleState unseen;
+  m::Frame hidden = small;
+  hidden.joints[11].confidence = 0;
+  m::ObserveBody(unseen, hidden);
+  CHECK(unseen.bones[1][2] == 0);
+}
+
 std::string ReadText(const char* path) {
   std::ifstream in(path, std::ios::binary);
   std::stringstream s;
@@ -256,6 +328,9 @@ void CheckTree() {
   CHECK(game_main.find("kinect_needed = &KinectNeededNotice") != std::string::npos);
   CHECK(covers.find("XexHeaderRequiresKinect") != std::string::npos);
   CHECK(cam.find("ReportKinectNeeded") != std::string::npos);
+  // The title's skeleton frames and the fallback get the normalised body.
+  CHECK(cam.find("const xbox360ps5::motion::Frame pose = xbox360ps5::motion::NormalizedSnapshot();") != std::string::npos);
+  CHECK(cam.find("auto pose = xbox360ps5::motion::NormalizedSnapshot();") != std::string::npos);
   std::printf("tree: core files use the code scan; the library offers Camera motion\n");
 }
 
@@ -304,6 +379,7 @@ int main(int argc, char** argv) {
   CheckRegisterUse();
   CheckXexHeader();
   CheckHandSeamAndCalls();
+  CheckBodyScale();
   CheckTree();
   if (failures) {
     std::printf("%d failure(s)\n", failures);

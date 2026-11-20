@@ -241,6 +241,10 @@ Step back = Afaste-se
 Step closer = Aproxime-se
 Show your whole body to the camera = Mostre o corpo inteiro para a câmera
 Hand reach (the game needs %.2f) = Alcance da mão (o jogo precisa de %.2f)
+Motion panel = Painel de movimento
+Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = Onde o painel de movimento da câmera aparece sobre o jogo (a pose do celular, o que o jogo precisa das mãos, o código para conectar um celular). Desligado mantém só o código enquanto nenhum celular estiver conectado.
+Top right = Canto superior direito
+Top left = Canto superior esquerdo
 
 [added pt]
 Console storage = Armazenamento da consola
@@ -293,6 +297,10 @@ Step back = Afaste-se
 Step closer = Aproxime-se
 Show your whole body to the camera = Mostre o corpo inteiro à câmara
 Hand reach (the game needs %.2f) = Alcance da mão (o jogo precisa de %.2f)
+Motion panel = Painel de movimento
+Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = Onde o painel de movimento da câmara aparece sobre o jogo (a pose do telemóvel, o que o jogo precisa das mãos, o código para ligar um telemóvel). Desligado mantém só o código enquanto nenhum telemóvel estiver ligado.
+Top right = Canto superior direito
+Top left = Canto superior esquerdo
 
 [added es]
 Console storage = Almacenamiento de la consola
@@ -345,6 +353,10 @@ Step back = Aléjate
 Step closer = Acércate
 Show your whole body to the camera = Muestra todo el cuerpo a la cámara
 Hand reach (the game needs %.2f) = Alcance de la mano (el juego necesita %.2f)
+Motion panel = Panel de movimiento
+Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = Dónde se muestra el panel de movimiento de la cámara sobre el juego (la pose del móvil, lo que el juego necesita de las manos, el código para conectar un móvil). Desactivado deja solo el código mientras no haya un móvil conectado.
+Top right = Arriba a la derecha
+Top left = Arriba a la izquierda
 
 [added es-419]
 Console storage = Almacenamiento de la consola
@@ -397,6 +409,10 @@ Step back = Aléjate
 Step closer = Acércate
 Show your whole body to the camera = Muestra todo el cuerpo a la cámara
 Hand reach (the game needs %.2f) = Alcance de la mano (el juego necesita %.2f)
+Motion panel = Panel de movimiento
+Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = Dónde se muestra el panel de movimiento de la cámara sobre el juego (la pose del celular, lo que el juego necesita de las manos, el código para conectar un celular). Desactivado deja solo el código mientras no haya un celular conectado.
+Top right = Arriba a la derecha
+Top left = Arriba a la izquierda
 
 [added de]
 Console storage = Konsolenspeicher
@@ -449,6 +465,10 @@ Step back = Geh einen Schritt zurück
 Step closer = Komm näher
 Show your whole body to the camera = Zeig der Kamera deinen ganzen Körper
 Hand reach (the game needs %.2f) = Handreichweite (das Spiel braucht %.2f)
+Motion panel = Bewegungsfeld
+Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = Wo das Kamera-Bewegungsfeld über dem Spiel angezeigt wird (die Pose vom Handy, was das Spiel von den Händen braucht, der Code zum Verbinden eines Handys). Aus zeigt nur den Code, solange kein Handy verbunden ist.
+Top right = Oben rechts
+Top left = Oben links
 
 [added fr]
 Console storage = Stockage de la console
@@ -501,6 +521,10 @@ Step back = Reculez
 Step closer = Rapprochez-vous
 Show your whole body to the camera = Montrez tout votre corps à la caméra
 Hand reach (the game needs %.2f) = Portée de la main (le jeu demande %.2f)
+Motion panel = Panneau de mouvement
+Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = Où le panneau de mouvement de la caméra s'affiche sur le jeu (la pose du téléphone, ce que le jeu attend des mains, le code pour connecter un téléphone). Désactivé ne garde que le code tant qu'aucun téléphone n'est connecté.
+Top right = En haut à droite
+Top left = En haut à gauche
 
 [added it]
 Console storage = Memoria della console
@@ -553,6 +577,10 @@ Step back = Allontanati
 Step closer = Avvicinati
 Show your whole body to the camera = Mostra tutto il corpo alla fotocamera
 Hand reach (the game needs %.2f) = Portata della mano (il gioco richiede %.2f)
+Motion panel = Pannello del movimento
+Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = Dove compare il pannello del movimento della fotocamera sopra il gioco (la posa dal telefono, ciò che il gioco chiede alle mani, il codice per collegare un telefono). Disattivato mostra solo il codice finché nessun telefono è collegato.
+Top right = In alto a destra
+Top left = In alto a sinistra
 
 [added ja]
 Console storage = 本体ストレージ
@@ -605,6 +633,10 @@ Step back = 下がってください
 Step closer = 近づいてください
 Show your whole body to the camera = 全身をカメラに映してください
 Hand reach (the game needs %.2f) = 手の伸び (ゲームの必要値 %.2f)
+Motion panel = モーションパネル
+Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = ゲーム上にカメラモーションのパネルを表示する位置 (スマートフォンからのポーズ、ゲームが手に求める動き、スマートフォンを接続するコード)。オフにすると、スマートフォンが未接続の間だけコードを表示します。
+Top right = 右上
+Top left = 左上
 
 [added ko]
 Console storage = 본체 저장 공간
@@ -657,6 +689,10 @@ Step back = 뒤로 물러나세요
 Step closer = 더 가까이 오세요
 Show your whole body to the camera = 전신이 카메라에 보이게 하세요
 Hand reach (the game needs %.2f) = 손 뻗기 (게임 필요값 %.2f)
+Motion panel = 모션 패널
+Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = 게임 위에 카메라 모션 패널을 표시할 위치 (휴대폰의 자세, 게임이 손에 요구하는 동작, 휴대폰 연결 코드). 끄면 휴대폰이 연결되지 않은 동안 코드만 표시합니다.
+Top right = 오른쪽 위
+Top left = 왼쪽 위
 
 [added nl]
 Console storage = Consoleopslag
@@ -709,6 +745,10 @@ Step back = Ga achteruit
 Step closer = Kom dichterbij
 Show your whole body to the camera = Laat je hele lichaam aan de camera zien
 Hand reach (the game needs %.2f) = Handbereik (het spel heeft %.2f nodig)
+Motion panel = Bewegingspaneel
+Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = Waar het bewegingspaneel van de camera boven het spel staat (de houding van de telefoon, wat het spel van je handen nodig heeft, de code om een telefoon te verbinden). Uit toont alleen de code zolang er geen telefoon verbonden is.
+Top right = Rechtsboven
+Top left = Linksboven
 
 [added pl]
 Console storage = Pamięć konsoli
@@ -761,6 +801,10 @@ Step back = Odsuń się
 Step closer = Podejdź bliżej
 Show your whole body to the camera = Pokaż kamerze całe ciało
 Hand reach (the game needs %.2f) = Zasięg ręki (gra potrzebuje %.2f)
+Motion panel = Panel ruchu
+Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = Gdzie nad grą rysowany jest panel ruchu z kamery (poza z telefonu, czego gra potrzebuje od rąk, kod do połączenia telefonu). Wyłączony zostawia tylko kod, dopóki żaden telefon nie jest połączony.
+Top right = U góry po prawej
+Top left = U góry po lewej
 
 [added ru]
 Console storage = Память консоли
@@ -813,6 +857,10 @@ Step back = Отойдите назад
 Step closer = Подойдите ближе
 Show your whole body to the camera = Покажите камере всё тело
 Hand reach (the game needs %.2f) = Вынос руки (игре нужно %.2f)
+Motion panel = Панель движения
+Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = Где над игрой показывается панель движения камеры (поза с телефона, что игре нужно от рук, код для подключения телефона). Выключено: только код, пока телефон не подключён.
+Top right = Вверху справа
+Top left = Вверху слева
 
 [added tr]
 Console storage = Konsol depolama alanı
@@ -865,6 +913,10 @@ Step back = Geri çekilin
 Step closer = Yaklaşın
 Show your whole body to the camera = Tüm vücudunuzu kameraya gösterin
 Hand reach (the game needs %.2f) = El uzanımı (oyunun istediği %.2f)
+Motion panel = Hareket paneli
+Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = Kamera hareket panelinin oyunun üzerinde nerede gösterileceği (telefondan gelen poz, oyunun ellerden beklediği, telefonu bağlama kodu). Kapalı, telefon bağlı değilken yalnızca kodu gösterir.
+Top right = Sağ üst
+Top left = Sol üst
 
 [added zh-Hans]
 Console storage = 主机存储空间
@@ -917,6 +969,10 @@ Step back = 请后退
 Step closer = 请靠近
 Show your whole body to the camera = 让摄像头看到你的全身
 Hand reach (the game needs %.2f) = 手部伸展（游戏需要 %.2f）
+Motion panel = 动作面板
+Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = 摄像头动作面板在游戏画面上的位置（来自手机的姿势、游戏对手部的要求、连接手机的代码）。关闭时，仅在没有手机连接时显示代码。
+Top right = 右上
+Top left = 左上
 
 [added zh-Hant]
 Console storage = 主機儲存空間
@@ -969,3 +1025,7 @@ Step back = 請後退
 Step closer = 請靠近
 Show your whole body to the camera = 讓攝影機看到你的全身
 Hand reach (the game needs %.2f) = 手部伸展（遊戲需要 %.2f）
+Motion panel = 動作面板
+Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = 攝影機動作面板在遊戲畫面上的位置（來自手機的姿勢、遊戲對手部的要求、連接手機的代碼）。關閉時，僅在沒有手機連接時顯示代碼。
+Top right = 右上
+Top left = 左上
