@@ -465,8 +465,7 @@ void CheckTree() {
     // hang-watch.txt stays open after the game loop (the shader dumps close their own files).
     const size_t destructor = watch.find("~HangWatchThread() {");
     const std::string body = destructor == std::string::npos ? std::string()
-                                                              : watch.substr(destructor, watch.find("
-  }", destructor) - destructor);
+                                                              : watch.substr(destructor, watch.find("\n  }", destructor) - destructor);
     Expect(!body.empty() && body.find("close(") == std::string::npos && body.find("hang_watch_fd.store(-1)") == std::string::npos,
            "the watch's file stays open when the watch stops");
   }
