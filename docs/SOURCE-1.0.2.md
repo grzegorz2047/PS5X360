@@ -4,13 +4,19 @@ This page records whether the official PS5X360 v1.0.2 `eboot.bin` (package `PPSA
 `eboot.bin` SHA-256 `b1d1b3cb…`) can be rebuilt from the author's public source drops, what
 is missing, and how close a rebuild gets.
 
+Since **v1.0.3**, this repository's releases are built this way: the `eboot.bin` is compiled
+from the assembled tree with the fixes below, and the release carries its GPL-3.0 corresponding
+source (see [Releases](#releases)). The earlier binary releases (`v1.0.2-opt`,
+`v1.0.2-opt-r2`: the official executable with binary patches,
+[`tools/binary-release`](../tools/binary-release/README.md)) are superseded.
+
 - Assembly: [`tools/source-1.0.2/assemble.py`](../tools/source-1.0.2/assemble.py)
 - Build: [`tools/source-1.0.2/build.sh`](../tools/source-1.0.2/build.sh), workflow
   [`build-source-1.0.2.yml`](../.github/workflows/build-source-1.0.2.yml)
 - Release (draft, package and corresponding source):
   [`release-source.yml`](../.github/workflows/release-source.yml) (see [Releases](#releases))
 - Comparison: [`tools/source-1.0.2/compare.py`](../tools/source-1.0.2/compare.py)
-- The shipped release's binary patches as source changes:
+- The binary patches of the `v1.0.2-opt*` releases as source changes, and the later fixes:
   [`tools/source-1.0.2/fixes`](../tools/source-1.0.2/fixes/README.md) (see
   [Release fixes](#release-fixes-ported-from-the-binary-patches))
 
@@ -27,7 +33,7 @@ On the console (user's test of that build): the launcher, Modern Warfare 2, Blac
 Age II run like the official build; the visible difference was the missing dark home theme,
 reconstructed since.
 
-Latest build: [run 44507850129](https://github.com/grzegorz2047/PS5X360Reloaded/actions/runs/44507850129),
+Build with the `gameinfo.txt` reader and the dark theme (before the release fixes): [run 44507850129](https://github.com/grzegorz2047/PS5X360Reloaded/actions/runs/44507850129),
 with the `gameinfo.txt` reader ([run 44502949131](https://github.com/grzegorz2047/PS5X360Reloaded/actions/runs/44502949131))
 and the dark theme: `eboot.bin` 37,574,693 bytes, SHA-256 `b7525acb…` (`eboot.elf` `a251fd04…`).
 Its official-only strings drop to 18,074; the dark theme's and `gameinfo.txt`'s are now in both.
@@ -37,8 +43,8 @@ That build was not run on a console by itself; the later test builds that contai
 
 The workflow keeps the built RADV driver and payload SDK in the Actions cache (keyed by the
 pinned reference commits) and uses ccache: with the cache, the RADV build and Mesa's packages are
-skipped (dependencies 36 s instead of up to 9 min). It runs by hand (`workflow_dispatch`, which
-GitHub offers once the workflow file is on the default branch) for a test build, and as a
+skipped (dependencies 36 s instead of up to 9 min). It runs by hand (`workflow_dispatch`; GitHub
+offers the button because `main` carries a copy of the workflow file) for a test build, and as a
 reusable workflow (`workflow_call`) from the source release (see [Releases](#releases)).
 
 Earlier runs, each fixing what the previous one found:
@@ -136,18 +142,19 @@ From this repository (build glue no drop contains): `platform/ps5/compat/`,
 | `disc_scan.hpp` (`build/disc-20261015`) | `launcher.cpp` | reconstructed: finds no disc | games on a disc in the console's drive are not listed (the official's `DISC …` log lines are absent) |
 | `disc_relay.hpp` (client of `disc-helper.elf`, port 9302; protocol unknown) | core `mapped_memory_posix.cc` | reconstructed: never connects | discs the title cannot open directly are refused |
 | `xbox360ps5/game_info.hpp` (x360db reader) | `launcher.cpp` | reconstructed: reads the official package's own `/app0/assets/gameinfo.txt` (INI by title id); host-tested by `check-game-info.cpp` (fix 43) on a committed excerpt of that file, and on the whole file when `PS5X360_GAMEINFO` names it | game information tab should work like the official one; untested on hardware |
-| 1.0.x `i18n.hpp` (17 interface languages) | `launcher.cpp` | 0.5.9's `i18n.hpp` (pt/en/es table) + reconstructed `i18n_ui.hpp` reading the package's `assets/lang/<code>.txt`, hooked in by three recorded edits; fix 25 keys the interface by English, so the rebuild reads the English-keyed files of [`tools/source-1.0.2/english/lang`](../tools/source-1.0.2/fixes/README.md#language-files-fix-25) instead of the package's (keyed by Portuguese). Fix 43 adds the official loader's second load (0x1c1a50): `/app0/lang/<code>.txt` is read after the package's file into the same table, adding or replacing texts (the package has no `lang/` folder, so nothing changes until one is added) | language codes host-tested against the official tables (0x1e63e48, 0x1e63e90) and every language file parsed by `check-ui-lang-overlay.cpp` (fix 43); untested on hardware |
-| `usb_kinect.hpp` (physical USB Kinect and its relay, `build/kinect-relay-20261015`) | the package's 1.0.x `virtual_depth_camera.hpp`, used by core `xboxkrnl_pscam.cc` | fix 44: the 1.0.x `virtual_depth_camera.hpp`, `factory_calibration.hpp` and `virtual_skeleton.hpp` come from the official package's `KINECT-source-and-licenses.zip` (pinned in `assemble.py`); [`usb_kinect.hpp`](../tools/source-1.0.2/reconstructed/xbox360ps5/usb_kinect.hpp) is reconstructed from the official executable (va 0x746510-0x7481e4) and the package's `kinect_tracker.c`: the relay client (127.0.0.1:9301, `KNCT`), the direct `/dev/ugen` camera (VID 045e, PID 02ae/02bf), `/data/kinect-tracker/calibration.bin`, the official 12 `Kinect USB: …` lines | relay and calibration switching checked on the host against a fake relay, the direct camera against a simulated ugen device; not yet tried with a real Kinect. The `kinect-relay-20261015` folder may have held a newer `virtual_depth_camera.hpp` than the package's (the official build put it first on the include path); the official image's layout matches the package's |
+| 1.0.x `i18n.hpp` (17 interface languages) | `launcher.cpp` | 0.5.9's `i18n.hpp` (pt/en/es table) + reconstructed `i18n_ui.hpp` reading the package's `assets/lang/<code>.txt`, hooked in by three recorded edits; fix 25 keys the interface by English, so the rebuild reads the English-keyed files of [`tools/source-1.0.2/english/lang`](../tools/source-1.0.2/fixes/README.md#language-files-fix-25) instead of the package's (keyed by Portuguese). Fix 43 adds the official loader's second load (0x1c1a50): `/app0/lang/<code>.txt` is read after the package's file into the same table, adding or replacing texts (the package has no `lang/` folder, so nothing changes until one is added) | language codes host-tested against the official tables (0x1e63e48, 0x1e63e90) and every language file parsed by `check-ui-lang-overlay.cpp` (fix 43); on the console, switching the interface language works (`1.0.3_candidate_48`) |
+| `usb_kinect.hpp` (physical USB Kinect and its relay, `build/kinect-relay-20261015`) | the package's 1.0.x `virtual_depth_camera.hpp`, used by core `xboxkrnl_pscam.cc` | fix 44: the 1.0.x `virtual_depth_camera.hpp`, `factory_calibration.hpp` and `virtual_skeleton.hpp` come from the official package's `KINECT-source-and-licenses.zip` (pinned in `assemble.py`); [`usb_kinect.hpp`](../tools/source-1.0.2/reconstructed/xbox360ps5/usb_kinect.hpp) is reconstructed from the official executable (va 0x746510-0x7481e4) and the package's `kinect_tracker.c`: the relay client (127.0.0.1:9301, `KNCT`), the direct `/dev/ugen` camera (VID 045e, PID 02ae/02bf), `/data/kinect-tracker/calibration.bin`, the official 12 `Kinect USB: …` lines | relay and calibration switching checked on the host against a fake relay, the direct camera against a simulated ugen device; on the console (`1.0.3_candidate_49`, Dragon Ball Z for Kinect) the relay client received a test relay's frames at full rate and survived the relay closing; not yet tried with a real Kinect (issue #8). The `kinect-relay-20261015` folder may have held a newer `virtual_depth_camera.hpp` than the package's (the official build put it first on the include path); the official image's layout matches the package's |
 | 1.0.x `canary_audio.hpp` | `canary_audio.cpp`, `launcher.cpp` | 0.5.9's, with `override` dropped from `DestroyDriver` (no longer virtual in the netplay core; it did the same as the base) | none expected |
-| 1.0.2 dark home theme (`ui-dark.on`, `assets/skin-dark`) | the home and the Settings sheet | reconstructed from the official executable's code ([`dark_theme.hpp`](../tools/source-1.0.2/reconstructed/dark_theme.hpp) and recorded edits to `launcher.cpp`, `kinect_home.inc`, `kinect_state.inc`, `kinect_press.inc`): read once at start; picture folders `/data/homebrew/PPSA50011/skin`, `/app0/assets/skin-dark`, `/app0/assets/skin`; graphite panel colours (`ApplyTheme(NxeUi() && !dark)`); slot type `#eef0f2`/`#a3a9ae` instead of `#282828`/`#8c8c8c`; a "Tema: CLARO/ESCURO" slot after System Link (message, restart) and a "Tema" Settings row before "Reiniciar o emulador" (rows 40 px apart, as in the official) that remove the marker or write `1\n` to it | the console test of run 44497867041 found it missing; the slot's icon (`kSettings`) is our choice |
+| 1.0.2 dark home theme (`ui-dark.on`, `assets/skin-dark`) | the home and the Settings sheet | reconstructed from the official executable's code ([`dark_theme.hpp`](../tools/source-1.0.2/reconstructed/dark_theme.hpp) and recorded edits to `launcher.cpp`, `kinect_home.inc`, `kinect_state.inc`, `kinect_press.inc`): read once at start; picture folders `/data/homebrew/PPSA50011/skin`, `/app0/assets/skin-dark`, `/app0/assets/skin`; graphite panel colours (`ApplyTheme(NxeUi() && !dark)`); slot type `#eef0f2`/`#a3a9ae` instead of `#282828`/`#8c8c8c`; a "Tema: CLARO/ESCURO" slot after System Link (message, restart) and a "Tema" Settings row before "Reiniciar o emulador" (rows 40 px apart, as in the official) that remove the marker or write `1\n` to it | reconstructed after the console test of run 44497867041 found it missing; the slot's icon (`kSettings`) is our choice |
 | `__wrap_sceKernelDebugOutText` | 1.0.2 link (`--wrap`) | the wrap is left out: it belongs to the OpenGL renderer (glvk, issue #6), whose code is the only reader of the driver message it saves | debug output goes to the system unchanged; nothing without glvk |
 | Other title sources changed between 0.6.0 and 1.0.0 (input diagnostics, network self-test, cover download, …) | retained objects of `upstream-c28af11-20261020`, `kinect-home-20261021`, `dash-mode-20261020`, `input-fix-20261021`, … (`port.json`, `title-src/` there) | the newest published version is used, with what the official image shows rebuilt: the covers' Microsoft box-art fallback after XboxUnity (fix 41) and the network self-test's timed lines, resolver report and TCP probe (fix 42). The `InputDiag` lines of `input-fix-20261021`'s `xam_input.cc` are deliberately left out: a private Fable II diagnostic, on only when `/app0/input-diagnostic.once` holds `fable-input-20261009`, for one 30-second window | the input diagnostic is absent; other changes that left no strings may still be missing (see below) |
 | Compiler commands of the retained objects | every object the author did not recompile | the flags of 0.5.9's `canary/CMakeLists.txt` (title `-O2 -mavx`, all `-march=znver2 -fno-stack-protector`) and Canary's Release `-O3` (the per-object commands are not published) | code differs byte for byte even where sources match; no behaviour change known. Tuning the flags belongs to issue #2 |
 
 ## Release fixes ported from the binary patches
 
-The shipped release is the official 1.0.2 executable with binary patches
-(`tools/binary-release/patches.py` on branch `fix/mmio-gpr-and-ci`). Each group is ported to
+The binary releases `v1.0.2-opt` and `v1.0.2-opt-r2` are the official 1.0.2 executable with
+binary patches (`tools/binary-release/patches.py`; r2 has groups 1–5, and groups 6–13 were made on
+branch `fix/mmio-gpr-and-ci` after it and never released in binary form). Each group is ported to
 source as one patch in [`tools/source-1.0.2/fixes`](../tools/source-1.0.2/fixes/README.md),
 which `assemble.py` applies last. The intent is ported, not the machine code: where the binary
 patch had to borrow room (repurposed strings, an unused settings field, a diagnostic counter),
@@ -208,9 +215,11 @@ What the 18,106 official-only strings are:
   patterns outright; most of the other ~8,100 are the same compiler's text (ASTC/BCn decoder
   shaders, SoftFloat, lexer errors).
 - **Port features from unpublished sources, about 40 log lines**: `DISC …` (games on the
-  drive, 9), `Kinect USB: …` (physical camera and relay, 12; in the rebuild since fix 44), `Network test: …` (6),
-  `InputDiag …` (2), `Cover {} downloaded`, `/app0/assets/skin-dark`, `ui-dark.on`,
-  `/data/kinect-tracker/calibration.bin` (in the rebuild since fix 44), `/app0/lang/`.
+  drive, 9), `Kinect USB: …` (physical camera and relay, 12; in the rebuild since fix 44),
+  `Network test: …` (6; since fix 42), `InputDiag …` (2; left out on purpose, see gaps),
+  `Cover {} downloaded` (since fix 41), `/app0/assets/skin-dark` and `ui-dark.on` (since the
+  reconstructed dark theme), `/data/kinect-tracker/calibration.bin` (since fix 44),
+  `/app0/lang/` (since fix 43). Of these, the `DISC …` and `InputDiag …` lines are still absent.
 - `/app0/assets/gameinfo.txt` was also official-only in run 44497867041; the reconstructed
   reader added after it reads that file.
 
@@ -250,8 +259,9 @@ draft is published, at the commit the draft targets.
    for no candidate label. Artifacts: `eboot-X.Y.Z-from-source` and `source-X.Y.Z`.
 2. The package: the official v1.0.2 `PPSA50011.zip` (SHA-256 `230359c2…`) with the source-built
    `eboot.bin` as it was signed, the English-keyed `assets/lang/*.txt` of fix 25 in place of the
-   official Portuguese-keyed ones, `VERSION`/`RELEASE.json`/`MANIFEST.json` for `X.Y.Z` and the
-   GPL notice (`tools/source-1.0.2/package.py`), then `PPSA50011.ffpkg` and `PPSA50011.ffpfsc`
+   official Portuguese-keyed ones, this repository's `assets/presets.txt`, `assets/config` and
+   `assets/patches`, `VERSION`/`RELEASE.json`/`MANIFEST.json` for `X.Y.Z`, the GPL notice and the
+   licence texts the official package lacks (`tools/source-1.0.2/package.py`), then `PPSA50011.ffpkg` and `PPSA50011.ffpfsc`
    (`tools/binary-release/make_images.sh`). Because the language files change with the
    executable, the whole `PPSA50011` folder has to be installed, not `eboot.bin` alone.
 3. The draft `vX.Y.Z` (notes from `docs/release-notes/vX.Y.Z.md`) with `PPSA50011.zip` (and its
@@ -266,6 +276,11 @@ draft is published, at the commit the draft targets.
 
 The released `eboot.bin` is a new build of the tested candidate's commit: only the version label
 differs in the source, but its bytes (and SHA-256) are not the candidate's.
+
+**v1.0.3** is the first release made this way (branch `release/source-1.0.3`, notes in
+[`docs/release-notes/v1.0.3.md`](release-notes/v1.0.3.md)). It replaces the binary releases
+`v1.0.2-opt` and `v1.0.2-opt-r2`; `release-binary.yml` and `tools/binary-release` stay only to
+rebuild those (the image script `make_images.sh` is shared).
 
 ## Licensing
 

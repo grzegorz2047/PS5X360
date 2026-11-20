@@ -1,11 +1,18 @@
-# Optimized release from the official v1.0.2 package
+# Binary releases from the official v1.0.2 package (superseded)
 
-The C++ in this repository stops at v0.5.7-fix.1: the official v1.0.2 executable
-was built from code its author publishes only as archives with the releases
-(`PS5X360-source-*-changes.zip`). An `eboot.bin` compiled from this repository's
-own C++ lacks online play, per-game FSI, frame generation and Kinect, so it is
-**not** released. The `v1.0.2-opt*` releases instead take the official v1.0.2
-package and change it:
+> **Superseded since v1.0.3.** The `v1.0.2-opt` and `v1.0.2-opt-r2` releases were made with
+> these tools. From v1.0.3 on, releases are built from source instead
+> ([Releases built from source](#releases-built-from-source-103-and-later)): the `eboot.bin` is
+> compiled, not patched, and every binary patch group here (1-13) is ported to source in
+> `tools/source-1.0.2/fixes`. No new `v*-opt*` release is planned. To update from a binary
+> release, install the whole v1.0.3 package, not only its `eboot.bin`. These tools stay to
+> rebuild the old releases, and `make_images.sh` also makes the source releases' images.
+
+When these releases were made, the C++ in this repository stopped at v0.5.7-fix.1: the official
+v1.0.2 executable was built from code its author publishes only as archives with the releases
+(`PS5X360-source-*-changes.zip`). An `eboot.bin` compiled from this repository's own C++ lacks
+online play, per-game FSI, frame generation and Kinect, so it was **not** released. The
+`v1.0.2-opt*` releases instead take the official v1.0.2 package and change it:
 
 | Step | Where |
 | --- | --- |
@@ -27,8 +34,8 @@ python3 tools/binary-release/build_package.py --base-zip PPSA50011.zip
 bash tools/binary-release/make_images.sh dist/binary-release/stage/PPSA50011 dist/binary-release
 ```
 
-A change to the C++ of this repository reaches a binary release only when it
-can be written as a binary patch in `patches.py`;
+A change to the C++ of this repository reached a binary release only when it
+could be written as a binary patch in `patches.py`;
 `.github/workflows/build-ps5.yml` only checks that the repository's C++ still
 compiles.
 
@@ -37,7 +44,7 @@ compiles.
 The 1.0.2 sources reassembled from the author's drops (`tools/source-1.0.2`,
 [docs/SOURCE-1.0.2.md](../../docs/SOURCE-1.0.2.md)) do build a complete
 `eboot.bin`, with these patch groups ported to source and later fixes on top.
-That executable **is** released, by `.github/workflows/release-source.yml`, as a
+That executable **is** released (first as v1.0.3), by `.github/workflows/release-source.yml`, as a
 draft GitHub release `vX.Y.Z` with its GPL-3.0 corresponding source: it is not
 patched here. Its package comes from the same official v1.0.2 `PPSA50011.zip`
 through `tools/source-1.0.2/package.py` (the source-built `eboot.bin` as signed,
