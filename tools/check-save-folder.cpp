@@ -11,9 +11,14 @@
 //      repeating it (nothing more to do);
 //  (b) MigrateDrives over the console's mounts and bases (a drive's top, homebrew, xbox360),
 //      placeholders and mounts without an old folder left alone, then Scan finds the new folders;
+//      every base moved inside itself (<base>/PS5X360/saves -> <base>/PS5X360Reloaded/saves: the
+//      mkdir, rename and rmdir in <base>, the same parent, so the same filesystem), and the
+//      tester's M.2 drive as it is (/mnt/ext1 read-only at the top, the saves in
+//      /mnt/ext1/xbox360/PS5X360/saves/E00098AB5214D8F8, the games beside them);
 //  (c) the same on a real temporary tree with PosixFs (mkdir, rename, rmdir, stat): the files
 //      inside arrive unchanged, the old empty folder is gone, a folder with other files is kept,
 //      a regular file where the new folder should be makes the move fail and leaves all as it was;
+//      a drive's xbox360/ and homebrew/ bases each moved inside themselves, its games left alone;
 //  (d) the assembled tree: SaveRoot named after XBOX360PS5_PRODUCT_NAME, the move before the scan
 //      in content_manager.cc with the exact paths logged and the notice hook, the renamed text in
 //      xam_ui.cc, canary_game_main.cpp and the window's list, and no lstat, remove_all or
@@ -25,6 +30,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
@@ -255,6 +261,62 @@ void CheckDrives() {
   Expect(kept.size() == 2 && kept[1].root == "/mnt/usb0/PS5X360/saves", "after a failed move the old folder is used");
 }
 
+// Every base fix 27's scan accepts (the drive's top, homebrew/, xbox360/) is moved in its own
+// folder: <base>/PS5X360/saves -> <base>/PS5X360Reloaded/saves, mkdir and rename inside <base>,
+// so the rename never leaves the filesystem. And the tester's M.2 drive as it is: the top of
+// /mnt/ext1 read-only, the saves in /mnt/ext1/xbox360/PS5X360/saves/<profile>.
+void CheckBases() {
+  FakeFs fs;
+  fs.Mount("/mnt/usb0", 201);
+  for (const char* base : {"", "/homebrew", "/xbox360"})
+    fs.AddFile(std::string("/mnt/usb0") + base + "/PS5X360/saves/E000000000000001/4D5307E6/00000001/save.bin");
+  std::vector<storage::Migration> done;
+  storage::MigrateDrives(fs, "/mnt", &done);
+  Expect(done.size() == 3, "one move a base (" + std::to_string(done.size()) + ")");
+  for (const char* base : {"", "/homebrew", "/xbox360"}) {
+    const std::string folder = std::string("/mnt/usb0") + base;
+    bool found = false;
+    for (const auto& m : done) {
+      if (m.from.string() != folder + "/PS5X360/saves") continue;
+      found = true;
+      Expect(m.result == Result::kMoved && m.to.string() == folder + "/PS5X360Reloaded/saves" && m.old_folder_removed,
+             "moved in its own base: " + m.from.string() + " -> " + m.to.string());
+      Expect(m.from.parent_path().parent_path() == m.to.parent_path().parent_path(),
+             "the same parent, so the same filesystem: " + folder);
+    }
+    Expect(found, "a move for " + folder + "/PS5X360/saves");
+    Expect(std::find(fs.calls.begin(), fs.calls.end(), "mkdir " + folder + "/PS5X360Reloaded") != fs.calls.end() &&
+               std::find(fs.calls.begin(), fs.calls.end(),
+                         "rename " + folder + "/PS5X360/saves " + folder + "/PS5X360Reloaded/saves") != fs.calls.end() &&
+               std::find(fs.calls.begin(), fs.calls.end(), "rmdir " + folder + "/PS5X360") != fs.calls.end(),
+           "mkdir, rename and rmdir inside " + (folder.empty() ? std::string("the top") : folder));
+    Expect(fs.files.count(folder + "/PS5X360Reloaded/saves/E000000000000001/4D5307E6/00000001/save.bin") == 1 &&
+               !fs.IsDirectory(folder + "/PS5X360"),
+           "the save arrives, the old folder is gone: " + folder);
+  }
+
+  FakeFs m2;
+  m2.AddDir("/data/homebrew/PPSA83600/saves");
+  m2.Mount("/mnt/ext1", 301);
+  m2.read_only.insert("/mnt/ext1");
+  m2.AddFile("/mnt/ext1/xbox360/PS5X360/saves/E00098AB5214D8F8/41560817/00000001/save.bin");
+  m2.AddFile("/mnt/ext1/xbox360/Battlefield 3 (USA, Europe) (Disc 2).iso");
+  std::vector<storage::Migration> moved;
+  storage::MigrateDrives(m2, "/mnt", &moved);
+  Expect(moved.size() == 1 && moved[0].result == Result::kMoved &&
+             moved[0].from == "/mnt/ext1/xbox360/PS5X360/saves" && moved[0].to == "/mnt/ext1/xbox360/PS5X360Reloaded/saves" &&
+             moved[0].old_folder_removed,
+         "M.2: /mnt/ext1/xbox360/PS5X360/saves -> /mnt/ext1/xbox360/PS5X360Reloaded/saves, the old folder removed");
+  Expect(m2.IsDirectory("/mnt/ext1/xbox360/PS5X360Reloaded/saves/E00098AB5214D8F8") &&
+             m2.files.count("/mnt/ext1/xbox360/PS5X360Reloaded/saves/E00098AB5214D8F8/41560817/00000001/save.bin") == 1 &&
+             !m2.IsDirectory("/mnt/ext1/xbox360/PS5X360") &&
+             m2.files.count("/mnt/ext1/xbox360/Battlefield 3 (USA, Europe) (Disc 2).iso") == 1,
+         "M.2: the profile folder arrives, the old folder is gone, the games beside it stay");
+  const auto devices = storage::Scan(m2, "/data/homebrew/PPSA83600/saves", "/mnt");
+  Expect(devices.size() == 2 && devices[1].id == 4 && devices[1].root == "/mnt/ext1/xbox360/PS5X360Reloaded/saves",
+         "M.2: the scan uses the moved folder (device 4)");
+}
+
 void Write(const stdfs::path& path, const std::string& text) {
   stdfs::create_directories(path.parent_path());
   std::ofstream(path, std::ios::binary) << text;
@@ -312,6 +374,22 @@ void CheckRealTree() {
   Write(f / "PS5X360Reloaded/saves", "a file");
   Expect(storage::MigrateSaves(fs, f).result == Result::kBothKept && ReadText(f / "PS5X360/saves/s.bin") == "s",
          "real: something already at the new path is never replaced");
+  // The xbox360/ and homebrew/ bases of a drive, as MigrateDrives passes them: each moved inside
+  // itself; the drive's other files stay.
+  const auto g = root / "g";
+  Write(g / "xbox360/PS5X360/saves/E00098AB5214D8F8/41560817/00000001/save.bin", "m2 save");
+  Write(g / "xbox360/game.iso", "iso");
+  Write(g / "homebrew/PS5X360/saves/E000000000000002/4D5307E6/00000001/save.bin", "homebrew save");
+  for (const char* base : {"xbox360", "homebrew"}) {
+    m = storage::MigrateSaves(fs, g / base);
+    Expect(m.result == Result::kMoved && m.old_folder_removed && m.from == g / base / "PS5X360/saves" &&
+               m.to == g / base / "PS5X360Reloaded/saves" && !stdfs::exists(g / base / "PS5X360"),
+           std::string("real: ") + base + "/PS5X360/saves moved to " + base + "/PS5X360Reloaded/saves");
+  }
+  Expect(ReadText(g / "xbox360/PS5X360Reloaded/saves/E00098AB5214D8F8/41560817/00000001/save.bin") == "m2 save" &&
+             ReadText(g / "homebrew/PS5X360Reloaded/saves/E000000000000002/4D5307E6/00000001/save.bin") == "homebrew save" &&
+             ReadText(g / "xbox360/game.iso") == "iso" && !stdfs::exists(g / "PS5X360Reloaded"),
+         "real: the saves arrive in their own base, the games stay, nothing at the drive's top");
   stdfs::remove_all(root);
 }
 
@@ -369,6 +447,7 @@ void CheckTree() {
 int main() {
   CheckDecisions();
   CheckDrives();
+  CheckBases();
   CheckRealTree();
   CheckTree();
   if (failures) {
