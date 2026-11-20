@@ -6,6 +6,9 @@
 // write and an fsync, for every failed allocation: 3,856 lines in 61 s, and the game never got
 // past it. Now only the first kFailureLines failures get a line, then one says the rest are only
 // counted; a big allocation still gets its line, and the beat still has every failure.
+// At 16 s the frame watch's capture also logged every system call: Fable II's idle threads asked
+// for the time about 20,000 times a second, 33,000 lines in under 2 s, and the game's own lines
+// waited over a minute for the log writer. The capture now takes at most kCaptureDebugLines.
 // Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh).
 #undef NDEBUG
 #include "xbox360ps5/hang_watch.hpp"
@@ -61,17 +64,59 @@ void CheckLines() {
   hw::raw_sink.store(nullptr);
 }
 
+void CheckCaptureLines() {
+  raw.clear();
+  hw::raw_sink.store(+[](const char* text, size_t size) { raw.emplace_back(text, size); });
+  Expect(hw::capture_debug_lines == -1 && hw::CaptureDebugLeft(), "no capture: debug lines by the log level alone");
+  for (int n = 0; n < 5000; ++n) Expect(hw::TakeCaptureDebugLine(), "no capture: every debug line");
+  Expect(raw.empty(), "no capture: no line about it");
+  hw::capture_debug_lines.store(hw::kCaptureDebugLines);
+  int taken = 0;
+  for (int n = 0; n < 20000; ++n) taken += hw::TakeCaptureDebugLine() ? 1 : 0;
+  Expect(taken == hw::kCaptureDebugLines, "a capture: " + std::to_string(hw::kCaptureDebugLines) + " debug lines (" +
+                                              std::to_string(taken) + ")");
+  Expect(!hw::CaptureDebugLeft(), "then none, already before a line is formatted");
+  Expect(raw.size() == 1 && raw[0] == "STALL capture: 1000 system-call lines logged, no more until the next capture",
+         "one line says the capture's lines are spent");
+  hw::capture_debug_lines.store(-1);
+  Expect(hw::CaptureDebugLeft() && hw::TakeCaptureDebugLine(), "after the capture: by the log level again");
+  hw::raw_sink.store(nullptr);
+}
+
 void CheckTree() {
   const std::string code = Read(".deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_memory.cc");
   Expect(code.find("if (!ok || (alloc_type & X_MEM_COMMIT)) {\n    xbox360ps5::hang_watch::GuestAllocation(") != std::string::npos ||
              code.find("if (!ok || (alloc_type & X_MEM_COMMIT)) {\r\n    xbox360ps5::hang_watch::GuestAllocation(") != std::string::npos,
          "NtAllocateVirtualMemory still hands every failure to GuestAllocation");
+  const std::string log = Read(".deps/xenia-canary/src/xenia/base/logging.cc");
+  const size_t goes = log.find("bool GoesToLog(LogLevel log_level, uint32_t log_mask) {");
+  const size_t left = log.find("!xbox360ps5::hang_watch::CaptureDebugLeft()", goes);
+  Expect(goes != std::string::npos && left != std::string::npos && left - goes < 300,
+         "GoesToLog drops debug lines once the capture's are spent");
+  size_t at = 0, takes = 0;
+  while ((at = log.find("!xbox360ps5::hang_watch::TakeCaptureDebugLine()", at)) != std::string::npos) {
+    const size_t append = log.find("logger_->AppendLine(", at);
+    if (append != std::string::npos && append - at < 200) ++takes;
+    ++at;
+  }
+  Expect(takes == 2, "both AppendLogLine take a capture line right before appending");
+  const std::string main_code = Read("src/canary_game_main.cpp");
+  const size_t store = main_code.find("xbox360ps5::hang_watch::capture_debug_lines.store(xbox360ps5::hang_watch::kCaptureDebugLines);");
+  const size_t level = main_code.find("cvars::log_level = 3;  // Every system call, for a moment.", store);
+  const size_t finish = main_code.find("case xbox360ps5::FrameWatch::finish_capture:", level);
+  const size_t reset = main_code.find("xbox360ps5::hang_watch::capture_debug_lines.store(-1);  // fix 76", finish);
+  const size_t over = main_code.find("XELOGW(\"STALL over: frames again\");", finish);
+  const size_t reset2 = main_code.find("xbox360ps5::hang_watch::capture_debug_lines.store(-1);  // fix 76", over);
+  Expect(store != std::string::npos && level != std::string::npos && level - store < 200 && reset != std::string::npos &&
+             over != std::string::npos && reset < over && reset2 != std::string::npos,
+         "the capture sets the budget with the log level; its end and recovery clear it");
 }
 
 }  // namespace
 
 int main() {
   CheckLines();
+  CheckCaptureLines();
   CheckTree();
   if (failures) {
     std::printf("check-alloc-failure-lines: %d failure(s)\n", failures);
