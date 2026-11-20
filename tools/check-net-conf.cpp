@@ -8,6 +8,7 @@
 // Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh).
 #undef NDEBUG
 #include "../port/net_conf.hpp"  // the assembled tree's port/ (run from <tree>/tools)
+#include "../include/xbox360ps5/app_identity.hpp"  // fix 46: the title's folder
 
 #include <cassert>
 #include <cstdio>
@@ -57,8 +58,8 @@ fs::path TempRoot() {
 }
 
 void MissingFolder(const fs::path& root) {
-  // The console without /data/homebrew/PPSA50011 (title installed as a package).
-  const fs::path file = root / "data/homebrew/PPSA50011/network.conf";
+  // The console without the title's /data/homebrew folder (title installed as a package).
+  const fs::path file = root / std::string(XBOX360PS5_DATA_ROOT "/network.conf").substr(1);
   assert(!fs::exists(file.parent_path()));
   assert(!OldSetNetMode(file, "online"));  // 1.0.2: "Could not write network.conf."
   assert(!fs::exists(file.parent_path()));
@@ -96,7 +97,7 @@ void FailuresSaySo(const fs::path& root) {
   const fs::path blocker = root / "blocked";
   Write(blocker, "not a folder");
   std::string error;
-  assert(!nc::SetMode(blocker / "PPSA50011/network.conf", "online", &error));
+  assert(!nc::SetMode(blocker / XBOX360PS5_TITLE_ID "/network.conf", "online", &error));
   assert(error.rfind("cannot create ", 0) == 0);
   assert(error.find("blocked") != std::string::npos);
   // The path is a folder: it cannot be opened as a file.
@@ -126,7 +127,10 @@ void LauncherUsesIt() {
   const std::string body = state.substr(begin, end - begin);
   assert(body.find("xbox360ps5::net_conf::SetMode(kKinectNetConf, mode, &error)") != std::string::npos);
   assert(body.find("std::ofstream") == std::string::npos);
-  assert(state.find("\"/data/homebrew/PPSA50011/network.conf\"") != std::string::npos);
+  // Fix 46: the title's own folder (app_identity.hpp), not the official PS5X360's.
+  assert(state.find("kKinectNetConf = XBOX360PS5_DATA_ROOT \"/network.conf\";") != std::string::npos);
+  assert(state.find("PPSA50011") == std::string::npos);
+  assert(std::string(XBOX360PS5_DATA_ROOT "/network.conf") == "/data/homebrew/PPSA83600/network.conf");
   const std::string launcher = ReadTree("src/launcher.cpp");
   const auto include = launcher.find("#include \"net_conf.hpp\"");
   const auto state_include = launcher.find("#include \"kinect_state.inc\"");

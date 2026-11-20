@@ -13,6 +13,10 @@
 # the whole file too when PS5X360_GAMEINFO names it (fix 43). check-guest-crash.cpp (fix 45) runs
 # threads that time XmaDecoder's pause handshake (100 ms as a rule and 1 s at most with the fix; 1.0.2's
 # still waiting at 300 ms) and suspends one of its own threads with SIGUSR1 while it holds a lock.
+# Fix 46 (PS5X360Reloaded's own title ID, folder and name): check-app-identity.cpp (the identity
+# header, the version label, the web settings' keys), check-official-import.cpp (the first start's
+# copy from the official PS5X360 on a temporary folder) and tools/check-title-id.py (no official
+# title ID or /data/homebrew literal left in the title and the core, with python3).
 set -euo pipefail
 repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 tree=$(realpath "$1")
@@ -48,6 +52,8 @@ checks=(
   check-net-log-drain.cpp          # fix 39
   check-review-fix30.cpp           # fixes 35-37 with fix 30
   check-guest-crash.cpp            # fix 45
+  check-app-identity.cpp           # fix 46
+  check-official-import.cpp        # fix 46
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -63,6 +69,7 @@ declare -A fix_of=(
   [check-media-voice.cpp]=32 [check-switch-title.cpp]=33 [check-pipeline-claim.cpp]=34
   [check-readback-slots.cpp]=35 [check-unwatched-policy.cpp]=36 [check-exact-unwatch.cpp]=37
   [check-jit-backports.cpp]=38 [check-net-log-drain.cpp]=39 [check-review-fix30.cpp]="35 36 37"
+  [check-app-identity.cpp]=46 [check-official-import.cpp]=46
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
@@ -148,6 +155,15 @@ if "$python" -I "$repo/tools/check-english-source.py" --tree "$tree"; then
   echo "pass check-english-source.py"
 else
   echo "FAIL check-english-source.py"
+  status=1
+fi
+echo "=== check-title-id.py"
+if [[ " $skipped_fixes " == *" 46 "* ]]; then
+  echo "skip check-title-id.py (fix 46 left out of this build)"
+elif "$python" -I "$repo/tools/check-title-id.py" --tree "$tree"; then
+  echo "pass check-title-id.py"
+else
+  echo "FAIL check-title-id.py"
   status=1
 fi
 echo "=== check-kinect-fake-relay.py"
