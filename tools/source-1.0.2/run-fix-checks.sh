@@ -83,6 +83,7 @@ checks=(
   check-packet-cost.cpp            # fix 75
   check-wait-reg.cpp               # fix 77
   check-hot-memory.cpp             # fix 78
+  check-system-heap.cpp            # fix 79
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -130,6 +131,7 @@ declare -A fix_of=(
   [check-packet-cost.cpp]=75
   [check-wait-reg.cpp]=77
   [check-hot-memory.cpp]=78
+  [check-system-heap.cpp]=79
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
