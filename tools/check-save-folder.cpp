@@ -108,7 +108,8 @@ struct FakeFs {
     const std::string a = from.string(), b = to.string();
     std::set<std::string> moved_dirs, moved_files;
     for (const auto& d : dirs) moved_dirs.insert(d == a || d.compare(0, a.size() + 1, a + "/") == 0 ? b + d.substr(a.size()) : d);
-    for (const auto& f : files) moved_files.insert(f.compare(0, a.size() + 1, a + "/") == 0 ? b + f.substr(a.size()) : f);
+    for (const auto& f : files)
+      moved_files.insert(f == a || f.compare(0, a.size() + 1, a + "/") == 0 ? b + f.substr(a.size()) : f);
     dirs = moved_dirs;
     files = moved_files;
     return true;
@@ -141,6 +142,10 @@ struct FakeFs {
   }
   bool ListNames(const stdfs::path& path, std::vector<std::string>& names) {
     names = ListDirectories(path);
+    const std::string prefix = path.string() + "/";
+    for (const auto& f : files)
+      if (f.compare(0, prefix.size(), prefix) == 0 && f.find('/', prefix.size()) == std::string::npos)
+        names.push_back(f.substr(prefix.size()));
     return true;
   }
 };
@@ -186,15 +191,73 @@ void CheckDecisions() {
   none.AddDir("/mnt/usb0");
   Expect(storage::MigrateSaves(none, "/mnt/usb0").result == Result::kNone && none.calls.empty(), "neither: nothing");
 
-  // Both: nothing moved or merged, both left as they are.
-  FakeFs both;
-  both.AddFile("/mnt/usb0/PS5X360/saves/a/old.bin");
-  both.AddFile("/mnt/usb0/PS5X360Reloaded/saves/a/new.bin");
-  m = storage::MigrateSaves(both, "/mnt/usb0");
-  Expect(m.result == Result::kBothKept && both.calls.empty() && both.files.count("/mnt/usb0/PS5X360/saves/a/old.bin") &&
-             both.files.count("/mnt/usb0/PS5X360Reloaded/saves/a/new.bin") &&
-             !both.files.count("/mnt/usb0/PS5X360Reloaded/saves/a/old.bin"),
-         "both: nothing moved, nothing merged");
+  // Both, as 1.0.4_candidate_14 left the tester's M.2 drive: the real Battlefield 3 save in the
+  // new folder, a fresh profile save of the same title that the build without fix 50 wrote into
+  // the old one, plus a title and a profile only the old folder has.
+  {
+    const std::string old_saves = "/mnt/ext1/xbox360/PS5X360/saves", new_saves = "/mnt/ext1/xbox360/PS5X360Reloaded/saves";
+    FakeFs both;
+    both.AddFile(new_saves + "/E00098AB5214D8F8/45410950/00000001/real.bin");
+    both.AddFile(old_saves + "/E00098AB5214D8F8/45410950/00000001/PROF_SAVE/PROF_SAVE");
+    both.AddFile(old_saves + "/E00098AB5214D8F8/45410950/Headers/00000001/PROF_SAVE");
+    both.AddFile(old_saves + "/E00098AB5214D8F8/41560817/00000001/save.bin");
+    both.AddFile(old_saves + "/E000000000000002/4D5307E6/00000001/save.bin");
+    both.AddFile(old_saves + "/.ps5x360-write-test");
+    m = storage::MigrateSaves(both, "/mnt/ext1/xbox360");
+    Expect(m.result == Result::kMerged, "both: what only the old folder has is moved");
+    Expect((m.merged == std::vector<std::pair<stdfs::path, stdfs::path>>{
+                {old_saves + "/E000000000000002", new_saves + "/E000000000000002"},
+                {old_saves + "/E00098AB5214D8F8/41560817", new_saves + "/E00098AB5214D8F8/41560817"}}),
+           "both: a profile the new folder lacks, whole; a title the new profile lacks");
+    Expect((m.kept == std::vector<stdfs::path>{old_saves + "/E00098AB5214D8F8/45410950"}) && m.failed.empty(),
+           "both: the title the new folder has stays in the old one");
+    Expect(both.files.count(new_saves + "/E00098AB5214D8F8/45410950/00000001/real.bin") &&
+               !both.files.count(new_saves + "/E00098AB5214D8F8/45410950/00000001/PROF_SAVE/PROF_SAVE") &&
+               both.files.count(old_saves + "/E00098AB5214D8F8/45410950/00000001/PROF_SAVE/PROF_SAVE") &&
+               both.files.count(new_saves + "/E00098AB5214D8F8/41560817/00000001/save.bin") &&
+               both.files.count(new_saves + "/E000000000000002/4D5307E6/00000001/save.bin") &&
+               both.files.count(old_saves + "/.ps5x360-write-test"),
+           "both: the real save untouched, nothing merged into it, the moved ones in the new folder");
+    for (const auto& call : both.calls)
+      Expect(call.find("45410950") == std::string::npos || call.rfind("rmdir", 0) == 0, "both: never renamed: " + call);
+    Expect(!m.old_folder_removed && both.IsDirectory(old_saves), "both: the old folder stays while it holds something");
+    // Repeated: nothing more moves.
+    both.calls.clear();
+    m = storage::MigrateSaves(both, "/mnt/ext1/xbox360");
+    Expect(m.result == Result::kBothKept && m.merged.empty() && m.kept.size() == 1, "both, repeated: nothing more to move");
+  }
+  // Both, everything in the old folder missing from the new one: all moved, the old folder gone.
+  {
+    FakeFs both;
+    both.AddFile("/mnt/usb0/PS5X360Reloaded/saves/a/new.bin");
+    both.AddFile("/mnt/usb0/PS5X360/saves/a/old.bin");
+    both.AddFile("/mnt/usb0/PS5X360/saves/b/other.bin");
+    m = storage::MigrateSaves(both, "/mnt/usb0");
+    Expect(m.result == Result::kMerged && m.merged.size() == 2 && m.kept.empty() && m.old_folder_removed &&
+               both.files.count("/mnt/usb0/PS5X360Reloaded/saves/a/old.bin") &&
+               both.files.count("/mnt/usb0/PS5X360Reloaded/saves/a/new.bin") &&
+               both.files.count("/mnt/usb0/PS5X360Reloaded/saves/b/other.bin") && !both.IsDirectory("/mnt/usb0/PS5X360"),
+           "both: a file of a shared profile and a whole profile moved, the empty old folders removed");
+  }
+  // Both, a rename refused: reported, nothing lost.
+  {
+    FakeFs both;
+    both.AddDir("/mnt/usb0/PS5X360Reloaded/saves");
+    both.AddFile("/mnt/usb0/PS5X360/saves/a/old.bin");
+    both.fail_rename = EIO;
+    m = storage::MigrateSaves(both, "/mnt/usb0");
+    Expect(m.result == Result::kBothKept && m.failed.size() == 1 && m.failed[0].second == EIO &&
+               both.files.count("/mnt/usb0/PS5X360/saves/a/old.bin"),
+           "both: a refused rename is reported and leaves the file where it was");
+  }
+  // Both, the new saves path a file: untouched.
+  {
+    FakeFs both;
+    both.AddDir("/mnt/usb0/PS5X360/saves/a");
+    both.AddFile("/mnt/usb0/PS5X360Reloaded/saves");
+    m = storage::MigrateSaves(both, "/mnt/usb0");
+    Expect(m.result == Result::kBothKept && both.calls.empty(), "both: a file at the new path, nothing done");
+  }
 
   // A failed mkdir, a failed rename: nothing moved.
   FakeFs no_mkdir;
@@ -349,14 +412,25 @@ void CheckRealTree() {
   Expect(m.result == Result::kMoved && !m.old_folder_removed && stdfs::exists(b / "PS5X360/readme.txt") &&
              ReadText(b / "PS5X360Reloaded/saves/x.bin") == "x",
          "real: an old folder with other files stays");
-  // Both: untouched.
+  // Both: what only the old folder has moves, what the new one has stays.
   const auto c = root / "c";
-  Write(c / "PS5X360/saves/old.bin", "old");
-  Write(c / "PS5X360Reloaded/saves/new.bin", "new");
+  Write(c / "PS5X360/saves/E00098AB5214D8F8/45410950/00000001/PROF_SAVE", "fresh");
+  Write(c / "PS5X360/saves/E00098AB5214D8F8/41560817/00000001/save.bin", "mw2");
+  Write(c / "PS5X360/saves/E000000000000002/4D5307E6/save.bin", "other profile");
+  Write(c / "PS5X360Reloaded/saves/E00098AB5214D8F8/45410950/00000001/PROF_SAVE", "real");
   m = storage::MigrateSaves(fs, c);
-  Expect(m.result == Result::kBothKept && ReadText(c / "PS5X360/saves/old.bin") == "old" &&
-             !stdfs::exists(c / "PS5X360Reloaded/saves/old.bin"),
-         "real: both kept, nothing merged");
+  Expect(m.result == Result::kMerged && m.merged.size() == 2 && m.kept.size() == 1 && m.failed.empty() &&
+             ReadText(c / "PS5X360Reloaded/saves/E00098AB5214D8F8/45410950/00000001/PROF_SAVE") == "real" &&
+             ReadText(c / "PS5X360/saves/E00098AB5214D8F8/45410950/00000001/PROF_SAVE") == "fresh" &&
+             ReadText(c / "PS5X360Reloaded/saves/E00098AB5214D8F8/41560817/00000001/save.bin") == "mw2" &&
+             ReadText(c / "PS5X360Reloaded/saves/E000000000000002/4D5307E6/save.bin") == "other profile" &&
+             !stdfs::exists(c / "PS5X360/saves/E000000000000002") && !m.old_folder_removed,
+         "real: both: the title only the old folder has and its other profile moved, the real save untouched");
+  Expect(storage::MigrateSaves(fs, c).result == Result::kBothKept, "real: both, repeated: nothing more");
+  stdfs::remove_all(c / "PS5X360/saves/E00098AB5214D8F8/45410950");  // set aside by hand
+  m = storage::MigrateSaves(fs, c);
+  Expect(m.result == Result::kBothKept && m.old_folder_removed && !stdfs::exists(c / "PS5X360"),
+         "real: both, once the old folder is empty: removed");
   // Neither.
   const auto d = root / "d";
   stdfs::create_directories(d);
@@ -409,9 +483,10 @@ void CheckTree() {
   Expect(storage_h.find("inline constexpr const char kSaveFolder[] = XBOX360PS5_PRODUCT_NAME;") != std::string::npos &&
              storage_h.find("return folder / kSaveFolder / \"saves\";") != std::string::npos,
          "SaveRoot follows the product's name");
-  const size_t begin = storage_h.find("Migration MigrateSaves(");
+  const size_t begin = storage_h.find("void MergeSaves(Fs& fs, Migration& migration) {");
   const size_t end = storage_h.find("// Every mounted drive's bases", begin);
-  Expect(begin != std::string::npos && end != std::string::npos, "MigrateSaves");
+  Expect(begin != std::string::npos && end != std::string::npos && storage_h.find("Migration MigrateSaves(", begin) < end,
+         "MergeSaves and MigrateSaves");
   const std::string migrate = storage_h.substr(begin, end - begin);
   ExpectNotIn(migrate, "MigrateSaves", {"lstat", "remove_all", "weakly_canonical", "copy", "symlink_status"});
   const size_t posix = storage_h.find("struct PosixFs");
@@ -426,7 +501,10 @@ void CheckTree() {
   const size_t scan_call = content.find("devices = storage::Scan(");
   Expect(migrate_call != std::string::npos && scan_call != std::string::npos && migrate_call < scan_call,
          "the move before the scan");
-  for (const char* part : {"\"Storage: saves folder moved: {} -> {}{}\"", "the old folder was \"\n               \"left as it is",
+  for (const char* part : {"\"Storage: saves folder moved: {} -> {}{}\"",
+                           "\"Storage: moved {} -> {} (only in the old saves folder)\"",
+                           "\"Storage: kept {} in the old saves folder: {} has the same \"",
+                           "(!migration.kept.empty() || !migration.failed.empty())) {",
                            "storage_notice(migration.to.parent_path().parent_path().string());",
                            "\"Storage: could not move {} to {} ({} failed: {}); the old \""})
     Expect(content.find(part) != std::string::npos, std::string("content_manager.cc has ") + part);

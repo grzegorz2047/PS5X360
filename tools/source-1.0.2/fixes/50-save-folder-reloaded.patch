@@ -29,7 +29,15 @@ diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/storage_devices.h b/.deps/x
  #include <fcntl.h>
  #include <sys/stat.h>
  #include <sys/statvfs.h>
-@@ -39,6 +47,8 @@
+@@ -31,6 +39,7 @@
+ 
+ #include <cinttypes>
+ #include <cstdint>
++#include <algorithm>
+ #include <cstdio>
+ #include <filesystem>
+ #include <string>
+@@ -39,6 +48,8 @@
  #include <utility>
  #include <vector>
  
@@ -38,7 +46,7 @@ diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/storage_devices.h b/.deps/x
  namespace xe {
  namespace kernel {
  namespace xam {
-@@ -89,13 +99,103 @@ inline const Slot* FindSlot(uint32_t device_id) {
+@@ -89,13 +100,177 @@ inline const Slot* FindSlot(uint32_t device_id) {
  // Where a drive may keep its saves, in order: its top, else a folder of the
  // drive that the app may write while the top is not (the PS5's extended
  // storage: /mnt/ext1 is the system's, its homebrew and xbox360 folders are
@@ -67,8 +75,9 @@ diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/storage_devices.h b/.deps/x
 +// One rename() on the same filesystem (both are in <base>): nothing is copied,
 +// so there is nothing half-done to clean up. Steps, each safe to repeat:
 +//   old saves folder missing          nothing to do
-+//   new saves folder present (both)   nothing moved or merged; the new one is
-+//                                     used, the old one left as it is
++//   new saves folder present (both)   the new one is used; what only the old
++//                                     one has is moved into it (MergeSaves),
++//                                     nothing that the new one has is touched
 +//   else                              mkdir <base>/<kSaveFolder> (may exist),
 +//                                     rename old saves -> new saves, then rmdir
 +//                                     <base>/PS5X360, which works only if empty
@@ -82,13 +91,82 @@ diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/storage_devices.h b/.deps/x
 +//   bool MakeDirectory(const path&, int* error)    or it is a directory already
 +//   bool Rename(const path& from, const path& to, int* error)
 +//   bool RemoveDirectory(const path&)              rmdir: empty folders only
++//   bool ListNames(const path&, std::vector<std::string>&)  readdir, every name
++//
++// Both folders (a build without fix 50 ran after the move and made the old one
++// again, Battlefield 3 on 1.0.4_candidate_14): saves/ holds a folder a profile
++// (<xuid>), each with a folder a title (<title ID>). MergeSaves moves, one
++// rename each and inside the same <base>: a profile folder the new saves folder
++// lacks, whole; else each entry of it (a title's folder, or a file) the new
++// profile folder lacks. An entry the new folder has is never replaced or
++// merged into: it stays in the old folder (kept). Then the old folders that
++// became empty are removed (rmdir). Repeating it moves what is left to move.
 +struct Migration {
-+  enum class Result { kNone, kMoved, kBothKept, kFailed } result = Result::kNone;
++  enum class Result { kNone, kMoved, kBothKept, kMerged, kFailed } result = Result::kNone;
 +  std::filesystem::path from, to;  // the old and the new saves folder
-+  bool old_folder_removed = false;  // kMoved: <base>/PS5X360 was empty and is gone
++  bool old_folder_removed = false;  // kMoved, kMerged: <base>/PS5X360 was empty and is gone
 +  std::string step;                 // kFailed: "mkdir" or "rename"
 +  int error = 0;                    // kFailed: errno
++  // kMerged, kBothKept: what moved from the old folder into the new one, what
++  // stayed because the new one has the same name, and moves that failed (errno).
++  std::vector<std::pair<std::filesystem::path, std::filesystem::path>> merged;
++  std::vector<std::filesystem::path> kept;
++  std::vector<std::pair<std::filesystem::path, int>> failed;
 +};
++
++template <class Fs>
++void MergeSaves(Fs& fs, Migration& migration) {
++  const auto move = [&](const std::filesystem::path& from,
++                        const std::filesystem::path& to) {
++    int error = 0;
++    if (fs.Rename(from, to, &error)) {
++      migration.merged.emplace_back(from, to);
++    } else {
++      migration.failed.emplace_back(from, error);
++    }
++  };
++  // A name the console or the app writes for itself (.ps5x360-write-test) is
++  // left where it is.
++  const auto listed = [&](const std::filesystem::path& folder) {
++    std::vector<std::string> names;
++    if (!fs.ListNames(folder, names)) names.clear();
++    names.erase(std::remove_if(names.begin(), names.end(),
++                               [](const std::string& name) {
++                                 return name.empty() || name[0] == '.';
++                               }),
++                names.end());
++    std::sort(names.begin(), names.end());
++    return names;
++  };
++  for (const auto& profile : listed(migration.from)) {
++    const auto old_profile = migration.from / profile;
++    const auto new_profile = migration.to / profile;
++    if (!fs.Exists(new_profile)) {
++      move(old_profile, new_profile);
++      continue;
++    }
++    if (!fs.IsDirectory(old_profile) || !fs.IsDirectory(new_profile)) {
++      migration.kept.push_back(old_profile);
++      continue;
++    }
++    for (const auto& entry : listed(old_profile)) {
++      const auto old_entry = old_profile / entry;
++      const auto new_entry = new_profile / entry;
++      if (fs.Exists(new_entry)) {
++        migration.kept.push_back(old_entry);
++      } else {
++        move(old_entry, new_entry);
++      }
++    }
++    fs.RemoveDirectory(old_profile);  // only if it became empty
++  }
++  if (fs.RemoveDirectory(migration.from)) {
++    migration.old_folder_removed =
++        fs.RemoveDirectory(migration.from.parent_path());
++  }
++  migration.result = migration.merged.empty() ? Migration::Result::kBothKept
++                                              : Migration::Result::kMerged;
++}
 +
 +template <class Fs>
 +Migration MigrateSaves(Fs& fs, const std::filesystem::path& folder) {
@@ -97,7 +175,11 @@ diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/storage_devices.h b/.deps/x
 +  migration.to = folder / kSaveFolder / "saves";
 +  if (!fs.IsDirectory(migration.from)) return migration;
 +  if (fs.Exists(migration.to)) {
-+    migration.result = Migration::Result::kBothKept;
++    if (fs.IsDirectory(migration.to)) {
++      MergeSaves(fs, migration);
++    } else {
++      migration.result = Migration::Result::kBothKept;  // not a folder: untouched
++    }
 +    return migration;
 +  }
 +  int error = 0;
@@ -144,7 +226,7 @@ diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/storage_devices.h b/.deps/x
  }
  
  // A package's folder below a device's saves root (ContentManager's layout).
-@@ -155,8 +255,8 @@ struct Skipped {
+@@ -155,8 +330,8 @@ struct Skipped {
  };
  
  // The folders a console or a PC makes on any drive it sees. A USB mount whose
@@ -155,7 +237,7 @@ diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/storage_devices.h b/.deps/x
  // that was usb2, the second partition of the Ubuntu installer stick in usb1
  // (the sandbox gives every mount its own made-up st_dev, and /dev cannot be
  // read, so nothing else tells such a partition apart). Once anything else is
-@@ -311,8 +411,9 @@ std::vector<Device> Scan(Fs& fs, const std::filesystem::path& internal_root,
+@@ -311,8 +486,9 @@ std::vector<Device> Scan(Fs& fs, const std::filesystem::path& internal_root,
            if (skipped) {
              skipped->push_back(
                  {device.mount, device.id, Skipped::Why::kSystemOnly, 0,
@@ -167,7 +249,7 @@ diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/storage_devices.h b/.deps/x
                   "installer stick's)"});
            }
            continue;
-@@ -328,6 +429,17 @@ std::vector<Device> Scan(Fs& fs, const std::filesystem::path& internal_root,
+@@ -328,6 +504,17 @@ std::vector<Device> Scan(Fs& fs, const std::filesystem::path& internal_root,
            break;
          }
        }
@@ -185,7 +267,7 @@ diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/storage_devices.h b/.deps/x
        std::string tried;
        for (const char* base : kSaveBases) {  // else the first writable base
          if (found) break;
-@@ -680,7 +792,7 @@ std::string Notice(const SavedDrive& saved, Tr tr) {
+@@ -680,7 +867,7 @@ std::string Notice(const SavedDrive& saved, Tr tr) {
  inline constexpr const char* kUiTexts[] = {
      "Where should the game save?",
      "The game asks where to keep its saved data.",
@@ -194,7 +276,7 @@ diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/storage_devices.h b/.deps/x
      "Hard drive",
      "Internal storage",
      "M.2 SSD / extended storage",
-@@ -733,6 +845,31 @@ struct PosixFs {
+@@ -733,6 +920,31 @@ struct PosixFs {
      std::error_code error;
      return std::filesystem::is_directory(path, error);
    }
@@ -251,7 +333,7 @@ diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.cc b/.deps/
  void ContentManager::ScanStorageDevicesLocked() const {
    std::vector<storage::Skipped> skipped;
    storage::PosixFs fs;
-@@ -807,6 +813,49 @@ void ContentManager::ScanStorageDevicesLocked() const {
+@@ -807,6 +813,72 @@ void ContentManager::ScanStorageDevicesLocked() const {
             external_storage_root ? external_storage_root : "(none)");
      FlushLog();
    }
@@ -277,17 +359,40 @@ diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.cc b/.deps/
 +        FlushLog();
 +        continue;
 +      }
++      // Both folders: each move of what only the old one had, every time.
++      for (const auto& [from, to] : migration.merged) {
++        XELOGW("Storage: moved {} -> {} (only in the old saves folder)",
++               from.string(), to.string());
++      }
++      for (const auto& [from, error] : migration.failed) {
++        XELOGW("Storage: could not move {} into {} (rename failed: {}); it "
++               "stays in the old saves folder",
++               from.string(), migration.to.string(), std::strerror(error));
++      }
++      if (!migration.merged.empty() || !migration.failed.empty()) FlushLog();
 +      const std::string key = migration.from.string();
 +      if (std::find(reported.begin(), reported.end(), key) != reported.end()) {
 +        continue;
 +      }
 +      reported.push_back(key);
-+      if (migration.result == Result::kBothKept) {
-+        XELOGW("Storage: both {} and {} exist; {} is used, the old folder was "
-+               "left as it is (nothing moved or merged)",
++      if (migration.result == Result::kBothKept ||
++          migration.result == Result::kMerged) {
++        for (const auto& kept : migration.kept) {
++          XELOGW("Storage: kept {} in the old saves folder: {} has the same "
++                 "name (nothing replaced or merged into)",
++                 kept.string(), migration.to.string());
++        }
++        XELOGW("Storage: both {} and {} exist; {} is used; {} moved from the "
++               "old one, {} kept there, {} could not be moved{}",
 +               migration.from.string(), migration.to.string(),
-+               migration.to.string());
-+        if (storage_notice) {
++               migration.to.string(), migration.merged.size(),
++               migration.kept.size(), migration.failed.size(),
++               migration.old_folder_removed
++                   ? "; the old folder was empty then and is gone"
++                   : "");
++        // The notice only while something is left in the old folder.
++        if (storage_notice &&
++            (!migration.kept.empty() || !migration.failed.empty())) {
 +          storage_notice(migration.to.parent_path().parent_path().string());
 +        }
 +      } else {
