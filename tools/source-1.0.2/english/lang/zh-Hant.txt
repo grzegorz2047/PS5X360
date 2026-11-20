@@ -399,6 +399,7 @@ Some\sDLC\sfolders\scould\snot\sbe\sread. = 部分\sDLC\s資料夾無法讀取�
 Some\sgames\sdraw\sfrom\smemory\sthey\shave\salready\sgiven\sback\s(Left\s4\sDead\s2\sdoes,\sseveral\stimes\sa\ssecond).\sOff,\sthose\sdraws\sare\sdropped\sand\ssomething\smay\sbe\smissing\son\sscreen.\sOn,\sthey\sare\smade\sas\slong\sas\sthe\smemory\scan\sstill\sbe\sread. = 部分遊戲會從已歸還的記憶體中繪製（Left\s4\sDead\s2\s每秒會這樣做數次）。關閉：這些繪製會被丟棄，螢幕上可能缺少內容。開啟：只要記憶體仍可讀取就會繪製。
 Some\sgames\sread\sor\swrite\smemory\saddress\szero\sby\smistake\sand\sclose\sby\sthemselves.\sOn,\sthat\saccess\sis\stolerated. = 部分遊戲會誤讀寫記憶體位址零而自行關閉。開啟後將容許這種存取。
 Some\sgames\sread\sthe\sdrawn\spicture\sback\s(save\sthumbnails,\ssome\seffects).\sOff\sis\sfastest.\sUse\sFast\sor\sFull\sonly\sif\sa\sgame\sshows\sblack\spictures\sor\smissing\seffects. = 部分遊戲會回讀已繪製的畫面（存檔縮圖、部分特效）。關閉最快。僅在遊戲出現黑色影像或特效缺失時使用快速或完整。
+Some\ssaves\sor\ssettings\scould\snot\sbe\scopied\sfrom\sPS5X360\s(the\slog\slists\sthem).\sIts\sown\sfiles\swere\snot\schanged. = 部分存檔或設定未能從\sPS5X360\s複製（記錄中列出）。PS5X360\s本身的檔案未被變更。
 Sound = 聲音
 Sound\sis\sdecoded\sat\sthe\sgame's\sown\space,\swithout\sa\sseparate\sthread.\sIt\smay\sfix\ssound\sout\sof\ssync;\sslightly\sheavier. = 按遊戲自身節奏解碼聲音，不使用單獨執行緒。可能修復音畫不同步；稍重。
 Sound,\sgame\svolume\sand\sinterface\ssounds. = 聲音、遊戲音量和介面音效。

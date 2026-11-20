@@ -2,7 +2,8 @@
 // Fix 46 (tools/source-1.0.2/fixes/46-ps5x360reloaded-identity.patch): PS5X360Reloaded's identity
 // (include/xbox360ps5/app_identity.hpp), the version label it gives the home screen
 // (build_version.hpp) and which key its web settings server lets in (web_key.hpp): its own, and
-// the official PS5X360's Kinect tracker key only for motion frames from the console itself.
+// the official PS5X360's Kinect tracker key only for the tracker's two requests (GET
+// /api/motion/status, then POST /api/motion/frame) from the console itself.
 // tools/check-title-id.py checks the rest of the tree (no official title ID, every path through
 // the data root). Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh).
 #undef NDEBUG
@@ -84,7 +85,7 @@ void Access() {
   assert(wk::Loopback(0x7F000001u) && wk::Loopback(0x7F123456u));
   assert(!wk::Loopback(0xC0A80001u) && !wk::Loopback(0x0A000001u) && !wk::Loopback(0x00000000u));
   const std::string own = "a1b2c3", official = "0f0f0f";
-  const std::string frame = "/api/motion/frame";
+  const std::string frame = "/api/motion/frame", status = "/api/motion/status";
   // The title's own key: everything, from anywhere, as before.
   for (const char* target : {"/api/state", "/api/set", "/camera", "/api/motion/frame", "/logs.zip"})
     for (const bool loopback : {false, true}) {
@@ -95,20 +96,29 @@ void Access() {
   // official one.
   assert(wk::Accept("", "", official, "GET", "/api/state", false));
   assert(!wk::Accept("", own, "", "POST", frame, true));
-  // The official tracker's key: motion frames posted from this console only.
+  // The official tracker's key, from this console only, for what the tracker sends
+  // (motion_sender.h): GET /api/motion/status first (it posts nothing unless that answers 200 with
+  // "enabled":true), then POST /api/motion/frame.
+  assert(wk::Accept(official, own, official, "GET", status, true));
   assert(wk::Accept(official, own, official, "POST", frame, true));
+  assert(!wk::Accept(official, own, official, "GET", status, false));       // from the network
   assert(!wk::Accept(official, own, official, "POST", frame, false));       // from the network
   assert(!wk::Accept(official, own, official, "GET", frame, true));         // not a post
-  for (const char* target : {"/api/state", "/api/set", "/camera", "/api/motion/status", "/logs.zip", "/logs/x.txt",
-                             "/api/motion/frame/", "/api/motion/frameX"})
-    assert(!wk::Accept(official, own, official, "POST", target, true));
+  assert(!wk::Accept(official, own, official, "POST", status, true));       // not a get
+  for (const char* target : {"/api/state", "/api/set", "/camera", "/logs.zip", "/logs/x.txt",
+                             "/api/motion/frame/", "/api/motion/frameX", "/api/motion/status/",
+                             "/api/motion/statusX", "/api/motion"})
+    for (const char* method : {"GET", "POST"})
+      assert(!wk::Accept(official, own, official, method, target, true));
   // No official key (no file, or not a key): nothing more goes in.
   assert(!wk::Accept("0f0f0f", own, "", "POST", frame, true));
+  assert(!wk::Accept("0f0f0f", own, "", "GET", status, true));
+  assert(!wk::Accept("", own, "", "GET", status, true));
   assert(!wk::Accept("0F0F0F", own, "0F0F0F", "POST", frame, true));
   // A wrong key is wrong.
   assert(!wk::Accept("123456", own, official, "POST", frame, true));
-  std::printf("  access: the title's key everywhere; the official tracker's key only for POST %s from "
-              "127.0.0.0/8\n", frame.c_str());
+  std::printf("  access: the title's key everywhere; the official tracker's key only for GET %s and POST %s "
+              "from 127.0.0.0/8\n", status.c_str(), frame.c_str());
 }
 }  // namespace
 

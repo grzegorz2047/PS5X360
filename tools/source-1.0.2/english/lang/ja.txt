@@ -399,6 +399,7 @@ Some\sDLC\sfolders\scould\snot\sbe\sread. = 一部の\sDLC\sフォルダーを�
 Some\sgames\sdraw\sfrom\smemory\sthey\shave\salready\sgiven\sback\s(Left\s4\sDead\s2\sdoes,\sseveral\stimes\sa\ssecond).\sOff,\sthose\sdraws\sare\sdropped\sand\ssomething\smay\sbe\smissing\son\sscreen.\sOn,\sthey\sare\smade\sas\slong\sas\sthe\smemory\scan\sstill\sbe\sread. = 一部のゲームはすでに返したメモリから描画します（Left\s4\sDead\s2\sは\s1\s秒に何度も行います）。オフ：その描画は捨てられ、画面に欠けが出ることがあります。オン：メモリが読める限り描画します。
 Some\sgames\sread\sor\swrite\smemory\saddress\szero\sby\smistake\sand\sclose\sby\sthemselves.\sOn,\sthat\saccess\sis\stolerated. = 一部のゲームは誤ってメモリアドレス\s0\sを読み書きし、勝手に終了します。オンにするとそのアクセスを許容します。
 Some\sgames\sread\sthe\sdrawn\spicture\sback\s(save\sthumbnails,\ssome\seffects).\sOff\sis\sfastest.\sUse\sFast\sor\sFull\sonly\sif\sa\sgame\sshows\sblack\spictures\sor\smissing\seffects. = 描画した画像を読み戻すゲームがあります（セーブのサムネイル、一部のエフェクト）。オフが最速です。画像が黒い・エフェクトが欠ける場合だけ、高速か完全を使ってください。
+Some\ssaves\sor\ssettings\scould\snot\sbe\scopied\sfrom\sPS5X360\s(the\slog\slists\sthem).\sIts\sown\sfiles\swere\snot\schanged. = PS5X360\sから一部のセーブデータまたは設定をコピーできませんでした（ログに記録されています）。PS5X360\sのファイルは変更されていません。
 Sound = サウンド
 Sound\sis\sdecoded\sat\sthe\sgame's\sown\space,\swithout\sa\sseparate\sthread.\sIt\smay\sfix\ssound\sout\sof\ssync;\sslightly\sheavier. = 別スレッドを使わず、ゲームのペースで音声をデコードします。音ずれが直ることがありますが、少し重くなります。
 Sound,\sgame\svolume\sand\sinterface\ssounds. = サウンド、ゲームの音量、インターフェイスの音。

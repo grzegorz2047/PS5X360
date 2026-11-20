@@ -5,8 +5,9 @@
 //   * the decision alone (Decide): run once (the marker), nothing when the folders overlap, the
 //     marker only when there is no official folder or not enough room (the free space exactly
 //     enough is enough), the saves only when the title has none;
-//   * on a temporary folder (Run): the saves copied into place, links and unreadable files left
-//     out, nothing the title has overwritten, caches, logs and the web key not copied; the
+//   * on a temporary folder (Run): the saves copied into place (a read-only one writable for the
+//     title, which rewrites saves in place), links and unreadable files left out, nothing the title
+//     has overwritten, caches, logs and the web key not copied; the
 //     official folder byte for byte, mode for mode and time for time as it was (and read-only
 //     during the run); a second start does nothing; without the marker the title's own saves are
 //     kept; short of room nothing but the marker is written; a staging folder left by an
@@ -160,6 +161,8 @@ constexpr char kDlc[] = "saves/0000000000000000/4D5307E6/00000002/MapPack1";
 // settings, pictures, caches, logs and its web key.
 void MakeOfficial(const fs::path& official, bool* unreadable) {
   Write(official / kSave, std::string(4096, 's'));
+  // A read-only save: copy_file gives the copy the same mode, the import makes it writable.
+  fs::permissions(official / kSave, fs::perms::owner_read | fs::perms::group_read | fs::perms::others_read);
   Write(official / kProfile, "profile");
   Write(official / kDlc, std::string(10000, 'd'));
   Write(official / "network.conf", "mode=online\nserver=http://192.168.1.10:36000\n");
@@ -213,8 +216,11 @@ void FirstStart(const fs::path& root) {
   assert(Read(own / "cache/achievements/4D5307E6-1.png") == "icon");
   assert(!Exists(own / "cache/core") && !Exists(own / "logs") && !Exists(own / "web-settings.key") &&
          !Exists(own / "phone-camera") && !Exists(own / "eboot.bin") && !Exists(own / oi::kStaging));
-  // Copies, not links: the title's saves are files of its own.
+  // Copies, not links: the title's saves are files of its own, and it can rewrite them in place
+  // (the official one is read-only).
   assert(fs::symlink_status(own / kSave).type() == fs::file_type::regular);
+  assert((fs::status(own / kSave).permissions() & fs::perms::owner_write) == fs::perms::owner_write);
+  assert((fs::status(official / kSave).permissions() & fs::perms::owner_write) == fs::perms::none);
   struct stat info {};
   assert(!lstat((own / kSave).c_str(), &info) && info.st_nlink == 1);
   // Files: 3 saves, vibration.conf, ui-dark.on, 2 skin, game art, dash.xex, the icon.

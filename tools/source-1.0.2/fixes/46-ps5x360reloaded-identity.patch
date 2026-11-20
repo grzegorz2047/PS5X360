@@ -163,10 +163,10 @@ index 5c091ab..a17468a 100644
  //
 diff --git a/include/xbox360ps5/official_import.hpp b/include/xbox360ps5/official_import.hpp
 new file mode 100644
-index 0000000..3787576
+index 0000000..efc6c4a
 --- /dev/null
 +++ b/include/xbox360ps5/official_import.hpp
-@@ -0,0 +1,400 @@
+@@ -0,0 +1,404 @@
 +// SPDX-License-Identifier: MIT
 +// Fix 46 (tools/source-1.0.2/fixes/46-ps5x360reloaded-identity.patch): the first start of
 +// PS5X360Reloaded copies the official PS5X360's saves and small settings files from its folder
@@ -373,6 +373,10 @@ index 0000000..3787576
 +      if (error && error != std::errc::file_exists) fs::remove(to, remove_error);  // a partial copy
 +      return false;
 +    }
++    // copy_file gives the copy the source's mode: a save the game rewrites in place must stay
++    // writable for this title (its owner) even when the official file was read-only.
++    std::error_code mode_error;
++    fs::permissions(to, fs::perms::owner_read | fs::perms::owner_write, fs::perm_options::add, mode_error);
 +    ++result_.files;
 +    result_.bytes += size;
 +    return true;
@@ -569,23 +573,24 @@ index 0000000..3787576
 +}  // namespace xbox360ps5::official_import
 diff --git a/include/xbox360ps5/web_key.hpp b/include/xbox360ps5/web_key.hpp
 new file mode 100644
-index 0000000..09e5cea
+index 0000000..ed7913d
 --- /dev/null
 +++ b/include/xbox360ps5/web_key.hpp
-@@ -0,0 +1,47 @@
+@@ -0,0 +1,49 @@
 +// SPDX-License-Identifier: MIT
 +// Fix 46 (tools/source-1.0.2/fixes/46-ps5x360reloaded-identity.patch): which key the web
 +// settings server (platform/ps5/web_settings.cpp) lets in.
 +//
 +// The page and its API need the title's own key (web-settings.key in its folder, shown on the
 +// television), as before; an empty key while the server starts lets an empty key in, as before.
-+// The official PS5X360's Kinect tracker (kinect-tracker.elf, started by the Kinect helper) posts
-+// its motion frames to this server with the key it reads from the official app's folder
++// The official PS5X360's Kinect tracker (kinect-tracker.elf, started by the Kinect helper) talks
++// to this server with the key it reads from the official app's folder
 +// (app_identity::kOfficialDataRoot + "/web-settings.key", its motion_sender.h), which is not
-+// PS5X360Reloaded's key now that the two have folders of their own. That key is accepted too,
-+// only for POST /api/motion/frame and only from this console itself (127.0.0.0/8), and only
-+// when the official folder holds one (the official app, or an earlier build, ran once). The
-+// file is read, never written.
++// PS5X360Reloaded's key now that the two have folders of their own. It makes two requests: GET
++// /api/motion/status (is camera motion on for the running game?) and, only when that answers 200
++// with "enabled":true, POST /api/motion/frame. That key is accepted too, for those two requests
++// only and only from this console itself (127.0.0.0/8), and only when the official folder holds
++// one (the official app, or an earlier build, ran once). The file is read, never written.
 +// Header only, checked on the host by tools/check-app-identity.cpp.
 +#pragma once
 +#include <algorithm>
@@ -616,8 +621,9 @@ index 0000000..09e5cea
 +inline bool Accept(const std::string& given, const std::string& own, const std::string& official,
 +                   const std::string& method, const std::string& target, bool loopback) {
 +  if (given == own) return true;
-+  return loopback && method == "POST" && target == "/api/motion/frame" && Valid(official) &&
-+         given == official;
++  if (!loopback || !Valid(official) || given != official) return false;
++  return (method == "GET" && target == "/api/motion/status") ||
++         (method == "POST" && target == "/api/motion/frame");
 +}
 +}  // namespace xbox360ps5::web_key
 diff --git a/platform/ps5/notify.cpp b/platform/ps5/notify.cpp
@@ -1026,7 +1032,7 @@ index 1004f30..917bbf4 100644
  
  inline bool Present() {
 diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
-index 66005a0..c956c02 100644
+index 66005a0..1609e3a 100644
 --- a/src/canary_game_main.cpp
 +++ b/src/canary_game_main.cpp
 @@ -13,6 +13,8 @@
@@ -1160,19 +1166,23 @@ index 66005a0..c956c02 100644
    std::filesystem::path game;
    // A home screen forwarder's game (fix 21, forward.hpp, docs/FORWARDER.md):
    // --rom <game> [--exit-after-game], or a bare full path. It is looked for
-@@ -1865,6 +1884,11 @@ int main(int argc, char** argv) {
+@@ -1865,6 +1884,15 @@ int main(int argc, char** argv) {
      web_hint = plain.empty() ? std::string() : std::string(Tr("Phone: ")) + plain + "    " + Tr("Code: ") + key;
    };
    show_web_address();
-+  // Fix 46: what the first start's import did (a launch failure's note below wins).
-+  if (imported.plan.decision == xbox360ps5::official_import::Decision::kImport && imported.files)
++  // Fix 46: what the first start's import did (a launch failure's note below wins). Something left
++  // out (unreadable, a link, a failed copy) or saves not put in place: said so, not "copied".
++  if (imported.plan.decision == xbox360ps5::official_import::Decision::kImport &&
++      (imported.skipped || !imported.error.empty()))
++    launcher.SetMessage(Tr("Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed."));
++  else if (imported.plan.decision == xbox360ps5::official_import::Decision::kImport && imported.files)
 +    launcher.SetMessage(Tr("Saves and settings were copied from PS5X360. Its own files were not changed."));
 +  else if (imported.plan.decision == xbox360ps5::official_import::Decision::kNoSpace)
 +    launcher.SetMessage(Tr("Saves and settings were not copied from PS5X360: not enough free space."));
    if (driver_test_withdrawn)
      launcher.SetMessage(Tr("The second-thread video driver test was switched off: the emulator did not start with it."));
    // Why the previous run could not start a game, when it left a note.
-@@ -1910,7 +1934,7 @@ int main(int argc, char** argv) {
+@@ -1910,7 +1938,7 @@ int main(int argc, char** argv) {
        // /app0 is read-only on a .ffpkg installation, so the caches stayed in
        // the save storage and filled it (Halo: Reach's utility cache alone).
        bool writable = false;
@@ -1181,7 +1191,7 @@ index 66005a0..c956c02 100644
          const std::filesystem::path candidate = path;
          bulk_error.clear();
          std::filesystem::create_directories(candidate, bulk_error);
-@@ -1940,7 +1964,7 @@ int main(int argc, char** argv) {
+@@ -1940,7 +1968,7 @@ int main(int argc, char** argv) {
      }
      Stage("BOOT emulator constructor");
      Stage("BOOT preparing homebrew saves (original content retained)");
@@ -1190,7 +1200,7 @@ index 66005a0..c956c02 100644
      if (saves.root == storage / "content") {
        XELOGW("Saves: {}; trying installation mount /app0/saves", saves.notice);
        saves = xbox360ps5::PrepareSaveStorage(storage / "content", "/app0/saves");
-@@ -2047,7 +2071,7 @@ int main(int argc, char** argv) {
+@@ -2047,7 +2075,7 @@ int main(int argc, char** argv) {
          // A notification without earning anything: a file put in the title's folder asks for one.
          std::error_code test_error;
          if (std::filesystem::remove("/app0/notify-test.txt", test_error))
@@ -1199,7 +1209,7 @@ index 66005a0..c956c02 100644
        }
        int toasts_were = global.achievement_toasts;
        // The settings page: what it shows, and the changes it asked for. A change
-@@ -2199,7 +2223,7 @@ int main(int argc, char** argv) {
+@@ -2199,7 +2227,7 @@ int main(int argc, char** argv) {
              const auto* profile = profiles->GetProfile(uint8_t(slot));
              const std::string name = profile ? profile->name() : "Player " + std::to_string(slot + 1);
              XELOGW("Local player {}: {} ({})", slot + 1, sample.connected ? "connected" : "disconnected", name);
@@ -1208,7 +1218,7 @@ index 66005a0..c956c02 100644
            }
          }
        };
-@@ -2419,7 +2443,7 @@ int main(int argc, char** argv) {
+@@ -2419,7 +2447,7 @@ int main(int argc, char** argv) {
              else if (pressed & 0xCF0) xbox360ps5::PlayUiSound(xbox360ps5::UiSound::move);
              // Switching the achievement notifications on shows what one looks like.
              if (global.achievement_toasts && !toasts_were)

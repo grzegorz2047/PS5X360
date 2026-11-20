@@ -399,6 +399,7 @@ Some\sDLC\sfolders\scould\snot\sbe\sread. = 일부\sDLC\s폴더를\s읽지\s못�
 Some\sgames\sdraw\sfrom\smemory\sthey\shave\salready\sgiven\sback\s(Left\s4\sDead\s2\sdoes,\sseveral\stimes\sa\ssecond).\sOff,\sthose\sdraws\sare\sdropped\sand\ssomething\smay\sbe\smissing\son\sscreen.\sOn,\sthey\sare\smade\sas\slong\sas\sthe\smemory\scan\sstill\sbe\sread. = 일부\s게임은\s이미\s반납한\s메모리에서\s그립니다(Left\s4\sDead\s2는\s1초에\s여러\s번).\s끄면\s그\s그리기를\s버리며\s화면에\s빠지는\s것이\s생길\s수\s있습니다.\s켜면\s메모리를\s읽을\s수\s있는\s동안\s그립니다.
 Some\sgames\sread\sor\swrite\smemory\saddress\szero\sby\smistake\sand\sclose\sby\sthemselves.\sOn,\sthat\saccess\sis\stolerated. = 일부\s게임은\s실수로\s메모리\s주소\s0을\s읽거나\s써서\s저절로\s종료됩니다.\s켜면\s그\s접근을\s허용합니다.
 Some\sgames\sread\sthe\sdrawn\spicture\sback\s(save\sthumbnails,\ssome\seffects).\sOff\sis\sfastest.\sUse\sFast\sor\sFull\sonly\sif\sa\sgame\sshows\sblack\spictures\sor\smissing\seffects. = 그린\s이미지를\s다시\s읽는\s게임이\s있습니다(저장\s미리보기,\s일부\s효과).\s끄기가\s가장\s빠릅니다.\s이미지가\s검거나\s효과가\s빠질\s때만\s빠름이나\s전체를\s쓰세요.
+Some\ssaves\sor\ssettings\scould\snot\sbe\scopied\sfrom\sPS5X360\s(the\slog\slists\sthem).\sIts\sown\sfiles\swere\snot\schanged. = PS5X360에서\s일부\s저장\s데이터\s또는\s설정을\s복사하지\s못했습니다(로그에\s기록됨).\sPS5X360의\s파일은\s변경되지\s않았습니다.
 Sound = 소리
 Sound\sis\sdecoded\sat\sthe\sgame's\sown\space,\swithout\sa\sseparate\sthread.\sIt\smay\sfix\ssound\sout\sof\ssync;\sslightly\sheavier. = 별도\s스레드\s없이\s게임\s속도에\s맞춰\s소리를\s디코딩합니다.\s소리가\s어긋나는\s문제를\s고칠\s수\s있으며\s조금\s무겁습니다.
 Sound,\sgame\svolume\sand\sinterface\ssounds. = 소리,\s게임\s음량,\s인터페이스\s소리.
