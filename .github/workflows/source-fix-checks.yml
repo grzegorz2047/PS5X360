@@ -81,6 +81,7 @@ on:
       - 'tools/check-packet-cost.cpp'
       - 'tools/check-alloc-failure-lines.cpp'
       - 'tools/check-wait-reg.cpp'
+      - 'tools/check-hot-memory.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
