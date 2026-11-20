@@ -22,7 +22,7 @@ on:
         required: false
         default: ''
       title_opt:
-        description: Optimization level of the title objects (default -O3; -O2 as 1.0.2), for a comparison build
+        description: Optimization level of the title objects (default -O2 as 1.0.2; -O3 for a test build)
         required: false
         default: ''
 
