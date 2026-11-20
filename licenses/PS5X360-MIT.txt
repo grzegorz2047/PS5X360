@@ -1,4 +1,8 @@
-This MIT License covers the PS5X360 code by BrinooTk and the earlier contributions to this repository made under it (files marked SPDX-License-Identifier: MIT).
+The MIT License below is the licence under which PS5X360 by BrinooTk
+(https://github.com/BrinooTk/PS5X360) and the earlier contributions to this project were
+published. It was the project's root LICENSE until the project as a whole moved to the GNU
+General Public License version 3 (LICENSE). The code that came under it keeps this notice, which
+must be included with every copy or substantial portion of that code.
 
 MIT License
 

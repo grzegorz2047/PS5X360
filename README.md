@@ -373,11 +373,12 @@ Licenses:
   and the statically linked RADV/Mesa and PS5 runtime at the pinned commits) and the build log.
   Anyone who distributes a rebuilt `eboot.bin` must do so under the GPL-3.0, with its complete
   source.
-- **This repository is GPL-3.0** as a whole ([LICENSE](LICENSE)). Code that came under the MIT
-  License (BrinooTk's PS5X360 and earlier contributions, files marked
-  `SPDX-License-Identifier: MIT`) stays MIT; its notice is kept in
-  [licenses/PS5X360-MIT.txt](licenses/PS5X360-MIT.txt). Bundled third-party components keep their
-  licenses ([licenses/](licenses/), the font's [SIL Open Font License](assets/fonts/OFL.txt)).
+- **This repository is GPL-3.0** as a whole ([LICENSE](LICENSE)), like the `eboot.bin` built from
+  it. The PS5X360 code by BrinooTk and the earlier contributions came under the MIT License and
+  keep its notice ([licenses/PS5X360-MIT.txt](licenses/PS5X360-MIT.txt)), which must stay with
+  that code; MIT code may be part of a GPL-3.0 work, and this does not relicense it. Bundled
+  third-party components keep their licenses ([licenses/](licenses/), the font's
+  [SIL Open Font License](assets/fonts/OFL.txt)).
 
 PS5X360Reloaded, like PS5X360, is an independent community project and is not affiliated with
 Sony or Microsoft. The README artwork is illustrative branding, not an emulator screenshot.
