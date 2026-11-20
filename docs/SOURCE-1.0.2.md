@@ -181,7 +181,7 @@ also listed here.
 
 | Fix | What | Status |
 |---|---|---|
-| 45 (`45-guest-crash-notice`) | a game that crashes (Minecraft in System Link mode on the v1.0.3 draft, `research/minecraft-online-hang/VERDICT.md`) no longer leaves a silent picture at 0 FPS: the core's crash handler no longer waits forever in `XmaDecoder::Pause` (an idle XMA worker is woken; without a dedicated XMA thread there is nothing to wait for), it tells the port before it pauses (weak hook `Xbox360PS5GuestCrashed`), the overlay says the game crashed and how to close it (all interface languages), and the STALL report's first line names the crashed thread and its PC | host-checked (`tools/check-guest-crash.cpp`); candidate 51 not yet tested on a console. The game's own crash is not fixed: it is the game's code |
+| 45 (`45-guest-crash-notice`) | a game that crashes (Minecraft in System Link mode on the v1.0.3 draft, `research/minecraft-online-hang/VERDICT.md`) no longer leaves a silent picture at 0 FPS: the core's crash handler no longer waits forever in `XmaDecoder::Pause` (an idle XMA worker is woken; without a dedicated XMA thread, as started, there is nothing to wait for), it tells the port first (weak hook `Xbox360PS5GuestCrashed`) and then leaves its own "Uh-oh!" modal out, the overlay says the game crashed and how to close it (all interface languages), the STALL report's first line names the crashed thread and its PC, the exit skips the Vulkan cache checkpoint the paused GPU worker cannot serve, and a guest thread is not suspended while it holds the log's lock | host-checked (`tools/check-guest-crash.cpp`); candidate 51 not yet tested on a console. The game's own crash is not fixed: it is the game's code |
 
 ## Comparison with the official executable
 
