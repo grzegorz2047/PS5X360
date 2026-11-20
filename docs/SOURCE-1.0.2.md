@@ -204,6 +204,7 @@ also listed here.
 | 66 (`66-phone-latency`) | Kinect with a phone: the phone page shows its delay by stage (camera, detection, sending, network, hand smoothing) and the console logs it every 2 s while paired, for the end-to-end latency | host-checked (`tools/check-phone-latency.cpp`, `tools/check-phone-latency.mjs`); console: next combined candidate (26) |
 | 67 (`67-xma-clear-unwatch`) | Ninja Gaiden II (issue #11): an XMA context clear no longer faults inside the fault handler (the memory watch on the context is lifted first), so the nested faults fix 65 handled, and their log lines, are gone | host-checked (`tools/check-xma-unwatch.cpp`); console: next combined candidate (26) |
 | 68 (`68-deferred-watches`) | Call of Duty: Modern Warfare 2: the memory just uploaded to video is protected once per batch of work, merged into runs and checked by content, instead of one ~37 us protection call per upload (~5600 a second); a per-game setting, "Deferred memory watches" (off by default; on in MW2's preset), with a summary line of the calls saved | host-checked (`tools/check-deferred-watches.cpp`); console: 1.0.4_candidate_27 |
+| 69 (`69-suspend-trace`) | a diagnostic for Ninja Gaiden II's black screen on candidate 26 (two job threads that suspended themselves were never woken): the log reports resumes that reach a thread before it suspends itself, and the stall report lists each thread's recent suspensions and resumes | host-checked (`tools/check-suspend-trace.cpp`); console: 1.0.4_candidate_29 |
 
 ## Comparison with the official executable
 
