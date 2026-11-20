@@ -71,6 +71,7 @@ on:
       - 'tools/check-native-mutant.cpp'
       - 'tools/check-phone-latency.cpp'
       - 'tools/check-phone-latency.mjs'
+      - 'tools/check-xma-unwatch.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

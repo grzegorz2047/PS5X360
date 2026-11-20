@@ -74,6 +74,7 @@ checks=(
   check-phone-qr-panel.cpp         # fix 63
   check-native-mutant.cpp          # fix 64
   check-phone-latency.cpp          # fix 66
+  check-xma-unwatch.cpp            # fix 67
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -112,6 +113,7 @@ declare -A fix_of=(
   [check-phone-qr-panel.cpp]=63
   [check-native-mutant.cpp]=64
   [check-phone-latency.cpp]=66
+  [check-xma-unwatch.cpp]=67
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
