@@ -102,23 +102,24 @@ void CheckTimer() {
   Expect(line.find("Frame time packets (GPU thread, own time by kind): SET_CONSTANT ") == 0, "the largest kind first");
   Expect(fc::packet_top == 1 && fc::packet_depth == 0, "one top packet, depth back to 0");
 
-  // Sampling: one in 4 top packets timed, scaled back.
+  // Sampling: one in 4 top packets timed at random (fix 77), scaled back.
   fc::packet_sample_every = 4;
   fc::PacketReporter sampled;
   (void)sampled.Line(1);
   const uint64_t begin = fc::NowNs();
   std::thread([] {
     fc::MarkGpuThread();
-    for (int n = 0; n < 8; ++n) {
+    for (int n = 0; n < 400; ++n) {
       fc::PacketTimer constants(Type3(0x2D));
-      Spin(1000000);
+      Spin(100000);
     }
   }).join();
   const double span = double(fc::NowNs() - begin) / 1e9;
   const std::string scaled = sampled.Line(span);
-  std::printf("   %s\n", scaled.c_str());
-  const double eight = In(scaled, "SET_CONSTANT") * span;
-  Expect(eight > 6.5 && eight < 10.5, "2 of 8 timed, scaled to about 8 ms (" + std::to_string(eight) + ")");
+  std::printf("   %s
+", scaled.c_str());
+  const double total = In(scaled, "SET_CONSTANT") * span;
+  Expect(total > 28 && total < 52, "about 100 of 400 timed, scaled to about 40 ms (" + std::to_string(total) + ")");
 }
 
 void CheckTree() {
