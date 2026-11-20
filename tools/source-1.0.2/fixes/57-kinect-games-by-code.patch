@@ -560,10 +560,10 @@ index 20be75b..72b04c6 100644
  }
 diff --git a/include/xbox360ps5/body_scale.hpp b/include/xbox360ps5/body_scale.hpp
 new file mode 100644
-index 0000000..34a4072
+index 0000000..ec01958
 --- /dev/null
 +++ b/include/xbox360ps5/body_scale.hpp
-@@ -0,0 +1,174 @@
+@@ -0,0 +1,189 @@
 +// SPDX-License-Identifier: MIT
 +// Fix 57: the phone's pose brought to a plausible body size before a game sees it.
 +//
@@ -599,6 +599,13 @@ index 0000000..34a4072
 +constexpr float kLargestBodyScale = 2.0f, kSmallestBodyScale = 0.8f;
 +// 1.0.5_candidate_2: a bent arm whose hand is by its shoulder in the picture (an adult's metres).
 +constexpr float kNearShoulderFlat = 0.12f, kBentElbowDegrees = 125.0f;
++// 1.0.5_candidate_3: the body's depth is re-centred on the bridge's body distance (Z = 0 at
++// 2.5 m) over about five seconds. The phone page calibrates the distance from the body's size
++// in its first second, as if the player stood at its "distance" setting; started near the phone,
++// it put every recording of 1.0.5_candidate_1/2 at its 3.8 m limit (hips at Z -1.30 throughout),
++// beyond Dragon Ball Z's 1.8-3.5 m: "Step closer" all the time and a raised hand ignored. Steps
++// towards and away still show; only the lasting offset goes.
++constexpr float kDepthCentreWeight = 1.0f / 150.0f;
 +// pose.mjs joint order.
 +constexpr int kHipCentre = 0, kShoulderCentre = 2;
 +constexpr int kLeftArm[4] = {4, 5, 6, 7}, kRightArm[4] = {8, 9, 10, 11};
@@ -608,6 +615,8 @@ index 0000000..34a4072
 +  float torso = 0;                 // averaged, metres as the phone gave them
 +  float bones[2][3] = {};          // [left, right][upper, fore, hand], averaged
 +  float factor = 1;                // the last scale applied
++  float hip_z = 0;                 // the hips' depth, averaged over about five seconds
++  bool hip_z_set = false;
 +  Frame last_in{}, last_out{};     // the last frame normalised (for repeated asks)
 +};
 +
@@ -635,6 +644,11 @@ index 0000000..34a4072
 +  };
 +  if (Seen(pose.joints[kHipCentre]) && Seen(pose.joints[kShoulderCentre]))
 +    average(state.torso, Distance(pose.joints[kHipCentre], pose.joints[kShoulderCentre]));
++  if (pose.tracked && std::isfinite(pose.joints[kHipCentre].z)) {
++    state.hip_z = state.hip_z_set ? state.hip_z + kDepthCentreWeight * (pose.joints[kHipCentre].z - state.hip_z)
++                                  : pose.joints[kHipCentre].z;
++    state.hip_z_set = true;
++  }
 +  for (int side = 0; side < 2; ++side) {
 +    const int* arm = side ? kRightArm : kLeftArm;
 +    for (int bone = 0; bone < 3; ++bone)
@@ -653,10 +667,11 @@ index 0000000..34a4072
 +  const float factor = std::clamp(kTorsoMetres / state.torso, kSmallestBodyScale, kLargestBodyScale);
 +  if (factor_out) *factor_out = factor;
 +  const Joint hip = pose.joints[kHipCentre];
++  const float recentre = state.hip_z_set ? -state.hip_z : 0.0f;
 +  for (auto& joint : out.joints) {
 +    joint.x = hip.x + (joint.x - hip.x) * factor;
 +    joint.y = hip.y + (joint.y - hip.y) * factor;
-+    joint.z = hip.z + (joint.z - hip.z) * factor;
++    joint.z = hip.z + (joint.z - hip.z) * factor + recentre;
 +  }
 +  // The body's size after scaling, as a share of an adult's (1 unless the scale was clamped).
 +  const float size = state.torso * factor / kTorsoMetres;

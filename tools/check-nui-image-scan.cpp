@@ -285,6 +285,22 @@ void CheckBodyScale() {
     CHECK(m::Distance(back.joints[11], back.joints[8]) < 0.15f);
     CHECK(back.joints[9].z > back.joints[8].z + 0.1f);  // the elbow stays forward
   }
+  // Depth re-centred on 2.5 m (1.0.5_candidate_3): a page calibration that put the player at
+  // its 3.8 m limit (hips at Z -1.30) is brought back over a few seconds; a quick step forward
+  // still shows.
+  {
+    m::Frame far = Body(1.0f, false);
+    for (auto& j : far.joints) j.z -= 1.3f;
+    m::BodyScaleState sd;
+    for (int n = 0; n < 900; ++n) m::ObserveBody(sd, far);
+    CHECK(std::fabs(m::NormalizeBody(sd, far).joints[0].z) < 0.01f);
+    m::Frame step = far;
+    for (auto& j : step.joints) j.z += 0.5f;
+    m::ObserveBody(sd, step);
+    const float now_z = m::NormalizeBody(sd, step).joints[0].z;
+    CHECK(now_z > 0.45f && now_z < 0.5f);
+    CHECK(m::PositionHint(m::NormalizeBody(sd, far)) == m::Positioning::kOk);
+  }
   // An adult stays an adult; a huge or tiny reading is clamped (x0.8 .. x2).
   m::BodyScaleState adult;
   m::ObserveBody(adult, Body(1.0f, false));

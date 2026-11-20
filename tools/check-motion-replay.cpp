@@ -64,7 +64,7 @@ struct Series {
 // Replays a recording as the console takes it, one normalisation state for the whole of it.
 struct Report {
   int frames = 0, tracked = 0;
-  Series raw_arm, arm, factor, our_reach, game_reach, ratio, hand_shoulder, hand_shoulder_dz;
+  Series raw_arm, arm, factor, our_reach, game_reach, ratio, hand_shoulder, hand_shoulder_dz, raw_distance, distance;
   int straight_arms = 0;
 };
 Report Replay(const std::vector<m::MotionRecord>& records) {
@@ -78,6 +78,8 @@ Report Replay(const std::vector<m::MotionRecord>& records) {
     float factor = 1;
     const m::Frame body = m::NormalizeBody(state, record.pose, &factor);
     r.factor.Add(factor);
+    r.raw_distance.Add(m::kBridgeBodyDistance - record.pose.joints[0].z);
+    r.distance.Add(m::kBridgeBodyDistance - body.joints[0].z);
     const auto hands = m::EstimateHands(body);
     for (int side = 0; side < 2; ++side) {
       const bool right = side == 1;
@@ -219,6 +221,8 @@ int ReportFiles(int argc, char** argv) {
     std::printf("  straight arms (elbow > 150 deg): %d; phone %s m; to the title %s m\n", r.straight_arms,
                 r.raw_arm.Text().c_str(), r.arm.Text().c_str());
     std::printf("  body scale %s\n", r.factor.Text().c_str());
+    std::printf("  distance, phone %s m; to the title %s m\n", r.raw_distance.Text().c_str(),
+                r.distance.Text().c_str());
     std::printf("  reach, estimated %s; the title's %s; title/estimated %s\n", r.our_reach.Text().c_str(),
                 r.game_reach.Text().c_str(), r.ratio.Text().c_str());
     std::printf("  hands within 0.35 m of their shoulder: %s m, depth part %s m\n", r.hand_shoulder.Text().c_str(),
