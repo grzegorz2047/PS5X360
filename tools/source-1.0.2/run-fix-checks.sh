@@ -16,6 +16,7 @@
 # (release-source.yml's decisions) and tools/check-core-commit.py (build.sh's core commit).
 # tools/check-docs-reloaded.py checks the user docs for the PS5X360Reloaded name and title id
 # (PPSA83600, next to the official PPSA50011).
+# tools/check-kinect-page.mjs (fix 56: the phone camera page and its pairing state) runs with node.
 # check-game-info.cpp reads a committed excerpt of the official package's assets/gameinfo.txt, and
 # the whole file too when PS5X360_GAMEINFO names it (fix 43). check-guest-crash.cpp (fix 45) runs
 # threads that time XmaDecoder's pause handshake (100 ms as a rule and 1 s at most with the fix; 1.0.2's
@@ -61,6 +62,29 @@ checks=(
   check-guest-crash.cpp            # fix 45
   check-app-identity.cpp           # fix 46
   check-official-import.cpp        # fix 46
+  check-hang-watch.cpp             # fix 47
+  check-memexport-loss.cpp         # fix 48
+  check-frame-cost.cpp             # fix 49
+  check-measure-10s.cpp            # fix 54
+  check-global-lock-spin.cpp       # fix 55
+  check-save-folder.cpp            # fix 50
+  check-multidisc-source.cpp       # fix 51
+  check-library-disc.cpp           # fix 52
+  check-kinect-pairing.cpp         # fix 56
+  check-gpu-wait-lines.cpp         # fix 58
+  check-fast-readback.cpp          # fix 59
+  check-library-folders.cpp        # fix 60
+  check-fault-stack.cpp            # fix 61
+  check-upload-cost.cpp            # fix 62
+  check-fault-path.cpp             # fix 65
+  check-nui-image-scan.cpp         # fix 57
+  check-phone-qr-panel.cpp         # fix 63
+  check-native-mutant.cpp          # fix 64
+  check-phone-latency.cpp          # fix 66
+  check-xma-unwatch.cpp            # fix 67
+  check-suspend-trace.cpp          # fix 69
+  check-pending-resume.cpp         # fix 71
+  check-page-version.cpp           # fix 72
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -69,6 +93,9 @@ declare -A arguments=(
   [check-ui-lang-overlay.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-game-info.cpp]="$repo/tools/source-1.0.2/fixtures/gameinfo-excerpt.txt"
   [check-guest-crash.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-phone-qr-panel.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-measure-10s.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-library-disc.cpp]="$repo/tools/source-1.0.2/english/lang"
 )
 # The fix each of these checks belongs to: when a test build leaves that fix out
 # (assemble.py --skip-fix, SOURCES.json fixes_skipped) its check is not run.
@@ -77,6 +104,29 @@ declare -A fix_of=(
   [check-readback-slots.cpp]=35 [check-unwatched-policy.cpp]=36 [check-exact-unwatch.cpp]=37
   [check-jit-backports.cpp]=38 [check-net-log-drain.cpp]=39 [check-review-fix30.cpp]="35 36 37"
   [check-app-identity.cpp]=46 [check-official-import.cpp]=46
+  [check-hang-watch.cpp]=47
+  [check-memexport-loss.cpp]=48
+  [check-frame-cost.cpp]=49
+  [check-measure-10s.cpp]=54
+  [check-global-lock-spin.cpp]=55
+  [check-save-folder.cpp]=50
+  [check-multidisc-source.cpp]=51
+  [check-library-disc.cpp]=52
+  [check-kinect-pairing.cpp]=56
+  [check-gpu-wait-lines.cpp]=58
+  [check-fast-readback.cpp]=59
+  [check-library-folders.cpp]=60
+  [check-fault-stack.cpp]=61
+  [check-upload-cost.cpp]=62
+  [check-fault-path.cpp]=65
+  [check-nui-image-scan.cpp]=57
+  [check-phone-qr-panel.cpp]=63
+  [check-native-mutant.cpp]=64
+  [check-phone-latency.cpp]=66
+  [check-xma-unwatch.cpp]=67
+  [check-suspend-trace.cpp]=69
+  [check-pending-resume.cpp]=71
+  [check-page-version.cpp]=72
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
@@ -220,6 +270,36 @@ if "$python" -I "$repo/tools/check-kinect-fake-relay.py"; then
   echo "pass check-kinect-fake-relay.py"
 else
   echo "FAIL check-kinect-fake-relay.py"
+  status=1
+fi
+# Fix 56: the phone camera page and its pairing state (port/phone_camera_page.hpp), with node.
+echo "=== check-kinect-page.mjs"
+if [[ " $skipped_fixes " == *" 56 "* ]]; then
+  echo "skip check-kinect-page.mjs (fix 56 left out of this build)"
+elif node "$repo/tools/check-kinect-page.mjs" "$tree"; then
+  echo "pass check-kinect-page.mjs"
+else
+  echo "FAIL check-kinect-page.mjs"
+  status=1
+fi
+# Fix 66: the phone page's delay by stage (latency.mjs in port/phone_camera_page.hpp), with node.
+echo "=== check-phone-latency.mjs"
+if [[ " $skipped_fixes " == *" 66 "* ]]; then
+  echo "skip check-phone-latency.mjs (fix 66 left out of this build)"
+elif node "$repo/tools/check-phone-latency.mjs" "$tree"; then
+  echo "pass check-phone-latency.mjs"
+else
+  echo "FAIL check-phone-latency.mjs"
+  status=1
+fi
+# Fix 72: the phone page's version and its one reload, with node.
+echo "=== check-page-version.mjs"
+if [[ " $skipped_fixes " == *" 72 "* ]]; then
+  echo "skip check-page-version.mjs (fix 72 left out of this build)"
+elif node "$repo/tools/check-page-version.mjs" "$tree"; then
+  echo "pass check-page-version.mjs"
+else
+  echo "FAIL check-page-version.mjs"
   status=1
 fi
 echo "=== check-gdfx-names.sh"

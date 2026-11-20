@@ -1,0 +1,1046 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/kinect_title.h b/.deps/xenia-canary/src/xenia/kernel/kinect_title.h
+new file mode 100644
+index 0000000..0b6f863
+--- /dev/null
++++ b/.deps/xenia-canary/src/xenia/kernel/kinect_title.h
+@@ -0,0 +1,69 @@
++/**
++ ******************************************************************************
++ * Xenia : Xbox 360 Emulator Research Project                                 *
++ ******************************************************************************
++ * Released under the BSD license - see LICENSE in the root for more details. *
++ ******************************************************************************
++ */
++
++// Xbox360PS5 fix 57: which titles the virtual Kinect serves, and the running
++// executable's code for the scans in xbox360ps5/nui_image_scan.hpp.
++
++#ifndef XENIA_KERNEL_KINECT_TITLE_H_
++#define XENIA_KERNEL_KINECT_TITLE_H_
++
++#include <cstdint>
++
++#include "xbox360ps5/nui_image_scan.hpp"
++#include "xenia/cpu/xex_module.h"
++#include "xenia/kernel/kernel_state.h"
++#include "xenia/kernel/user_module.h"
++#include "xenia/kernel/util/xex2_info.h"
++#include "xenia/memory.h"
++
++namespace xe {
++namespace kernel {
++
++// A title whose executable says it requires Kinect (XEX system flags 32,
++// skeletal tracking required): Dragon Ball Z for Kinect, Kinect Sports and the
++// other Kinect-only games. Titles where Kinect is optional (skeletal tracking
++// supported) keep their own SDK and are played with the controller.
++inline bool KinectRequiredTitle(KernelState* kernel_state) {
++  auto module = kernel_state->GetExecutableModule();
++  cpu::XexModule* xex = module ? module->xex_module() : nullptr;
++  if (!xex) return false;
++  uint32_t flags = 0;
++  const bool has_flags = xex->GetOptHeader(XEX_HEADER_SYSTEM_FLAGS_32, &flags);
++  return xbox360ps5::motion::SkeletalTrackingRequired(has_flags, flags);
++}
++
++// The running executable as loaded, when every page of it is readable; empty
++// otherwise.
++inline xbox360ps5::motion::CodeView ExecutableCode(KernelState* kernel_state) {
++  auto module = kernel_state->GetExecutableModule();
++  cpu::XexModule* xex = module ? module->xex_module() : nullptr;
++  if (!xex) return {};
++  Memory* memory = kernel_state->memory();
++  const uint32_t base = xex->base_address(), size = xex->image_size();
++  if (!size || uint64_t(base) + size > 0x100000000ull) return {};
++  for (uint64_t at = base; at < uint64_t(base) + size;
++       at = (at & ~uint64_t(4095)) + 4096) {
++    auto* heap = memory->LookupHeap(uint32_t(at));
++    uint32_t protection = 0;
++    if (!heap || !heap->QueryProtect(uint32_t(at), &protection) ||
++        !(protection & kMemoryProtectRead))
++      return {};
++  }
++  return {memory->TranslateVirtual<const uint8_t*>(base), size, base};
++}
++
++// The executable's hash as Canary computes it, for the log (0 when unknown).
++inline uint64_t ExecutableHash(KernelState* kernel_state) {
++  auto module = kernel_state->GetExecutableModule();
++  return module ? module->hash().value_or(0) : 0;
++}
++
++}  // namespace kernel
++}  // namespace xe
++
++#endif  // XENIA_KERNEL_KINECT_TITLE_H_
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/apps/xam_app.cc b/.deps/xenia-canary/src/xenia/kernel/xam/apps/xam_app.cc
+index c850d9d..eec5952 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/apps/xam_app.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/apps/xam_app.cc
+@@ -9,9 +9,12 @@
+ 
+ #include "xenia/kernel/xam/apps/xam_app.h"
+ 
++#include <atomic>
++
+ #include "xenia/base/logging.h"
+ #include "xbox360ps5/motion_input.hpp"
+ #include "xbox360ps5/virtual_nui.hpp"
++#include "xenia/kernel/kinect_title.h"
+ #include "xenia/kernel/kernel_state.h"
+ #include "xenia/kernel/user_module.h"
+ #include "xenia/kernel/nui.h"
+@@ -163,6 +166,23 @@ X_HRESULT XamApp::ExecuteDispatchMessage(uint32_t message, uint32_t buffer_ptr,
+       XELOGD("XNuiDelayUI unimplemented({:08X})", ms_delay);
+       return X_E_SUCCESS;
+     }
++    case 0x0002B002: {
++      // Xbox360PS5 (fix 57): the Kinect SDK sends each skeleton frame the title made to the
++      // system's identity service, once a frame (Dragon Ball Z for Kinect: 824A46E8 builds
++      // 0xB00 bytes, a header {5, 0x5254} and the frame from +0x30, then compares the answer
++      // with 8301000B and otherwise only clears a flag). There is no such service here: the
++      // answer stays E_FAIL, as before, without an "Unimplemented XAM message" line for each
++      // frame (3887 in two minutes on 1.0.4_candidate_21).
++      if (xbox360ps5::motion::enabled.load() && KinectRequiredTitle(kernel_state_)) {
++        static std::atomic<bool> said{false};
++        if (!said.exchange(true))
++          XELOGW("Virtual Kinect: the title sends its skeleton frames to the identity "
++                 "service (XMsg FE/2B002, {} bytes); none here, answered E_FAIL (said once)",
++                 buffer_length);
++        return X_E_FAIL;
++      }
++      break;
++    }
+     case 0x0002B003: {
+       // Games used in:
+       // 4D5309C9
+@@ -206,30 +226,47 @@ X_HRESULT XamApp::ExecuteDispatchMessage(uint32_t message, uint32_t buffer_ptr,
+     }
+     case 0x0002C009: {
+       // Registers (non-zero) or removes (zero) a Kinect identity callback.
+-      if (xbox360ps5::motion::enabled.load() &&
+-          kernel_state_->title_id() == xbox360ps5::motion::kVirtualNuiTitle) {
++      if (xbox360ps5::motion::enabled.load() && KinectRequiredTitle(kernel_state_)) {
+         // Xbox360PS5: the title's NUI library registers its identity callback
+         // with this message as the last step of NuiInitialize, and a refusal
+         // fails the whole initialization: the title then shuts its camera
+-        // thread down and never reads a frame (seen in 4E4D084E). The verified
+-        // identity-map refresh is delivered when the virtual player changes.
+-        // The reviewed image registers 8249D248. Its verified 2C00F callback
+-        // case takes (message, buffer), ignores buffer, and refreshes user slots.
+-        // Other images need their callback ABI traced before any dispatch.
+-        auto module = kernel_state_->GetExecutableModule();
+-        if (!module || module->hash() != 0x8FDD4F4AB147612Aull || !buffer_ptr ||
+-            (buffer_ptr & 3) ||
++        // thread down and never reads a frame (seen in 4E4D084E).
++        // Fix 57: 1.0.2 accepted only callback 8249D248 of one Dragon Ball Z
++        // image (hash 8FDD4F4AB147612A) and refused the Europe disc's. Any
++        // function of the executable is accepted now; the identity-changed event
++        // (2C00F, buffer 0) is delivered to it only when its code shows that event
++        // calls a refresh that ignores the buffer (CheckIdentityCallback; the
++        // Europe DBZ disc's 8249E130 and Kinect Sports' 829D6A90 do).
++        if (!buffer_ptr || (buffer_ptr & 3) ||
+             uint64_t(buffer_ptr) + 4 > 0x100000000ull) return X_E_INVALIDARG;
+         auto* heap = memory_->LookupHeap(buffer_ptr);
+         uint32_t protection = 0;
+         if (!heap || !heap->QueryProtect(buffer_ptr, &protection) ||
+             !(protection & kMemoryProtectRead)) return X_E_INVALIDARG;
+-        const uint32_t callback =
+-            buffer_ptr ? xe::load_and_swap<uint32_t>(buffer) : 0;
+-        if (callback && callback != 0x8249D248) return X_E_INVALIDARG;
++        const uint32_t callback = xe::load_and_swap<uint32_t>(buffer);
++        if (!callback) {
++          nui_identity_callback_ = 0;
++          xbox360ps5::motion::nui_identity_callback = 0;
++          XELOGW("Virtual Kinect: identity callback removed");
++          return X_E_SUCCESS;
++        }
++        const auto code = ExecutableCode(kernel_state_);
++        if ((callback & 3) || !code.Has(callback)) {
++          XELOGW("Virtual Kinect: identity callback {:08X} is not in the executable; refused",
++                 callback);
++          return X_E_INVALIDARG;
++        }
++        const auto shape = xbox360ps5::motion::CheckIdentityCallback(code, callback);
+         nui_identity_callback_ = callback;
+-        xbox360ps5::motion::nui_identity_callback = callback;
+-        XELOGW("Virtual Kinect: identity callback {:08X} registered", callback);
++        xbox360ps5::motion::nui_identity_callback = shape.ok ? callback : 0;
++        if (shape.ok)
++          XELOGW("Virtual Kinect: identity callback {:08X} registered; its identity-changed "
++                 "case {:08X} calls {:08X} (executable hash {:016X})",
++                 callback, shape.event_case, shape.refresh, ExecutableHash(kernel_state_));
++        else
++          XELOGW("Virtual Kinect: identity callback {:08X} registered without identity "
++                 "events: {} (executable hash {:016X})",
++                 callback, shape.why, ExecutableHash(kernel_state_));
+         return X_E_SUCCESS;
+       }
+       // TODO(knuckleslee): Invoke the callback for identity notifications.
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_nui.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_nui.cc
+index 5a5720c..036f17a 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_nui.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_nui.cc
+@@ -11,6 +11,7 @@
+ #include "xenia/base/logging.h"
+ #include "xbox360ps5/motion_input.hpp"
+ #include "xbox360ps5/virtual_nui.hpp"
++#include "xenia/kernel/kinect_title.h"
+ #include "xenia/emulator.h"
+ #include "xenia/kernel/kernel_flags.h"
+ #include "xenia/kernel/kernel_state.h"
+@@ -23,9 +24,9 @@ namespace xe {
+ namespace kernel {
+ namespace xam {
+ namespace {
++// Fix 57: every title whose executable requires Kinect (was Dragon Ball Z's title ID).
+ bool VirtualNuiMode() {
+-  return kernel_state()->title_id() == xbox360ps5::motion::kVirtualNuiTitle &&
+-         xbox360ps5::motion::enabled.load();
++  return xbox360ps5::motion::enabled.load() && KinectRequiredTitle(kernel_state());
+ }
+ uint32_t NuiSignedInMask() {
+   uint32_t mask = 0;
+@@ -48,7 +49,7 @@ bool NuiWritable(uint32_t address, size_t size) {
+   return true;
+ }
+ xbox360ps5::motion::NuiBinding BoundNuiPlayer() {
+-  return xbox360ps5::motion::LiveNuiBinding(kernel_state()->title_id(),
++  return xbox360ps5::motion::LiveNuiBinding(KinectRequiredTitle(kernel_state()),
+                                           NuiSignedInMask());
+ }
+ }  // namespace
+@@ -82,8 +83,7 @@ dword_result_t XamNuiGetDeviceStatus_entry(
+     if (!NuiWritable(status_ptr.guest_address(), sizeof(X_NUI_DEVICE_STATUS)))
+       return X_E_INVALIDARG;
+     status_ptr.Zero();
+-    const bool live = xbox360ps5::motion::VirtualNuiCameraLive(
+-        kernel_state()->title_id());
++    const bool live = xbox360ps5::motion::VirtualNuiCameraLive(true);
+     // Camera service only: no audio/microphone device has been implemented.
+     status_ptr->tilt_status = live ? X_STATUS_SUCCESS : 0xC000009D;
+     status_ptr->mic_status = 0xC000009D;
+@@ -330,7 +330,7 @@ DECLARE_XAM_EXPORT1(XamIsNuiUIActive, kNone, kImplemented);
+ 
+ dword_result_t XamNuiIsDeviceReady_entry() {
+   if (VirtualNuiMode()) {
+-    return xbox360ps5::motion::VirtualNuiCameraLive(kernel_state()->title_id());
++    return xbox360ps5::motion::VirtualNuiCameraLive(true);
+   }
+ #if XE_PLATFORM_PS5
+   static std::atomic<bool> motion_reported{false};
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
+index 20be75b..c855dff 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
+@@ -38,6 +38,7 @@
+ #include "xbox360ps5/virtual_nui.hpp"
+ #include "xbox360ps5/virtual_hands.hpp"
+ #include "xenia/kernel/kernel_state.h"
++#include "xenia/kernel/kinect_title.h"
+ #include "xenia/kernel/user_module.h"
+ #include "xenia/kernel/util/shim_utils.h"
+ #include "xenia/kernel/xboxkrnl/xboxkrnl_private.h"
+@@ -703,15 +704,21 @@ struct SkeletonSource {
+ };
+ SkeletonSource g_skeleton_source;
+ std::atomic<bool> g_skeleton_binding_tried{false};
++// Fix 57: found in the executable at binding time (nui_image_scan.hpp) instead of
++// 1.0.2's addresses of one image. Where the game's call of the skeleton function
++// returns (821B51D0 in that image, 821B5158 on the Europe disc), and what the "lis
++// r11" the hand reach seam replaces loads (0x820E0000 in both).
++std::atomic<uint32_t> g_skeleton_return{0};
++std::atomic<uint64_t> g_hand_seam_r11{0};
+ 
+ // Targeted estimated hand reach fallback. Keep the title's own direction
+ // thresholds, 15-update debounce, edge creation and menu consumers intact.
+ // This substitutes missing image-derived hand reach, not controller buttons.
+ void EstimatedHandsHandler(cpu::ppc::PPCContext* context, KernelState* kernel) {
+-  context->r[11] = 0xFFFFFFFF820E0000ull;  // replaced lis r11,0x820E
++  context->r[11] = g_hand_seam_r11.load();  // the replaced lis r11,X
+   const uint32_t object = uint32_t(context->r[30]);
+   Memory* memory = kernel->memory();
+-  if (kernel->title_id() != xbox360ps5::motion::kVirtualNuiTitle ||
++  if (!KinectRequiredTitle(kernel) ||
+       !object || uint64_t(object) + 0x2740 > 0x100000000ull ||
+       !IsGuestRangeMapped(memory, object + 0x1D80 + 0x5F8, 4, false) ||
+       !IsGuestRangeMapped(memory, object + 0x2710, 0x78, true)) return;
+@@ -723,10 +730,30 @@ void EstimatedHandsHandler(cpu::ppc::PPCContext* context, KernelState* kernel) {
+     if (kernel->xam_state()->IsUserSignedIn(slot) &&
+         kernel->xam_state()->GetUserProfile(slot)) signed_in_mask |= 1u << slot;
+   }
+-  const auto binding = xbox360ps5::motion::LiveNuiBinding(kernel->title_id(), signed_in_mask);
+-  if (!binding.tracking_id || binding.session != pose.session ||
+-      !IsGuestRangeMapped(memory, object + 0xB4, 4, false) ||
+-      xe::load_and_swap<uint32_t>(memory->TranslateVirtual(object + 0xB4)) != binding.tracking_id) pose = {};
++  const auto binding = xbox360ps5::motion::LiveNuiBinding(true, signed_in_mask);
++  const uint32_t game_body = IsGuestRangeMapped(memory, object + 0xB4, 4, false)
++      ? xe::load_and_swap<uint32_t>(memory->TranslateVirtual(object + 0xB4)) : 0;
++  // Fix 57 diagnostics: why the fallback gives no reach while the title's own hand context is
++  // unavailable (1.0.4_candidate_21: magnitudes 0 at the end of a tracked run). Each change of
++  // reason is logged, 32 lines at most.
++  const char* idle = !pose.tracked ? "no body from the phone"
++      : !binding.tracking_id ? (signed_in_mask ? "no live camera binding" : "no signed-in profile")
++      : binding.session != pose.session ? "the phone's session changed"
++      : game_body != binding.tracking_id ? "the game follows another body" : nullptr;
++  {
++    static const char* last_reason = "";
++    static int reason_lines = 0;
++    if (idle != last_reason && reason_lines < 32) {
++      ++reason_lines;
++      last_reason = idle;
++      XELOGW("Virtual Kinect hands: fallback {}{} (context unavailable {}, body {:08X} user {}, "
++             "the game's body {:08X}, signed in {:X})",
++             idle ? "idle: " : "active", idle ? idle : "",
++             xe::load_and_swap<uint32_t>(unavailable), binding.tracking_id, binding.user_index,
++             game_body, signed_in_mask);
++    }
++  }
++  if (idle) pose = {};
+   const auto hands = xbox360ps5::motion::EstimateHands(pose);
+   const xbox360ps5::motion::EstimatedHand values[] = {hands.right, hands.left};
+   auto* output = memory->TranslateVirtual(object);
+@@ -753,17 +780,34 @@ void EstimatedHandsHandler(cpu::ppc::PPCContext* context, KernelState* kernel) {
+ }
+ 
+ void BindEstimatedHands(KernelState* kernel, cpu::XexModule* xex) {
+-  constexpr uint32_t site = 0x821B4E24;
+   constexpr std::string_view name = "ps5x360-estimated-hands";
+   Memory* memory = kernel->memory();
+   auto* processor = kernel->processor();
+   if (processor->GetModule(name)) return;
++  // Fix 57: Dragon Ball Z's seam ("lis r11,X" before the game reads its hand reach at
++  // 0x2710(r30)) is looked for in the executable: 821B4E24 in the image 1.0.2 was
++  // traced in, 821B4DAC on the Europe disc. Other Kinect games have none.
++  auto seam = xbox360ps5::motion::FindHandSeam(ExecutableCode(kernel));
++  // The image 1.0.2 was traced in keeps its known seam if the pattern misses it.
++  if (!seam.site && ExecutableHash(kernel) == 0x8FDD4F4AB147612Aull &&
++      IsGuestRangeMapped(memory, 0x821B4E24, 4, false) &&
++      xe::load_and_swap<uint32_t>(memory->TranslateVirtual(0x821B4E24)) == 0x3D60820E) {
++    seam.site = 0x821B4E24;
++    seam.r11 = 0xFFFFFFFF820E0000ull;
++  }
++  const uint32_t site = seam.site;
++  if (!site) {
++    XELOGW("Virtual Kinect: no hand reach seam in this executable ({} candidates); the "
++           "title's own hand reach is kept", seam.matches);
++    return;
++  }
+   if (!IsGuestRangeMapped(memory, site, 4, false) ||
+-      xe::load_and_swap<uint32_t>(memory->TranslateVirtual(site)) != 0x3D60820E ||
+       !processor->FindFunctionsWithAddress(site).empty()) {
+-    XELOGW("Virtual Kinect: hand reach seam is unavailable or already compiled");
++    XELOGW("Virtual Kinect: hand reach seam at {:08X} is unavailable or already compiled",
++           site);
+     return;
+   }
++  g_hand_seam_r11 = seam.r11;
+   // A new owned guest page, within the PPC relative branch reach. Never borrow
+   // padding from the executable or overwrite an existing guest allocation.
+   auto* heap = memory->LookupHeap(0x83C00000);
+@@ -899,8 +943,21 @@ void SkeletonGetNextFrameHandler(cpu::ppc::PPCContext* ppc_context,
+   // Reviewed DBZ caller embeds its frame at object+80. Observe the previous
+   // update without changing guest state. The hand context is separate from
+   // the raised-hand prompt; a delivered skeleton is not proof it is usable.
++  // Fix 57 diagnostics: the title's direction edges (menu moves) and the frames its hand
++  // context was available, counted every frame, reported with the line below.
++  static uint32_t edges_right = 0, edges_left = 0, context_frames = 0;
++  if (ppc_context->r[3] == X_E_SUCCESS &&
++      uint32_t(ppc_context->lr) == g_skeleton_return.load() && frame >= 0x80 &&
++      g_hand_seam_r11.load() && uint64_t(frame - 0x80) + 0x2788 <= 0x100000000ull &&
++      IsGuestRangeMapped(kernel_state->memory(), frame - 0x80, 0x2788, false)) {
++    const auto* data = kernel_state->memory()->TranslateVirtual(frame - 0x80);
++    edges_right += xe::load_and_swap<uint32_t>(data + 0x2780) != 0;
++    edges_left += xe::load_and_swap<uint32_t>(data + 0x2784) != 0;
++    context_frames += xe::load_and_swap<uint32_t>(data + 0x1D80 + 0x5F8) == 0;
++  }
+   if (ppc_context->r[3] == X_E_SUCCESS &&
+-      uint32_t(ppc_context->lr) == 0x821B51D0 && frame >= 0x80 &&
++      uint32_t(ppc_context->lr) == g_skeleton_return.load() && frame >= 0x80 &&
++      g_hand_seam_r11.load() &&
+       xbox360ps5::motion::guest_skeleton_frames.load() % 150 == 0) {
+     const uint32_t object = frame - 0x80;
+     Memory* memory = kernel_state->memory();
+@@ -910,16 +967,20 @@ void SkeletonGetNextFrameHandler(cpu::ppc::PPCContext* ppc_context,
+       auto u32 = [data](size_t at) { return xe::load_and_swap<uint32_t>(data + at); };
+       auto f32 = [data](size_t at) { return xe::load_and_swap<float>(data + at); };
+       XELOGW("Virtual Kinect hands: context unavailable {} magnitude {}/{} "
+-             "vectors ({},{},{})/({},{},{}) edges {:08X}/{:08X}",
++             "vectors ({},{},{})/({},{},{}) edges {:08X}/{:08X}; last 150 frames: "
++             "context available in {}, edges right {} left {}",
+              u32(0x1D80 + 0x5F8), f32(0x2710), f32(0x2714),
+              f32(0x2720), f32(0x2724), f32(0x2728),
+              f32(0x2730), f32(0x2734), f32(0x2738),
+-             u32(0x2780), u32(0x2784));
++             u32(0x2780), u32(0x2784), context_frames, edges_right, edges_left);
++      edges_right = edges_left = context_frames = 0;
+ #if !XE_PLATFORM_PS5
+       // Explicit one-shot HOST investigation: replay the reviewed SDK feed
+       // with the current frame to inspect its HRESULT. Never run on PS5.
+       static bool hand_probe_done = false;
+-      if (!hand_probe_done && std::getenv("XBOX360PS5_NUI_HAND_PROBE")) {
++      // The SDK feed's address was traced in the 1.0.2 image only (fix 57).
++      if (!hand_probe_done && std::getenv("XBOX360PS5_NUI_HAND_PROBE") &&
++          ExecutableHash(kernel_state) == 0x8FDD4F4AB147612Aull) {
+         hand_probe_done = true;
+         const uint64_t a = (uint64_t(u32(0x30)) + 6) * 4;
+         const uint64_t b = (uint64_t(u32(0x50)) + 14) * 4;
+@@ -950,15 +1011,15 @@ void SkeletonGetNextFrameHandler(cpu::ppc::PPCContext* ppc_context,
+ // an extern handler on the function. Done once, at the title's first camera
+ // request, which is before it can have asked for a skeleton frame.
+ void BindSkeletonSource(KernelState* kernel_state) {
+-  // The frame ABI has only been traced for this title. Optional Kinect games
+-  // must retain their own SDK even if motion is enabled globally.
+-  if (kernel_state->title_id() != 0x4E4D084E) return;
++  // Optional Kinect games must retain their own SDK even if motion is enabled
++  // globally. Fix 57: every title whose executable requires Kinect (was
++  // Dragon Ball Z's title ID and the hash of one of its images); the function is
++  // found by the shape of its code, below.
++  if (!KinectRequiredTitle(kernel_state)) return;
+   if (g_skeleton_binding_tried.exchange(true)) {
+     return;
+   }
+   auto module = kernel_state->GetExecutableModule();
+-  // Enrollment and identity callback contracts were traced in this image.
+-  if (!module || module->hash() != 0x8FDD4F4AB147612Aull) return;
+   cpu::XexModule* xex = module ? module->xex_module() : nullptr;
+   if (!xex) {
+     return;
+@@ -981,6 +1042,10 @@ void BindSkeletonSource(KernelState* kernel_state) {
+     return;
+   }
+   const uint32_t address = found[0];
++  // The game's own call of it, for the hand reach diagnostics.
++  const auto calls = xbox360ps5::motion::CallsOf(
++      {memory->TranslateVirtual<const uint8_t*>(base), size, base}, address);
++  g_skeleton_return = calls.size() == 1 ? calls[0] + 4 : 0;
+   cpu::Function* function = nullptr;
+   const cpu::Symbol::Status status = xex->DeclareFunction(address, &function);
+   if (!function || (status != cpu::Symbol::Status::kNew &&
+@@ -1017,8 +1082,8 @@ void BindSkeletonSource(KernelState* kernel_state) {
+   xbox360ps5::motion::guest_skeleton_bound = true;
+   BindEstimatedHands(kernel_state, xex);
+   XELOGW("Virtual Kinect: skeleton frames of the title come from the "
+-         "estimated pose (function at {:08X})",
+-         address);
++         "estimated pose (function at {:08X}, {} call(s); executable hash {:016X})",
++         address, calls.size(), ExecutableHash(kernel_state));
+ }
+ 
+ }  // namespace
+@@ -1041,6 +1106,7 @@ void ShutdownCameraDevice() {
+     g_skeleton_source.notified_user = xbox360ps5::motion::kUserIndexNone;
+   }
+   g_skeleton_binding_tried = false;
++  g_skeleton_return = 0;
+   xbox360ps5::motion::guest_skeleton_bound = false;
+   xbox360ps5::motion::guest_skeleton_frames = 0;
+   xbox360ps5::motion::guest_skeleton_bodies = 0;
+@@ -1128,9 +1194,18 @@ dword_result_t PsCamDeviceRequest_entry(dword_t request_ptr) {
+   if (!request_ptr) {
+     return X_STATUS_INVALID_PARAMETER;
+   }
+-  if (!xbox360ps5::motion::enabled.load()) return X_STATUS_UNSUCCESSFUL;
+-  if (kernel_state()->title_id() != 0x4E4D084E)
++  // Fix 57: the camera of every title whose executable requires Kinect (1.0.2:
++  // Dragon Ball Z for Kinect only; Kinect Sports asked for it in a loop and showed
++  // a white screen). With "Camera motion" off, such a title's first request tells
++  // the player how to turn it on.
++  if (!KinectRequiredTitle(kernel_state())) return X_STATUS_UNSUCCESSFUL;
++  if (!xbox360ps5::motion::enabled.load()) {
++    if (!xbox360ps5::motion::kinect_needed_reported.load())
++      XELOGW("Virtual Kinect: this game requires Kinect and asked for its camera; "
++             "Camera motion is off");
++    xbox360ps5::motion::ReportKinectNeeded();
+     return X_STATUS_UNSUCCESSFUL;
++  }
+   BindSkeletonSource(kernel_state());
+   return GetCameraDevice()->Request(request_ptr);
+ }
+diff --git a/include/xbox360ps5/covers.hpp b/include/xbox360ps5/covers.hpp
+index 4d5e4f6..9ab6952 100644
+--- a/include/xbox360ps5/covers.hpp
++++ b/include/xbox360ps5/covers.hpp
+@@ -15,6 +15,10 @@ namespace xbox360ps5 {
+ std::string ReadXexTitleId(const std::filesystem::path& xex);
+ // The title id of the default.xex inside a disc image (XDVDFS), "" when none.
+ std::string ReadIsoTitleId(const std::filesystem::path& iso);
++// Fix 57: an executable (.xex) or a disc image's default.xex (.iso) says the game
++// requires Kinect (XEX system flags 32: skeletal tracking required). False for
++// packages and anything unreadable.
++bool GameRequiresKinect(const std::filesystem::path& game);
+ // Where a downloaded cover is kept: <folder>/<TITLEID>.jpg (or .png).
+ std::filesystem::path CoverFile(const std::string& title_id);
+ // Downloads, one after another on a thread of its own, the covers the list
+diff --git a/include/xbox360ps5/nui_image_scan.hpp b/include/xbox360ps5/nui_image_scan.hpp
+new file mode 100644
+index 0000000..c2501b5
+--- /dev/null
++++ b/include/xbox360ps5/nui_image_scan.hpp
+@@ -0,0 +1,287 @@
++// SPDX-License-Identifier: MIT
++// Fix 57: what the virtual Kinect needs from a title's executable, found by the shape
++// of its code instead of addresses traced in one image.
++//
++// 1.0.2 wired the virtual Kinect to one Dragon Ball Z for Kinect executable (Canary
++// module hash 8FDD4F4AB147612A): the identity callback had to be 8249D248, the hand
++// reach seam 821B4E24, and the skeleton hook refused every other hash. The Europe
++// disc (hash C9561ED1F9AFFED4) has the same Kinect SDK code at other addresses, so
++// its identity callback registration (XMsg FE/2C009) was refused, NuiInitialize
++// failed and the title shut its camera down after one state query.
++//
++// Everything below works on the executable's bytes as loaded (big-endian PowerPC):
++//  * which titles get the virtual camera: the executable's XEX system flags
++//    (XEX_HEADER_SYSTEM_FLAGS_32) say "skeletal tracking required" (Kinect games);
++//    "supported" (optional Kinect) titles keep their own SDK and controllers;
++//  * the identity callback a title registers: its message switch is decoded and the
++//    case of the identity-changed event (2C00F) must be "bl refresh; b out", with a
++//    refresh that does not read the message buffer (r4) before its first call;
++//  * the game's call of NuiSkeletonGetNextFrame (FindSkeletonGetNextFrame in
++//    virtual_skeleton.hpp finds the function): its one caller;
++//  * Dragon Ball Z's hand reach seam: "lis r11,X" right before the game reads its
++//    hand reach at 0x2710(r30).
++#pragma once
++#include <cstddef>
++#include <cstdint>
++#include <vector>
++
++namespace xbox360ps5::motion {
++
++// XEX_HEADER_SYSTEM_FLAGS_32 (xex2_info.h: XEX_SYSTEM_SKELETAL_TRACKING_*).
++constexpr uint32_t kXexSkeletalTrackingRequired = 0x00000040;
++constexpr uint32_t kXexSkeletalTrackingSupported = 0x00000080;
++inline bool SkeletalTrackingRequired(bool has_flags, uint32_t flags) {
++  return has_flags && (flags & kXexSkeletalTrackingRequired) != 0;
++}
++
++// The same flag read from a raw XEX2 header (the file's first bytes, header_size long),
++// for the library, which has the file and not a loaded module.
++inline bool XexHeaderRequiresKinect(const uint8_t* header, size_t size) {
++  auto be32 = [header](size_t at) {
++    return uint32_t(header[at]) << 24 | uint32_t(header[at + 1]) << 16 |
++           uint32_t(header[at + 2]) << 8 | uint32_t(header[at + 3]);
++  };
++  if (!header || size < 24 || be32(0) != 0x58455832) return false;  // "XEX2"
++  const uint32_t count = be32(0x14);
++  for (uint32_t n = 0; n < count && n < 64 && 0x18 + size_t(n) * 8 + 8 <= size; ++n)
++    if (be32(0x18 + size_t(n) * 8) == 0x00030100)
++      return SkeletalTrackingRequired(true, be32(0x18 + size_t(n) * 8 + 4));
++  return false;
++}
++
++// The executable as loaded: bytes from base, readable.
++struct CodeView {
++  const uint8_t* code = nullptr;
++  size_t bytes = 0;
++  uint32_t base = 0;
++  bool Has(uint32_t address, size_t size = 4) const {
++    return code && address >= base && uint64_t(address - base) + size <= bytes;
++  }
++  uint32_t Word(uint32_t address) const {
++    const uint8_t* p = code + (address - base);
++    return uint32_t(p[0]) << 24 | uint32_t(p[1]) << 16 | uint32_t(p[2]) << 8 | p[3];
++  }
++  uint8_t Byte(uint32_t address) const { return code[address - base]; }
++};
++
++constexpr uint32_t kMflrR12 = 0x7D8802A6;
++constexpr uint32_t kBlr = 0x4E800020;
++constexpr uint32_t kBctr = 0x4E800420;
++constexpr uint32_t kIdentityChangedMessage = 0x0002C00F;
++
++// "b"/"bl" (I-form, relative): its target, when link is as asked.
++inline bool RelativeBranch(uint32_t at, uint32_t word, bool link, uint32_t* target) {
++  if (word >> 26 != 18 || (word & 2) || bool(word & 1) != link) return false;
++  int32_t offset = int32_t(word & 0x03FFFFFC);
++  if (offset & 0x02000000) offset -= 0x04000000;
++  *target = at + uint32_t(offset);
++  return true;
++}
++
++// Whether an instruction reads general register r. Covers what compiled C uses
++// (D-form, X-form, rotates, stores); unknown forms count as reading, which only
++// makes the check refuse more.
++inline bool ReadsRegister(uint32_t w, unsigned r) {
++  const unsigned op = w >> 26, rd = (w >> 21) & 31, ra = (w >> 16) & 31, rb = (w >> 11) & 31;
++  switch (op) {
++    case 14: case 15:  // addi, addis: rA 0 is the constant 0
++      return ra != 0 && ra == r;
++    case 7: case 8: case 10: case 11: case 12: case 13:  // mulli subfic cmpli cmpi addic addic.
++      return ra == r;
++    case 24: case 25: case 26: case 27: case 28: case 29:  // ori oris xori xoris andi. andis.
++      return rd == r;
++    case 20: return rd == r || ra == r;               // rlwimi also keeps rA's bits
++    case 21: return rd == r;                          // rlwinm
++    case 23: return rd == r || rb == r;               // rlwnm
++    case 30: return rd == r || ((w >> 4) & 1 && rb == r);
++    case 32: case 33: case 34: case 35: case 40: case 41: case 42: case 43:
++    case 48: case 49: case 50: case 51: case 58:      // loads
++      return ra == r;
++    case 36: case 37: case 38: case 39: case 44: case 45: case 52: case 53:
++    case 54: case 55: case 62:                        // stores
++      return rd == r || ra == r;
++    case 16: case 17: case 18: case 19: return false;  // branches, sc, CR ops
++    case 31: {
++      const unsigned xo = (w >> 1) & 0x3FF;
++      switch (xo) {
++        // Logical and shift forms: rS (bits 21-25) and rB in, rA out.
++        case 28: case 60: case 124: case 284: case 316: case 412: case 444: case 476:
++        case 24: case 536: case 792: case 27: case 539: case 794:
++          return rd == r || rb == r;
++        case 824: case 26: case 58: case 922: case 954: case 986:  // srawi cntlz ext*
++          return rd == r;
++        case 339: case 371: case 19: case 83: return false;  // mfspr mftb mfcr mfmsr
++        case 467: case 144: return rd == r;                  // mtspr mtcrf
++        // Indexed stores: rS, rA and rB in.
++        case 151: case 183: case 215: case 247: case 407: case 439: case 149: case 181:
++        case 662: case 918: case 150: case 214: case 663: case 695: case 727: case 759:
++          return rd == r || ra == r || rb == r;
++        default:  // arithmetic, compares, indexed loads: rA and rB in
++          return ra == r || rb == r;
++      }
++    }
++    default: return true;
++  }
++}
++
++// Whether an instruction sets general register r (the forms ReadsRegister knows).
++inline bool WritesRegister(uint32_t w, unsigned r) {
++  const unsigned op = w >> 26, rd = (w >> 21) & 31, ra = (w >> 16) & 31;
++  switch (op) {
++    case 7: case 8: case 12: case 13: case 14: case 15:
++    case 32: case 34: case 40: case 42: case 58:
++      return rd == r;
++    case 33: case 35: case 41: case 43:  // update forms also set rA
++      return rd == r || ra == r;
++    case 20: case 21: case 23: case 24: case 25: case 26: case 27: case 28: case 29: case 30:
++      return ra == r;
++    case 31: {
++      const unsigned xo = (w >> 1) & 0x3FF;
++      switch (xo) {
++        case 28: case 60: case 124: case 284: case 316: case 412: case 444: case 476:
++        case 24: case 536: case 792: case 27: case 539: case 794: case 824: case 26:
++        case 58: case 922: case 954: case 986:
++          return ra == r;
++        case 0: case 32: case 151: case 183: case 215: case 247: case 407: case 439:
++        case 149: case 181: case 467: case 144:
++          return false;
++        default:
++          return rd == r;
++      }
++    }
++    default: return false;
++  }
++}
++
++// A register save helper (__savegprlr_N): only stores relative to r1, then blr.
++inline bool IsSaveHelper(const CodeView& view, uint32_t at) {
++  for (int n = 0; n < 40 && view.Has(at); ++n, at += 4) {
++    const uint32_t w = view.Word(at);
++    if (w == kBlr) return n > 0;
++    const unsigned op = w >> 26, ra = (w >> 16) & 31;
++    if (!((op == 62 || op == 36 || op == 54) && ra == 1)) return false;
++  }
++  return false;
++}
++
++// Whether the function at `at` may read r4 (its second argument) before it is set or a
++// call (other than the register save helper) replaces it.
++inline bool MayReadArgument(const CodeView& view, uint32_t at, const char** why) {
++  for (int n = 0; n < 96; ++n, at += 4) {
++    if (!view.Has(at)) { *why = "the refresh runs past the executable"; return true; }
++    const uint32_t w = view.Word(at);
++    uint32_t target = 0;
++    if (RelativeBranch(at, w, true, &target)) {
++      if (IsSaveHelper(view, target)) continue;
++      return false;  // r4 is volatile: the call's own value from here on
++    }
++    if (w == kBlr || RelativeBranch(at, w, false, &target)) return false;
++    if (ReadsRegister(w, 4)) { *why = "the refresh reads the message buffer"; return true; }
++    if (WritesRegister(w, 4)) return false;
++  }
++  *why = "the refresh's first block is too long to check";
++  return true;
++}
++
++struct IdentityCallbackCheck {
++  bool ok = false;
++  const char* why = "";
++  uint32_t event_case = 0;  // where the switch sends 2C00F
++  uint32_t refresh = 0;     // what that case calls
++};
++
++// The identity callback (r3 message, r4 buffer) the title registers with XMsg FE/2C009.
++// Its message switch, as the Kinect SDK compiles it:
++//   addis rX,r3,-3 / addi rX,rX,0x3FFE / cmplwi crN,rX,max / bgt default
++//   lis r12,T / addi r12,r12,t / lbzx r0,r12,rX / slwi r0,r0,2
++//   lis r12,B / [nop] / addi r12,r12,b / add r12,r12,r0 / mtctr r12 / bctr
++inline IdentityCallbackCheck CheckIdentityCallback(const CodeView& view, uint32_t callback) {
++  IdentityCallbackCheck result;
++  if ((callback & 3) || !view.Has(callback, 8)) { result.why = "not in the executable"; return result; }
++  if (view.Word(callback) != kMflrR12) { result.why = "not the start of a function"; return result; }
++  int state = 0;
++  unsigned index_reg = 0, table_reg = 0, byte_reg = 0;
++  int32_t offset = 0;
++  uint32_t max = 0, table = 0, jump_base = 0;
++  int32_t high[32] = {};
++  bool has_high[32] = {};
++  for (int n = 1; n < 48 && state < 7; ++n) {
++    const uint32_t at = callback + 4 * uint32_t(n);
++    if (!view.Has(at)) break;
++    const uint32_t w = view.Word(at);
++    if (w == kBlr) break;
++    const unsigned op = w >> 26, rd = (w >> 21) & 31, ra = (w >> 16) & 31, rb = (w >> 11) & 31;
++    const int32_t simm = int16_t(w & 0xFFFF);
++    if (op == 15 && ra == 0) { high[rd] = simm * 65536; has_high[rd] = true; continue; }  // lis
++    const bool pair = op == 14 && ra == rd && rd != 0 && has_high[rd];  // lis/addi value
++    if (state == 0 && op == 15 && ra == 3) { index_reg = rd; offset = simm * 65536; state = 1; }
++    else if (state == 1 && op == 14 && rd == index_reg && ra == index_reg) { offset += simm; state = 2; }
++    else if (state == 2 && op == 10 && ra == index_reg) { max = w & 0xFFFF; state = 3; }
++    else if (state == 3 && pair) { table = uint32_t(high[rd] + simm); table_reg = rd; state = 4; }
++    else if (state == 4 && op == 31 && ((w >> 1) & 0x3FF) == 87 && ra == table_reg && rb == index_reg) {
++      byte_reg = rd; state = 5;
++    } else if (state == 5 && op == 21 && rd == byte_reg && ra == byte_reg && ((w >> 11) & 31) == 2 &&
++               ((w >> 6) & 31) == 0 && ((w >> 1) & 31) == 29) {
++      state = 6;  // slwi by 2
++    } else if (state == 6 && pair) { jump_base = uint32_t(high[rd] + simm); state = 7; }
++    if (op != 15)
++      for (unsigned r = 0; r < 32; ++r)
++        if (WritesRegister(w, r)) has_high[r] = false;
++  }
++  if (state < 7) { result.why = "no message switch at its start"; return result; }
++  const uint32_t index = kIdentityChangedMessage + uint32_t(offset);
++  if (index > max) { result.why = "its switch has no identity-changed case"; return result; }
++  if (!view.Has(table + index, 1)) { result.why = "its switch table is not in the executable"; return result; }
++  result.event_case = jump_base + uint32_t(view.Byte(table + index)) * 4;
++  uint32_t refresh = 0, out = 0;
++  if (!view.Has(result.event_case, 8) ||
++      !RelativeBranch(result.event_case, view.Word(result.event_case), true, &refresh) ||
++      !RelativeBranch(result.event_case + 4, view.Word(result.event_case + 4), false, &out)) {
++    result.why = "its identity-changed case is not a single call";
++    return result;
++  }
++  result.refresh = refresh;
++  if (!view.Has(refresh) || view.Word(refresh) != kMflrR12) {
++    result.why = "the identity-changed case does not call a function";
++    return result;
++  }
++  if (MayReadArgument(view, refresh + 4, &result.why)) return result;
++  result.ok = true;
++  return result;
++}
++
++// The relative calls of target ("bl"): where they are.
++inline std::vector<uint32_t> CallsOf(const CodeView& view, uint32_t target) {
++  std::vector<uint32_t> calls;
++  for (size_t at = 0; at + 4 <= view.bytes; at += 4) {
++    const uint32_t address = view.base + uint32_t(at), w = view.Word(address);
++    uint32_t to = 0;
++    if (RelativeBranch(address, w, true, &to) && to == target) calls.push_back(address);
++  }
++  return calls;
++}
++
++// Dragon Ball Z for Kinect's hand reach seam: "lis r11,X" followed by "lfs fN,0x2710(r30)",
++// the first read of the hand reach the handler writes. Exactly one must exist.
++struct HandSeam {
++  uint32_t site = 0;
++  uint64_t r11 = 0;  // what the replaced lis loads, sign-extended as on the console
++  size_t matches = 0;
++};
++inline HandSeam FindHandSeam(const CodeView& view) {
++  HandSeam seam;
++  for (size_t at = 0; at + 8 <= view.bytes; at += 4) {
++    const uint32_t address = view.base + uint32_t(at);
++    const uint32_t w = view.Word(address);
++    if ((w & 0xFFFF0000) != 0x3D600000) continue;                   // lis r11,X
++    if ((view.Word(address + 4) & 0xFC1FFFFF) != 0xC01E2710) continue;  // lfs f?,0x2710(r30)
++    if (++seam.matches == 1) {
++      seam.site = address;
++      seam.r11 = uint64_t(int64_t(int32_t(w << 16)));
++    }
++  }
++  if (seam.matches != 1) seam.site = 0;
++  return seam;
++}
++
++}  // namespace xbox360ps5::motion
+diff --git a/include/xbox360ps5/virtual_nui.hpp b/include/xbox360ps5/virtual_nui.hpp
+index d8348c7..da9dc59 100644
+--- a/include/xbox360ps5/virtual_nui.hpp
++++ b/include/xbox360ps5/virtual_nui.hpp
+@@ -3,7 +3,9 @@
+ #pragma once
+ #include "xbox360ps5/virtual_skeleton.hpp"
+ namespace xbox360ps5::motion {
+-constexpr uint32_t kVirtualNuiTitle = 0x4E4D084E;
++// Fix 57: the virtual player serves every title whose executable requires Kinect
++// (XEX skeletal tracking required, nui_image_scan.hpp), not one title ID; the core
++// passes that answer in as kinect_title.
+ constexpr uint32_t kVirtualEnrollment = 0;
+ struct NuiBinding {
+   uint32_t session = 0, tracking_id = 0;
+@@ -36,16 +38,16 @@ inline NuiBinding PublishNuiFrame(const Frame& pose, uint32_t tracking_id,
+   }
+   return nui_binding;
+ }
+-inline bool VirtualNuiCameraLive(uint32_t title_id) {
+-  if (title_id != kVirtualNuiTitle || !enabled.load() ||
++inline bool VirtualNuiCameraLive(bool kinect_title) {
++  if (!kinect_title || !enabled.load() ||
+       !guest_camera_open.load() || !guest_skeleton_bound.load()) return false;
+   std::lock_guard lock(nui_mutex);
+   return nui_binding.delivered != std::chrono::steady_clock::time_point{} &&
+       std::chrono::steady_clock::now() - nui_binding.delivered <=
+           std::chrono::milliseconds(500);
+ }
+-inline NuiBinding LiveNuiBinding(uint32_t title_id, uint32_t signed_in_mask) {
+-  if (!VirtualNuiCameraLive(title_id)) return {};
++inline NuiBinding LiveNuiBinding(bool kinect_title, uint32_t signed_in_mask) {
++  if (!VirtualNuiCameraLive(kinect_title)) return {};
+   const Frame pose = Snapshot();
+   std::lock_guard lock(nui_mutex);
+   if (!pose.tracked || pose.session != nui_binding.session ||
+@@ -53,10 +55,18 @@ inline NuiBinding LiveNuiBinding(uint32_t title_id, uint32_t signed_in_mask) {
+       !(signed_in_mask & (1u << nui_binding.user_index))) return {};
+   return nui_binding;
+ }
++// Fix 57: a Kinect game asked for its camera while "Camera motion" was off. The title
++// side shows the player how to turn it on (set at start-up; called once per game).
++inline void (*kinect_needed)() = nullptr;
++inline std::atomic<bool> kinect_needed_reported{false};
++inline void ReportKinectNeeded() {
++  if (kinect_needed && !kinect_needed_reported.exchange(true)) kinect_needed();
++}
+ inline void ResetVirtualNui() {
+   std::lock_guard lock(nui_mutex);
+   nui_binding = {};
+   nui_identity_callback = 0;
+   nui_identity_notifications = 0;
++  kinect_needed_reported = false;
+ }
+ }
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+index d3d8348..237bd9e 100644
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -125,6 +125,7 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
+ #include "xbox360ps5/memexport_loss.hpp"  // fix 48: memory exports lost to uploads
+ #include "xbox360ps5/ui_sounds.hpp"
+ #include "xbox360ps5/motion_input.hpp"
++#include "xbox360ps5/virtual_nui.hpp"  // fix 57: kinect_needed
+ #include "xbox360ps5/display_surface.hpp"
+ #include "xbox360ps5/dualsense_input.hpp"
+ #include "xbox360ps5/frame_cost.hpp"  // fix 49: where a frame's time goes
+@@ -1881,8 +1882,16 @@ static void StorageNotice(const std::string& drive) {
+                           " " + drive,
+                       "", false});
+ }
++// Fix 57: a game whose executable requires Kinect asked for its camera with "Camera motion"
++// off (a start that did not pass the library's question: a forwarder, a package, a title switch).
++static void KinectNeededNotice() {
++  xbox360ps5::Notify({XBOX360PS5_PRODUCT_NAME,
++                      Tr("This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again."),
++                      "", false});
++}
+ int main(int argc, char** argv) {
+   config::config_folder = "/app0/assets";
++  xbox360ps5::motion::kinect_needed = &KinectNeededNotice;
+   // A window each time a game asks where to save (the core chose the hard drive without one),
+   // and the system windows in the emulator's language.
+   cvars::storage_selection_dialog = true;
+diff --git a/src/covers.cpp b/src/covers.cpp
+index baaca27..cc80d9d 100644
+--- a/src/covers.cpp
++++ b/src/covers.cpp
+@@ -1,6 +1,7 @@
+ // SPDX-License-Identifier: MIT
+ #include "xbox360ps5/i18n.hpp"
+ #include "xbox360ps5/covers.hpp"
++#include "xbox360ps5/nui_image_scan.hpp"  // fix 57
+ #include "cover_fallback.hpp"  // fix 41: Microsoft box art after XboxUnity
+ #include "xenia/base/logging.h"
+ #include "xenia/base/platform.h"
+@@ -227,23 +228,27 @@ std::string ChooseCover(const std::string& json) {
+ }
+ }
+ 
+-std::string ReadXexTitleId(const fs::path& xex) {
++namespace {
++// The XEX2 header (header_size bytes, at most 1 MiB) of an executable, empty when none.
++std::vector<uint8_t> XexHeader(const fs::path& xex) {
+   std::FILE* file = std::fopen(xex.c_str(), "rb");
+-  if (!file) return "";
++  if (!file) return {};
+   std::vector<uint8_t> header;
+-  std::string id;
+   if (ReadAt(file, 0, 24, header)) {
+     const uint32_t size = std::min<uint32_t>(BE32(&header[8]), 1u << 20);
+-    if (ReadAt(file, 0, std::max<uint32_t>(size, 24), header)) id = TitleIdFromHeader(header);
++    if (!ReadAt(file, 0, std::max<uint32_t>(size, 24), header)) header.clear();
++  } else {
++    header.clear();
+   }
+   std::fclose(file);
+-  return id;
++  return header;
+ }
+ 
+-std::string ReadIsoTitleId(const fs::path& iso) {
++// The XEX2 header of the default.xex inside a disc image (XDVDFS), empty when none.
++std::vector<uint8_t> IsoXexHeader(const fs::path& iso) {
+   std::FILE* file = std::fopen(iso.c_str(), "rb");
+-  if (!file) return "";
+-  std::string id;
++  if (!file) return {};
++  std::vector<uint8_t> found;
+   std::vector<uint8_t> sector;
+   // The game partition starts at one of these offsets (plain XDVDFS, XGD1, XGD2, XGD3).
+   for (const uint64_t base : {0ull, 0x18300000ull, 0xFD90000ull, 0x2080000ull}) {
+@@ -268,7 +273,7 @@ std::string ReadIsoTitleId(const fs::path& iso) {
+         const uint64_t start = base + uint64_t(LE32(&table[at + 4])) * 2048;
+         if (ReadAt(file, start, 24, header)) {
+           const uint32_t size = std::min<uint32_t>(BE32(&header[8]), 1u << 20);
+-          if (ReadAt(file, start, std::max<uint32_t>(size, 24), header)) id = TitleIdFromHeader(header);
++          if (ReadAt(file, start, std::max<uint32_t>(size, 24), header)) found = std::move(header);
+         }
+         break;
+       }
+@@ -278,7 +283,22 @@ std::string ReadIsoTitleId(const fs::path& iso) {
+     break;
+   }
+   std::fclose(file);
+-  return id;
++  return found;
++}
++}  // namespace
++
++std::string ReadXexTitleId(const fs::path& xex) { return TitleIdFromHeader(XexHeader(xex)); }
++
++std::string ReadIsoTitleId(const fs::path& iso) { return TitleIdFromHeader(IsoXexHeader(iso)); }
++
++// Fix 57: the executable says the game requires Kinect (XEX skeletal tracking required).
++bool GameRequiresKinect(const fs::path& game) {
++  std::string extension = game.extension().string();
++  std::transform(extension.begin(), extension.end(), extension.begin(),
++                 [](unsigned char c) { return char(std::tolower(c)); });
++  const std::vector<uint8_t> header =
++      extension == ".iso" ? IsoXexHeader(game) : extension == ".xex" ? XexHeader(game) : std::vector<uint8_t>();
++  return motion::XexHeaderRequiresKinect(header.data(), header.size());
+ }
+ 
+ fs::path CoverFile(const std::string& title_id) {
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+index bbdfb50..6b173f0 100644
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -4,6 +4,7 @@
+ #include "xbox360ps5/app_identity.hpp"  // fix 46
+ #include "xbox360ps5/cover_geometry.hpp"
+ #include "xbox360ps5/launcher.hpp"
++#include "xbox360ps5/covers.hpp"  // fix 57: GameRequiresKinect
+ #include "home_navigation.hpp"
+ #include "interface_choices.hpp"
+ #include "kinect_skin.hpp"
+@@ -200,6 +201,12 @@ std::string g_running_path, g_running_name;
+ bool g_confirm_open = false;
+ GameEntry g_confirm_game;
+ float g_confirm_shown = 0.0f;  // 0..1, the dialog's entrance.
++// Fix 57: a game whose executable requires Kinect, started with "Camera motion" off:
++// asked once per start whether to turn it on for this game (the phone as its camera).
++bool g_kinect_open = false;
++float g_kinect_shown = 0.0f;
++std::string g_kinect_asked;  // the start (game path) that has been asked about
++std::string g_kinect_game;   // its name, for the dialog
+ // The search by name: up on the shelf opens a keyboard; the shelf shows only the
+ // games whose name (or title ID) has what was typed.
+ std::string g_search;
+@@ -1281,6 +1288,22 @@ void DrawUpdates(Surface& c, float x);
+ }  // namespace
+ bool Launcher::TakeLaunch(GameEntry& game) {
+   if (!launch_pending_ || (dlc_hooks_.status && dlc_hooks_.status().busy)) return false;
++  // Fix 57: before anything is copied or started, a Kinect game with "Camera motion" off
++  // offers to turn it on (Press answers). The game looks for its camera as it starts.
++  if (g_kinect_open) return false;
++  if (g_kinect_asked != launch_.path.string()) {
++    g_kinect_asked = launch_.path.string();
++    if (launch_.title_id.size() == 8 &&
++        !ForGame(settings_, launch_.title_id, LoadGameOverrides(launch_.title_id)).motion_phone &&
++        GameRequiresKinect(launch_.path)) {
++      XELOGW("LAUNCHER {} ({}) requires Kinect and Camera motion is off; asking", launch_.name, launch_.title_id);
++      g_kinect_open = true;
++      g_kinect_shown = 0.0f;
++      g_kinect_game = launch_.name;
++      loading_.clear();
++      return false;
++    }
++  }
+   static std::string checked, label;      // the launch whose dlc folders were looked at
+   static std::vector<dlc2::Item> waiting;  // its DLCs not installed yet
+   static size_t found = 0;
+@@ -1339,6 +1362,7 @@ bool Launcher::TakeLaunch(GameEntry& game) {
+   label.clear();
+   loading_ = launch_.name;
+   launch_pending_ = false;
++  g_kinect_asked.clear();  // the next start of a Kinect game asks again
+   game = launch_;
+   return true;
+ }
+@@ -1488,6 +1512,28 @@ void Launcher::CloseSettings() {
+ void Launcher::Press(Key key) {
+   // Interaction can finish the entrance immediately; never delay a pad action.
+   intro_ = 1.0f;
++  if (g_kinect_open) {
++    // Fix 57: "<game> requires Kinect. Turn on Camera motion for this game?"
++    if (key == Key::cross) {
++      GameOverrides own = LoadGameOverrides(launch_.title_id);
++      own["motion_phone"] = 1;
++      const bool saved = SaveGameOverrides(launch_.title_id, own);
++      XELOGW("LAUNCHER Camera motion turned on for {} ({}){}", launch_.name, launch_.title_id,
++             saved ? "" : "; could not save it, this start only");
++      if (!saved) settings_.motion_phone = 1;
++    }
++    if (key == Key::cross || key == Key::circle) {
++      if (key == Key::circle) XELOGW("LAUNCHER {} starts without Camera motion", launch_.name);
++      g_kinect_open = false;
++      loading_ = launch_.name;
++    } else if (key == Key::triangle) {
++      g_kinect_open = false;
++      g_kinect_asked.clear();
++      launch_pending_ = false;
++      loading_.clear();
++    }
++    return;
++  }
+   if (!loading_.empty()) return;
+   message_.clear();
+   if (g_confirm_open) {
+@@ -2500,6 +2546,28 @@ void Launcher::Draw(ImGuiIO& io) {
+     c.Hint('o', Tr("Cancel"), hint, y + h - 56);
+     c.alpha = 1.0f;
+   }
++  // Fix 57: "<game> requires Kinect", the same kind of window.
++  g_kinect_shown = Smooth(g_kinect_shown, g_kinect_open ? 1.0f : 0.0f, dt, 18);
++  if (g_kinect_shown > 0.01f) {
++    const float t = g_kinect_shown;
++    const float ease = 1.0f - (1.0f - t) * (1.0f - t) * (1.0f - t);
++    c.alpha = 1.0f;
++    c.Fill(0, 0, 1920, 1080, 0x000000, 0.6f * ease);
++    c.alpha = ease;
++    const float w = 1040 * (0.92f + 0.08f * ease), h = 360 * (0.92f + 0.08f * ease);
++    const float x = 960 - w / 2, y = 540 - h / 2;
++    c.Fill(x, y, w, h, kSheet, 0.99f, 22);
++    c.Edge(x, y, w, h, kAccent, 0.7f, 22, 2.0f);
++    c.Text(Tr("Kinect game"), x + 48, y + 36, 34, kText);
++    c.Wrapped(g_kinect_game + Tr(" requires Kinect. Turn on Camera motion for this game?"),
++              x + 48, y + 100, 26, kBody, w - 96);
++    c.Wrapped(Tr("A phone paired on the settings page then works as its camera. You can change it later in the game's settings."),
++              x + 48, y + 180, 20, kMuted, w - 96);
++    float hint = c.Hint('x', Tr("Turn on and play"), x + 48, y + h - 56);
++    hint = c.Hint('o', Tr("Play without it"), hint, y + h - 56);
++    c.Hint('t', Tr("Cancel"), hint, y + h - 56);
++    c.alpha = 1.0f;
++  }
+   // What is happening by itself: covers being fetched, a game just found.
+   // Under the name, on the left: the sheets cover the right side.
+   c.alpha = 1.0f;

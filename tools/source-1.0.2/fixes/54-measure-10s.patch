@@ -1,0 +1,32 @@
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -484,7 +484,7 @@ std::vector<GuideItem> GuideItems(int page, const xbox360ps5::Settings& settings
+       item.category = c;
+       items.push_back(item);
+     }
+-    items.push_back({GuideAction::measure, Tr("Measure performance (5 s)"), ""});
++    items.push_back({GuideAction::measure, Tr("Measure performance (10 s)"), ""});  // fix 54: was 5 s
+     return items;
+   }
+   for (const auto& option : xbox360ps5::Options()) {
+@@ -1134,6 +1134,10 @@ void ReportStall(xe::Emulator& emulator, int pass) {
+ // generated guest code, in the emulator and in system libraries, with the
+ // commonest places of each. Offsets are symbolized afterwards with the build's
+ // kept ELF. The picture freezes meanwhile; the game keeps running.
++// Fix 54: 10 s of samples (was 5 s), as the guide's row says: twice the samples of a scene
++// for the places a slow game spends its time. The per-thread tallies grow as places are found;
++// nothing is sized for the duration.
++constexpr int kMeasureSeconds = 10;
+ void MeasurePerformance(xe::Emulator& emulator, float fps) {
+   struct Place { uint64_t key; uint32_t count; };
+   struct Tally {
+@@ -1159,7 +1163,7 @@ void MeasurePerformance(xe::Emulator& emulator, float fps) {
+                            opens = xbox360ps5::open_syscalls, open_spent = xbox360ps5::open_nanoseconds,
+                            pages = xbox360ps5::protect_pages;
+   int rounds = 0;
+-  while (std::chrono::steady_clock::now() - started < std::chrono::seconds(5)) {
++  while (std::chrono::steady_clock::now() - started < std::chrono::seconds(kMeasureSeconds)) {
+     for (auto& tally : tallies) {
+       xbox360ps5::ThreadSample sample;
+       if (!xbox360ps5::SampleThread(tally.thread->thread()->native_handle(), &sample)) continue;

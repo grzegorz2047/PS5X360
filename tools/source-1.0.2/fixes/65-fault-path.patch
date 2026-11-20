@@ -1,0 +1,249 @@
+diff --git a/include/xbox360ps5/crash_report.hpp b/include/xbox360ps5/crash_report.hpp
+--- a/include/xbox360ps5/crash_report.hpp
++++ b/include/xbox360ps5/crash_report.hpp
+@@ -20,8 +20,21 @@ void UseSignalStack();
+ // Fix 61: bytes in use on the calling thread's stack and its size; false for a thread that did
+ // not call UseSignalStack.
+ bool HostStackUse(size_t* used, size_t* size);
+-// Redirects the already-installed signal reporter; does not replace handlers.
++// Redirects the already-installed signal reporter; does not replace handlers. Fix 65: when the
++// descriptor cannot be replaced in place (dup2), the new one becomes the report file; false only
++// when the file cannot be opened. CrashReportNote says what happened ("" when nothing to say).
+ bool SetCrashReportFile(const char* path);
++const char* CrashReportNote();
++// Fix 65 (Ninja Gaiden II on 1.0.4_candidate_22: the system's own fault dialog, "page fault (user
++// write data, protection violation)" at guest memory, and no line from any handler). For the
++// console's fault transport (platform/ps5/exception_handler.cpp), callable from a signal handler:
++// FaultDepth: the calling thread's fault handlers in progress after adding `delta` (-1 for a
++// thread without fix 61's signal stack); FaultLine: one "[X360] FAULT" line (why, the signal,
++// the address, rip, rsp, `detail`) to the report and hang-watch files and the kernel log;
++// ReportFatalSignal: the whole crash report, as for a signal nothing took.
++int FaultDepth(int delta);
++void FaultLine(const char* why, int number, void* info, void* context, const char* detail);
++void ReportFatalSignal(int number, void* info, void* context);
+ // Fix 47, candidate 11: a second descriptor (logs/hang-watch.txt while a game runs, -1 for none)
+ // that gets every line the report writes (signals, terminate, WHERE probes, Stage), synced.
+ void SetCrashReportMirror(int fd);
+diff --git a/platform/ps5/crash_report.cpp b/platform/ps5/crash_report.cpp
+--- a/platform/ps5/crash_report.cpp
++++ b/platform/ps5/crash_report.cpp
+@@ -55,7 +55,9 @@ __attribute__((constructor(101))) void OrderThreadExitKeys() {
+ namespace xbox360ps5 {
+ namespace {
+ constexpr int kSignals[] = {SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT, SIGSYS, SIGTRAP};
+-int report_file = -1;
++// Fix 65: replaced whole when dup2 cannot move the game log onto it (read by signal handlers).
++std::atomic<int> report_file{-1};
++char report_note[160] = "";
+ // Fix 47, candidate 11: logs/hang-watch.txt while a game runs (boot.log cannot be read back).
+ std::atomic<int> mirror_file{-1};
+ void Mirror(const char* text, size_t size) {
+@@ -88,6 +90,7 @@ void Decimal(uint64_t value) {
+ struct StackSlot {
+   std::atomic<uintptr_t> thread{0};
+   std::atomic<uintptr_t> top{0}, size{0};
++  std::atomic<int> faults{0};  // fix 65: fault handlers in progress on this thread
+ };
+ constexpr size_t kStackSlots = 512;
+ StackSlot stack_slots[kStackSlots];
+@@ -451,11 +454,64 @@ void InstallCrashReport(const char* path) {
+ }
+ bool SetCrashReportFile(const char* path) {
+   const int next = open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
+-  if (next < 0) return false;
++  if (next < 0) {
++    std::snprintf(report_note, sizeof(report_note), "the game log could not be opened (errno %d)", errno);
++    return false;
++  }
+   // Keep the descriptor number stable for concurrent Stage/signal writes.
+-  const bool changed = report_file >= 0 && dup2(next, report_file) >= 0;
+-  close(next);
+-  return changed;
++  const int current = report_file.load();
++  if (current >= 0 && dup2(next, current) >= 0) {
++    close(next);
++    report_note[0] = 0;
++    return true;
++  }
++  // Fix 65: 1.0.4_candidate_22 kept every game's report in boot.log ("Crash report remains in
++  // boot.log"): dup2 failed, or there was no report file. The new descriptor becomes the report
++  // file; the previous one stays open, as a write in flight may still use it.
++  if (current >= 0)
++    std::snprintf(report_note, sizeof(report_note), "in the game log, on a descriptor of its own (dup2 errno %d)", errno);
++  else
++    std::snprintf(report_note, sizeof(report_note), "in the game log (there was no report file before)");
++  report_file.store(next);
++  return true;
++}
++const char* CrashReportNote() { return report_note; }
++int FaultDepth(int delta) {
++  StackSlot* slot = FindStackSlot();
++  if (!slot) return -1;
++  return slot->faults.fetch_add(delta, std::memory_order_relaxed) + delta;
++}
++void FaultLine(const char* why, int number, void* raw_info, void* context, const char* detail) {
++  const auto* info = static_cast<const siginfo_t*>(raw_info);
++  const uint64_t* m = static_cast<const uint64_t*>(context) + 8;
++  char text[512];
++  size_t size = 0;
++  const auto put = [&](const char* part) { for (; part && *part && size + 2 < sizeof(text); ++part) text[size++] = *part; };
++  const auto hex = [&](uint64_t value) {
++    char digits[16]; int count = 0;
++    do { digits[count++] = "0123456789abcdef"[value & 15]; value >>= 4; } while (value);
++    while (count && size + 2 < sizeof(text)) text[size++] = digits[--count];
++  };
++  const auto address = [&](uint64_t at) {
++    if (InCode(at)) { put("eboot+0x"); hex(at - CodeStart()); } else { put("0x"); hex(at); }
++  };
++  put("[X360] FAULT "); put(why);
++  put(": signal "); hex(uint64_t(number));
++  put(" addr 0x"); hex(info ? reinterpret_cast<uint64_t>(info->si_addr) : 0);
++  put(m[19] & 2 ? " (write)" : " (read)");
++  put(" rip "); address(m[20]);
++  put(" rsp 0x"); hex(m[23]);
++  put(" thread 0x"); hex(reinterpret_cast<uint64_t>(pthread_self()));
++  put("; "); put(detail);
++  text[size++] = '\n';
++  text[size] = 0;
++  const int fd = report_file.load();
++  if (fd >= 0) { (void)!write(fd, text, size); fsync(fd); }
++  Mirror(text, size);
++  sceKernelDebugOutText(0, text);
++}
++void ReportFatalSignal(int number, void* info, void* context) {
++  Handle(number, static_cast<siginfo_t*>(info), context);
+ }
+ void SetCrashReportMirror(int fd) { mirror_file.store(fd); }
+ void Stage(const char* text) {
+diff --git a/platform/ps5/memory_ps5.cpp b/platform/ps5/memory_ps5.cpp
+--- a/platform/ps5/memory_ps5.cpp
++++ b/platform/ps5/memory_ps5.cpp
+@@ -305,6 +305,35 @@ bool DeallocFixed(void* address, size_t length, DeallocationType type) {
+   views.erase(i);
+   return true;
+ }
++// Fix 65: what the emulator holds for the kernel page of a faulting address, for the fault lines
++// of platform/ps5/exception_handler.cpp. Called from the fault handler: the lock is only tried
++// (the faulting thread may hold it), and the text is made by hand.
++bool DescribeHostPage(const void* address, char* out, size_t size) {
++  if (!out || !size) return false;
++  size_t used = 0;
++  const auto put = [&](const char* part) { for (; *part && used + 1 < size; ++part) out[used++] = *part; };
++  const auto hex = [&](uint64_t value) {
++    char digits[16]; int count = 0;
++    do { digits[count++] = "0123456789abcdef"[value & 15]; value >>= 4; } while (value);
++    while (count && used + 1 < size) out[used++] = digits[--count];
++  };
++  out[0] = 0;
++  std::unique_lock lock(guard, std::try_to_lock);
++  if (!lock.owns_lock()) { put("page state unknown (the memory lock is held)"); out[used] = 0; return false; }
++  const uintptr_t at = reinterpret_cast<uintptr_t>(address);
++  auto i = Containing(at, 1);
++  if (i == views.end()) { put("not in a view of the emulator's memory"); out[used] = 0; return false; }
++  const View& view = i->second;
++  const size_t page = (at - i->first) / kPage, guest = (at - i->first) / kGuestPage;
++  put("view 0x"); hex(i->first); put("+0x"); hex(at - i->first);
++  put(": its 4 KiB pages in this kernel page ");
++  for (size_t g = 0; g < kPerPage; ++g) hex(view.access[page * kPerPage + g]);
++  put(" (this one "); hex(view.access[guest]); put("), kernel page "); hex(view.host[page]);
++  put(", hold ");
++  if (view.hold[page] == kNoHold) put("none"); else hex(view.hold[page]);
++  out[used] = 0;
++  return true;
++}
+ bool Protect(void* address, size_t length, PageAccess access, PageAccess* previous) {
+   ++xbox360ps5::protect_calls;
+   std::lock_guard lock(guard);
+diff --git a/platform/ps5/exception_handler.cpp b/platform/ps5/exception_handler.cpp
+--- a/platform/ps5/exception_handler.cpp
++++ b/platform/ps5/exception_handler.cpp
+@@ -12,6 +12,8 @@
+ #include <ucontext.h>
+ #include <unistd.h>
+ namespace xbox360ps5 { extern std::atomic<unsigned long long> fault_count; }
++#include "xbox360ps5/crash_report.hpp"  // fix 65: FaultDepth, FaultLine, ReportFatalSignal
++namespace xe::memory { bool DescribeHostPage(const void* address, char* out, size_t size); }  // fix 65
+ namespace xe {
+ namespace {
+ struct Entry {
+@@ -30,6 +32,8 @@ static_assert(std::atomic<unsigned long long>::is_always_lock_free);
+ void forward(int number, siginfo_t* info, void* context) {
+   const auto& old = number == SIGSEGV ? old_segv : old_ill;
+   if (old.sa_handler == SIG_DFL || old.sa_handler == SIG_IGN) {
++    // Fix 65: nothing behind this handler would report it; the report is written here first.
++    xbox360ps5::ReportFatalSignal(number, info, context);
+     struct sigaction normal{}; normal.sa_handler = SIG_DFL;
+     sigemptyset(&normal.sa_mask);
+     if (sigaction(number, &normal, nullptr)) _exit(128 + number);
+@@ -40,6 +44,31 @@ void forward(int number, siginfo_t* info, void* context) {
+ }
+ void callback(int number, siginfo_t* info, void* raw_context) {
+   ++xbox360ps5::fault_count;
++  // Fix 65: a fault while this thread is already in this handler (a handler that touches watched
++  // or protected memory) used to arrive with the signal blocked, and the system ended the process
++  // with its own dialog and no line from us (Ninja Gaiden II, 1.0.4_candidate_22). The handler is
++  // installed with SA_NODEFER now: such a fault comes here, is written, and is handled like any
++  // other; a third in a row is reported and left to the system.
++  const int depth = xbox360ps5::FaultDepth(1);
++  struct Leave {
++    bool known;
++    ~Leave() { if (known) xbox360ps5::FaultDepth(-1); }
++  } leave{depth > 0};
++  if (depth > 1) {
++    static std::atomic<unsigned> nested_lines{0};
++    char detail[256];
++    xe::memory::DescribeHostPage(info ? info->si_addr : nullptr, detail, sizeof(detail));
++    if (depth > 3) {
++      xbox360ps5::FaultLine("a third fault inside the fault handler; the report follows", number, info, raw_context, detail);
++      xbox360ps5::ReportFatalSignal(number, info, raw_context);
++      struct sigaction normal{}; normal.sa_handler = SIG_DFL;
++      sigemptyset(&normal.sa_mask);
++      sigaction(number, &normal, nullptr);
++      return;  // the fault repeats under the default action
++    }
++    if (nested_lines.fetch_add(1, std::memory_order_relaxed) < 20)
++      xbox360ps5::FaultLine("a fault inside the fault handler, handled like any other", number, info, raw_context, detail);
++  }
+ #if XE_PLATFORM_PS5
+   // The console's ucontext has 48 bytes between uc_sigmask and uc_mcontext that
+   // the upstream payload SDK header omits; the SDK fork's header has them.
+@@ -107,6 +136,12 @@ void callback(int number, siginfo_t* info, void* raw_context) {
+         std::memcpy(xmm + n * sizeof(vec128_t), &host.xmm_registers[n], sizeof(vec128_t));
+     return;
+   }
++  {  // Fix 65: what no handler took, with the emulator's state of that page, before the report.
++    char detail[256];
++    xe::memory::DescribeHostPage(info ? info->si_addr : nullptr, detail, sizeof(detail));
++    xbox360ps5::FaultLine(number == SIGILL ? "an illegal instruction no handler took" : "an access no handler took",
++                          number, info, raw_context, detail);
++  }
+   forward(number, info, raw_context);
+ }
+ }
+@@ -116,7 +151,9 @@ void ExceptionHandler::Install(Handler handler, void* data) {
+   if (!installed) {
+     // Fix 61: on the thread's alternate signal stack when it has one (crash_report.cpp), so a
+     // fault on an exhausted stack reaches the crash report instead of ending the process.
+-    struct sigaction action{}; action.sa_sigaction = callback; action.sa_flags = SA_SIGINFO | SA_ONSTACK;
++    // Fix 65: SA_NODEFER, so a fault inside this handler reaches it instead of ending the process.
++    struct sigaction action{}; action.sa_sigaction = callback;
++    action.sa_flags = SA_SIGINFO | SA_ONSTACK | SA_NODEFER;
+     sigemptyset(&action.sa_mask);
+     if (sigaction(SIGSEGV, &action, &old_segv)) FatalError("Cannot install SIGSEGV transport");
+     if (sigaction(SIGILL, &action, &old_ill)) {
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -2805,7 +2805,11 @@ int main(int argc, char** argv) {
+         settings.Apply();
+         if (game_log->session.Begin(log_root, chosen.name, log_id, game.string(), XBOX360PS5_VERSION)) {
+           const auto log_path = game_log->session.Path();
+-          if (!xbox360ps5::SetCrashReportFile(log_path.c_str())) XELOGW("Crash report remains in boot.log");
++          // Fix 65: why, when it stays in boot.log, and how, when the game log has it.
++          if (!xbox360ps5::SetCrashReportFile(log_path.c_str()))
++            XELOGW("Crash report remains in boot.log: {}", xbox360ps5::CrashReportNote());
++          else if (*xbox360ps5::CrashReportNote())
++            XELOGW("Crash report: {}", xbox360ps5::CrashReportNote());
+           XELOGW("Game log: {}", log_path.string());
+         } else XELOGE("Could not create game log; retaining the current destination");
+         std::error_code space_error;

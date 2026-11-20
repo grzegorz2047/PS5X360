@@ -1,0 +1,52 @@
+diff --git a/.deps/xenia-canary/src/xenia/apu/xma_decoder.cc b/.deps/xenia-canary/src/xenia/apu/xma_decoder.cc
+--- a/.deps/xenia-canary/src/xenia/apu/xma_decoder.cc
++++ b/.deps/xenia-canary/src/xenia/apu/xma_decoder.cc
+@@ -17,6 +17,9 @@
+ 
+ #include "xenia/base/cvar.h"
+ #include "xenia/base/logging.h"
++#include "xenia/base/mutex.h"  // fix 67: the global critical region
++
++#include <atomic>  // fix 67
+ #include "xenia/base/math.h"
+ #include "xenia/base/profiling.h"
+ #include "xenia/base/ring_buffer.h"
+@@ -76,6 +79,27 @@ DEFINE_string(
+ namespace xe {
+ namespace apu {
+ 
++#if XE_PLATFORM_PS5
++namespace {
++// Fix 67: a context clear arrives as an MMIO store (Context0Clear..9Clear), emulated inside the
++// fault handler, and Clear writes the context back into its guest page. When a write watch held
++// that page read-only (Ninja Gaiden II: the system heap page of the contexts, 0xFFCAA000, shares a
++// 16 KiB kernel page with watched data), the write faulted again inside the handler: before fix 65
++// that ended the process; with it, the nested fault is handled (and written, up to 20 times). The
++// watch is lifted here first, the way the handler would: the GPU caches are told the range changed
++// and the page opens before the copy. The global critical region is taken once (the MMIO path does
++// not hold it) as TriggerPhysicalMemoryCallbacks requires.
++std::atomic<uint32_t> unwatched_clears{0};
++void UnwatchContext(Memory* memory, uint32_t guest_address, uint32_t bytes) {
++  if (!memory->TriggerPhysicalMemoryCallbacks(xe::global_critical_region::Acquire(), guest_address, bytes,
++                                              true, false))
++    return;
++  if (unwatched_clears.fetch_add(1, std::memory_order_relaxed) == 0)
++    XELOGW("XMA: a context clear lifted the memory watch on its context at {:08X} first (fix 67)", guest_address);
++}
++}  // namespace
++#endif
++
+ XmaDecoder::XmaDecoder(cpu::Processor* processor)
+     : memory_(processor->memory()), processor_(processor) {}
+ 
+@@ -382,6 +406,10 @@ void XmaDecoder::WriteRegister(uint32_t addr, uint32_t value) {
+     while (value) {
+       const uint32_t context_id = base_context_id + std::countr_zero(value);
+       auto& context = *contexts_[context_id];
++#if XE_PLATFORM_PS5
++      UnwatchContext(memory(), context_data_first_ptr_ + context_id * uint32_t(sizeof(XMA_CONTEXT_DATA)),
++                     uint32_t(sizeof(XMA_CONTEXT_DATA)));  // fix 67
++#endif
+       context.Clear();
+       value &= value - 1;
+     }

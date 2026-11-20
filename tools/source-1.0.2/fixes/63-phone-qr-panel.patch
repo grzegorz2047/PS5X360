@@ -1,0 +1,160 @@
+diff --git a/include/xbox360ps5/phone_qr_panel.hpp b/include/xbox360ps5/phone_qr_panel.hpp
+new file mode 100644
+index 0000000..c19e94e
+--- /dev/null
++++ b/include/xbox360ps5/phone_qr_panel.hpp
+@@ -0,0 +1,61 @@
++// SPDX-License-Identifier: MIT
++// Fix 63: the motion panel over a running game shows how to connect a phone while none is.
++//
++// With "Camera motion" on, the panel at the top right showed "Motion: waiting / body lost" and
++// an empty frame until a phone sent joints, and nothing in the game said how to connect one:
++// the QR code was only in the library. Now, while no phone frame has arrived for a few
++// seconds (none since the setting was turned on, or the phone stopped sending), the panel
++// shows the library's camera QR code (the settings server's /camera page with the key, which
++// pairs and connects by itself, fix 56), the pairing code in large text and a short
++// instruction, in the panel's own place and size. Frames arriving bring the skeleton back;
++// a phone that stops brings the code back. A phone that sends frames without a body
++// ("body lost") is connected: the skeleton view stays.
++#pragma once
++#include <chrono>
++#include <cmath>
++#include <string>
++
++namespace xbox360ps5::motion {
++
++// How long without a frame counts as no phone. The phone sends about 30 frames a second;
++// a few seconds covers a short Wi-Fi stall without the code flashing up.
++constexpr std::chrono::milliseconds kPhoneQuiet{3000};
++
++enum class PanelView { kSkeleton, kPhoneQr };
++
++// received: when the latest phone frame arrived (Snapshot().received; the epoch when none
++// has since the setting was turned on). url: the camera page's link, empty when the
++// settings server has no address or key (then there is no code to show).
++inline PanelView ChoosePanelView(std::chrono::steady_clock::time_point received,
++                                 std::chrono::steady_clock::time_point now,
++                                 const std::string& url) {
++  if (url.empty()) return PanelView::kSkeleton;
++  if (received == std::chrono::steady_clock::time_point{} || now < received) return PanelView::kPhoneQr;
++  return now - received > kPhoneQuiet ? PanelView::kPhoneQr : PanelView::kSkeleton;
++}
++
++// Where the "no phone" view draws, in 1080p units (the overlay scales by the screen's height):
++// inside the motion panel's own box, which it does not grow.
++struct QrPanelLayout {
++  float left = 1550, top = 100, right = 1900, bottom = 640;  // the panel (unchanged)
++  float text_x = 1570, title_y = 112, title_size = 22;
++  float card_x = 1620, card_y = 146, card = 210;             // white card under the code
++  float code_y = 370, code_size = 40;                        // "Code: <key>"
++  float text_y = 428, text_size = 22, text_width = 312;      // how to stand, wrapped
++};
++constexpr QrPanelLayout kQrPanel{};
++
++// Whole pixels per QR module on a card of `card` units at `scale` (8 units of white margin
++// each side); 0 when the code does not fit.
++inline float QrModulePixels(int modules, float card, float scale) {
++  if (modules <= 0) return 0;
++  const float module = std::floor((card - 16) * scale / float(modules));
++  return module >= 1 ? module : 0;
++}
++
++// The library's camera QR link (launcher.cpp CameraQr): <plain address>camera?k=<key>.
++inline std::string CameraPageUrl(const std::string& plain, const std::string& key) {
++  return plain.empty() || key.empty() ? std::string() : plain + "camera?k=" + key;
++}
++
++}  // namespace xbox360ps5::motion
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+index e0ec811..b8f3cd8 100644
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -135,6 +135,8 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
+ #include "xbox360ps5/achievement_hook.hpp"
+ #include "xbox360ps5/notify.hpp"
+ #include "xbox360ps5/web_settings.hpp"
++#include "xbox360ps5/qr_code.hpp"         // fix 63: the camera QR code in the motion panel
++#include "xbox360ps5/phone_qr_panel.hpp"  // fix 63
+ #include "xbox360ps5/save_storage.hpp"
+ #include "xbox360ps5/dlc_install.hpp"
+ #include "xenia/kernel/xam/content_manager.h"
+@@ -163,6 +165,7 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
+ #include <atomic>
+ #include <array>
+ #include <chrono>
++#include <cmath>
+ #include "output_metrics.hpp"
+ #include "overlay_rates.hpp"
+ #include <condition_variable>
+@@ -392,6 +395,22 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
+       auto* draw = ImGui::GetForegroundDrawList();
+       const float scale = io.DisplaySize.y / 1080.0f;
+       draw->AddRectFilled(ImVec2(1550*scale,100*scale),ImVec2(1900*scale,640*scale),IM_COL32(0,0,0,150),8*scale);
++      // Fix 63: while no phone sends frames, the library's camera QR code and the pairing code
++      // in the panel's place (phone_qr_panel.hpp); the address is looked up every 2 s.
++      const auto now = std::chrono::steady_clock::now();
++      if (phone_checked_ == std::chrono::steady_clock::time_point{} || now - phone_checked_ >= std::chrono::seconds(2)) {
++        phone_checked_ = now;
++        phone_key_ = xbox360ps5::WebSettingsKey();
++        const std::string url = xbox360ps5::motion::CameraPageUrl(xbox360ps5::WebSettingsPlainAddress(), phone_key_);
++        if (url != phone_url_) {
++          phone_url_ = url;
++          phone_qr_ = url.empty() ? xbox360ps5::QrCode() : xbox360ps5::MakeQrCode(url);
++        }
++      }
++      if (phone_qr_.size && xbox360ps5::motion::ChoosePanelView(pose.received, now, phone_url_) ==
++                                xbox360ps5::motion::PanelView::kPhoneQr) {
++        DrawPhoneQr(draw, scale);
++      } else {
+       draw->AddText(ImVec2(1570*scale,115*scale), IM_COL32(130,240,170,255), pose.tracked ? "Motion: tracking (research)" : "Motion: waiting / body lost");
+       draw->AddText(ImVec2(1570*scale,140*scale), IM_COL32(220,220,220,255), xbox360ps5::motion::guest_skeleton_bound.load() ? "Game skeleton: from this pose" : xbox360ps5::motion::guest_camera_open.load() ? "Guest camera: virtual depth" : "Guest camera: not opened");
+       if (pose.tracked) {
+@@ -402,6 +421,7 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
+         for (int n=0;n<20;++n) if (pose.joints[n].confidence >= .5f) draw->AddCircleFilled(point(n),4*scale,IM_COL32(240,255,240,255));
+         draw->PopClipRect();
+       }
++      }
+     }
+     // Fix 45: after a guest crash the game does not come back; the notice says so and how to
+     // leave it, in place of "no new frames" (the FPS counter alone showed 0).
+@@ -435,6 +455,40 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
+     list->AddText(ImGui::GetFont(), 22 * scale, ImVec2(36 * scale, 65 * scale), IM_COL32(220, 230, 240, 255), output_text);
+   }
+  private:
++  // Fix 63: the panel's "no phone" view, inside the panel's own box (1550-1900 x 100-640 at
++  // 1080p, scaled for 4K): a title line, the QR code on a white card, the code, how to stand.
++  void DrawPhoneQr(ImDrawList* draw, float scale) {
++    const auto& at = xbox360ps5::motion::kQrPanel;
++    ImFont* font = ImGui::GetFont();
++    draw->AddText(font, at.title_size * scale, ImVec2(at.text_x * scale, at.title_y * scale),
++                  IM_COL32(245, 204, 137, 255), Tr("Motion: no phone connected"));
++    const float module = xbox360ps5::motion::QrModulePixels(phone_qr_.size, at.card, scale);
++    if (module > 0) {
++      const float card = at.card * scale, qx = at.card_x * scale, qy = at.card_y * scale;
++      const float inset = std::floor((card - module * float(phone_qr_.size)) / 2);
++      draw->AddRectFilled(ImVec2(qx, qy), ImVec2(qx + card, qy + card), IM_COL32(255, 255, 255, 255), 6 * scale);
++      for (int my = 0; my < phone_qr_.size; ++my) {
++        for (int mx = 0; mx < phone_qr_.size;) {
++          if (!phone_qr_.At(mx, my)) { ++mx; continue; }
++          int run = 1;
++          while (mx + run < phone_qr_.size && phone_qr_.At(mx + run, my)) ++run;
++          const ImVec2 from(qx + inset + float(mx) * module, qy + inset + float(my) * module);
++          draw->AddRectFilled(from, ImVec2(from.x + float(run) * module, from.y + module), IM_COL32(0, 0, 0, 255));
++          mx += run;
++        }
++      }
++    }
++    const std::string code = std::string(Tr("Code: ")) + phone_key_;
++    draw->AddText(font, at.code_size * scale, ImVec2(at.text_x * scale, at.code_y * scale),
++                  IM_COL32(130, 240, 170, 255), code.c_str());
++    const std::string how = std::string(Tr("Scan with your phone to use it as Kinect.")) + "\n" +
++                            Tr("Same Wi-Fi, stand 2-3 m back, full body visible.");
++    draw->AddText(font, at.text_size * scale, ImVec2(at.text_x * scale, at.text_y * scale),
++                  IM_COL32(230, 230, 230, 255), how.c_str(), nullptr, at.text_width * scale);
++  }
++  std::chrono::steady_clock::time_point phone_checked_{};
++  std::string phone_url_, phone_key_;
++  xbox360ps5::QrCode phone_qr_;
+   ps5x360::overlay::Rates output_rates_;
+   const float& fps_;
+   const int& shown_;
