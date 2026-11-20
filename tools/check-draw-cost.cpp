@@ -103,8 +103,7 @@ void CheckTimer() {
   }).join();
   const double span = double(fc::NowNs() - begin) / 1e9;
   const std::string scaled = sampled.Line(span);
-  std::printf("   %s
-", scaled.c_str());
+  std::printf("   %s\n", scaled.c_str());
   const double primitives16 = After(scaled, "primitives ") * span;
   Expect(primitives16 > 13 && primitives16 < 20, "4 of 16 draws timed, scaled to about 16 ms (" + std::to_string(primitives16) + ")");
   Expect(fc::draw_sampled == 2 + 4, "every 4th draw sampled");
