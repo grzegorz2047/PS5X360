@@ -129,6 +129,7 @@ DLC\sscan\slimit\sreached. = DLC\sscan\slimit\sreached.
 DLCs = DLCs
 Dark\stheme\son.\sThe\semulator\swill\srestart. = Dark\stheme\son.\sThe\semulator\swill\srestart.
 Decal\sfix = Decal\sfix
+Deferred\smemory\swatches = Deferred\smemory\swatches
 Delete = Delete
 Delete\sletters\sfrom\sthe\ssearch\sor\schange\sthe\sfilter\swith\sL1\sand\sR1. = Delete\sletters\sfrom\sthe\ssearch\sor\schange\sthe\sfilter\swith\sL1\sand\sR1.
 Depth\sprecision = Depth\sprecision
@@ -351,6 +352,7 @@ Press\sSquare\sagain\sto\sremove.\sSaves\sand\sachievements\sremain\sin\sremoved
 Profile\sremoved.\sSaves\sand\sachievements\sretained\sin\sthe\sbackup. = Profile\sremoved.\sSaves\sand\sachievements\sretained\sin\sthe\sbackup.
 Profiles = Profiles
 Profiles\sand\splayers = Profiles\sand\splayers
+Protects\sthe\smemory\sjust\scopied\sto\svideo\sonce\sper\sbatch\sof\swork\sinstead\sof\safter\severy\scopy,\sand\schecks\sit\sby\scontent.\sFar\sfewer\ssystem\scalls\sin\sgames\sthat\srewrite\stheir\sdata\severy\sframe\s(Call\sof\sDuty:\sModern\sWarfare\s2).\sSwitch\sit\soff\sif\sa\sgame\sshows\sflickering\sor\swrong\sobjects. = Protects\sthe\smemory\sjust\scopied\sto\svideo\sonce\sper\sbatch\sof\swork\sinstead\sof\safter\severy\scopy,\sand\schecks\sit\sby\scontent.\sFar\sfewer\ssystem\scalls\sin\sgames\sthat\srewrite\stheir\sdata\severy\sframe\s(Call\sof\sDuty:\sModern\sWarfare\s2).\sSwitch\sit\soff\sif\sa\sgame\sshows\sflickering\sor\swrong\sobjects.
 Publisher = Publisher
 Puts\severy\sVideo,\sPerformance,\sAudio,\sControls\sand\sSystem\soption\sback\sto\sits\srecommended\svalue.\sEach\sgame's\sown\ssettings\sstay\sas\sthey\sare. = Puts\severy\sVideo,\sPerformance,\sAudio,\sControls\sand\sSystem\soption\sback\sto\sits\srecommended\svalue.\sEach\sgame's\sown\ssettings\sstay\sas\sthey\sare.
 RADV\sgraphics\s(PS5_Vulkan),\sXMA\saudio\s(FFmpeg)\sand\sXenia\sCanary\spatches.\sNo\sgames,\sBIOS\sor\skeys\sare\sincluded. = RADV\sgraphics\s(PS5_Vulkan),\sXMA\saudio\s(FFmpeg)\sand\sXenia\sCanary\spatches.\sNo\sgames,\sBIOS\sor\skeys\sare\sincluded.

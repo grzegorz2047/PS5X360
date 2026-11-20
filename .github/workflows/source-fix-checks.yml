@@ -72,6 +72,7 @@ on:
       - 'tools/check-phone-latency.cpp'
       - 'tools/check-phone-latency.mjs'
       - 'tools/check-xma-unwatch.cpp'
+      - 'tools/check-deferred-watches.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

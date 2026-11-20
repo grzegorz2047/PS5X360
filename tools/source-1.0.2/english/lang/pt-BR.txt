@@ -128,6 +128,7 @@ DLC\sscan\slimit\sreached. = Limite\sda\sbusca\sde\sDLCs\satingido.
 DLCs = DLCs
 Dark\stheme\son.\sThe\semulator\swill\srestart. = Tema\sescuro\sligado.\sO\semulador\svai\sreiniciar.
 Decal\sfix = Correção\sde\sdecalques
+Deferred\smemory\swatches = Proteção\sde\smemória\sadiada
 Delete = Apagar
 Delete\sletters\sfrom\sthe\ssearch\sor\schange\sthe\sfilter\swith\sL1\sand\sR1. = Apague\sletras\sna\sbusca\sou\stroque\sde\sfiltro\scom\sL1\se\sR1.
 Depth\sprecision = Precisão\sda\sprofundidade
@@ -350,6 +351,7 @@ Press\sSquare\sagain\sto\sremove.\sSaves\sand\sachievements\sremain\sin\sremoved
 Profile\sremoved.\sSaves\sand\sachievements\sretained\sin\sthe\sbackup. = Perfil\sexcluído.\sSaves\se\sconquistas\spreservados\sno\sbackup.
 Profiles = Perfis
 Profiles\sand\splayers = Perfis\se\sjogadores
+Protects\sthe\smemory\sjust\scopied\sto\svideo\sonce\sper\sbatch\sof\swork\sinstead\sof\safter\severy\scopy,\sand\schecks\sit\sby\scontent.\sFar\sfewer\ssystem\scalls\sin\sgames\sthat\srewrite\stheir\sdata\severy\sframe\s(Call\sof\sDuty:\sModern\sWarfare\s2).\sSwitch\sit\soff\sif\sa\sgame\sshows\sflickering\sor\swrong\sobjects. = Protege\sa\smemória\srecém-copiada\spara\so\svídeo\suma\svez\spor\slote\sde\strabalho,\sem\svez\sde\sapós\scada\scópia,\se\sa\sconfere\spelo\sconteúdo.\sMuito\smenos\schamadas\sde\ssistema\sem\sjogos\sque\sreescrevem\sseus\sdados\sa\scada\squadro\s(Call\sof\sDuty:\sModern\sWarfare\s2).\sDesligue\sse\sum\sjogo\smostrar\sobjetos\spiscando\sou\serrados.
 Publisher = Editora
 Puts\severy\sVideo,\sPerformance,\sAudio,\sControls\sand\sSystem\soption\sback\sto\sits\srecommended\svalue.\sEach\sgame's\sown\ssettings\sstay\sas\sthey\sare. = Volta\stodas\sas\sopções\sde\sVídeo,\sDesempenho,\sÁudio,\sControles\se\sSistema\spara\so\svalor\srecomendado.\sOs\sajustes\spróprios\sde\scada\sjogo\snão\smudam.
 RADV\sgraphics\s(PS5_Vulkan),\sXMA\saudio\s(FFmpeg)\sand\sXenia\sCanary\spatches.\sNo\sgames,\sBIOS\sor\skeys\sare\sincluded. = Vídeo\sRADV\s(PS5_Vulkan),\sáudio\sXMA\s(FFmpeg)\se\spatches\sXenia\sCanary.\sNenhum\sjogo,\sBIOS\sou\schave\sacompanha\so\semulador.

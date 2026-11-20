@@ -234,6 +234,9 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = Movimento: nenhum celular conectado
 Scan with your phone to use it as Kinect. = Escaneie com o celular para usá-lo como Kinect.
 Same Wi-Fi, stand 2-3 m back, full body visible. = Mesma rede Wi-Fi, fique a 2-3 m, com o corpo inteiro visível.
+# Fix 68: the "Deferred memory watches" option (the same keys in every section).
+Deferred memory watches = Proteção de memória adiada
+Protects the memory just copied to video once per batch of work instead of after every copy, and checks it by content. Far fewer system calls in games that rewrite their data every frame (Call of Duty: Modern Warfare 2). Switch it off if a game shows flickering or wrong objects. = Protege a memória recém-copiada para o vídeo uma vez por lote de trabalho, em vez de após cada cópia, e a confere pelo conteúdo. Muito menos chamadas de sistema em jogos que reescrevem seus dados a cada quadro (Call of Duty: Modern Warfare 2). Desligue se um jogo mostrar objetos piscando ou errados.
 
 [added pt]
 Console storage = Armazenamento da consola
@@ -280,6 +283,8 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = Movimento: nenhum telemóvel ligado
 Scan with your phone to use it as Kinect. = Leia o código com o telemóvel para o usar como Kinect.
 Same Wi-Fi, stand 2-3 m back, full body visible. = Mesma rede Wi-Fi, fique a 2-3 m, com o corpo inteiro visível.
+Deferred memory watches = Proteção de memória adiada
+Protects the memory just copied to video once per batch of work instead of after every copy, and checks it by content. Far fewer system calls in games that rewrite their data every frame (Call of Duty: Modern Warfare 2). Switch it off if a game shows flickering or wrong objects. = Protege a memória recém-copiada para o vídeo uma vez por lote de trabalho, em vez de após cada cópia, e a confere pelo conteúdo. Muito menos chamadas de sistema em jogos que reescrevem seus dados a cada quadro (Call of Duty: Modern Warfare 2). Desligue se um jogo mostrar objetos piscando ou errados.
 
 [added es]
 Console storage = Almacenamiento de la consola
@@ -326,6 +331,8 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = Movimiento: ningún móvil conectado
 Scan with your phone to use it as Kinect. = Escanéalo con el móvil para usarlo como Kinect.
 Same Wi-Fi, stand 2-3 m back, full body visible. = Misma red Wi-Fi, colócate a 2-3 m, con todo el cuerpo visible.
+Deferred memory watches = Protección de memoria diferida
+Protects the memory just copied to video once per batch of work instead of after every copy, and checks it by content. Far fewer system calls in games that rewrite their data every frame (Call of Duty: Modern Warfare 2). Switch it off if a game shows flickering or wrong objects. = Protege la memoria recién copiada al vídeo una vez por lote de trabajo en lugar de después de cada copia, y la comprueba por contenido. Muchas menos llamadas al sistema en juegos que reescriben sus datos en cada fotograma (Call of Duty: Modern Warfare 2). Desactívala si un juego muestra objetos que parpadean o están mal.
 
 [added es-419]
 Console storage = Almacenamiento de la consola
@@ -372,6 +379,8 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = Movimiento: ningún celular conectado
 Scan with your phone to use it as Kinect. = Escanéalo con el celular para usarlo como Kinect.
 Same Wi-Fi, stand 2-3 m back, full body visible. = Misma red Wi-Fi, colócate a 2-3 m, con todo el cuerpo visible.
+Deferred memory watches = Protección de memoria diferida
+Protects the memory just copied to video once per batch of work instead of after every copy, and checks it by content. Far fewer system calls in games that rewrite their data every frame (Call of Duty: Modern Warfare 2). Switch it off if a game shows flickering or wrong objects. = Protege la memoria recién copiada al vídeo una vez por lote de trabajo en lugar de después de cada copia, y la comprueba por contenido. Muchas menos llamadas al sistema en juegos que reescriben sus datos en cada fotograma (Call of Duty: Modern Warfare 2). Desactívala si un juego muestra objetos que parpadean o están mal.
 
 [added de]
 Console storage = Konsolenspeicher
@@ -418,6 +427,8 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = Bewegung: kein Handy verbunden
 Scan with your phone to use it as Kinect. = Mit dem Handy scannen, um es als Kinect zu nutzen.
 Same Wi-Fi, stand 2-3 m back, full body visible. = Gleiches WLAN, 2-3 m Abstand, ganzer Körper sichtbar.
+Deferred memory watches = Verzögerte Speicherüberwachung
+Protects the memory just copied to video once per batch of work instead of after every copy, and checks it by content. Far fewer system calls in games that rewrite their data every frame (Call of Duty: Modern Warfare 2). Switch it off if a game shows flickering or wrong objects. = Schützt den gerade in den Videospeicher kopierten Speicher einmal pro Arbeitspaket statt nach jeder Kopie und prüft ihn anhand des Inhalts. Deutlich weniger Systemaufrufe in Spielen, die ihre Daten in jedem Bild neu schreiben (Call of Duty: Modern Warfare 2). Schalte es aus, wenn ein Spiel flackernde oder falsche Objekte zeigt.
 
 [added fr]
 Console storage = Stockage de la console
@@ -464,6 +475,8 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = Mouvement : aucun téléphone connecté
 Scan with your phone to use it as Kinect. = Scannez avec votre téléphone pour l'utiliser comme Kinect.
 Same Wi-Fi, stand 2-3 m back, full body visible. = Même Wi-Fi, placez-vous à 2-3 m, corps entier visible.
+Deferred memory watches = Surveillance mémoire différée
+Protects the memory just copied to video once per batch of work instead of after every copy, and checks it by content. Far fewer system calls in games that rewrite their data every frame (Call of Duty: Modern Warfare 2). Switch it off if a game shows flickering or wrong objects. = Protège la mémoire tout juste copiée vers la vidéo une fois par lot de travail au lieu d'après chaque copie, et la vérifie par son contenu. Beaucoup moins d'appels système dans les jeux qui réécrivent leurs données à chaque image (Call of Duty: Modern Warfare 2). Désactivez-la si un jeu affiche des objets qui scintillent ou sont faux.
 
 [added it]
 Console storage = Memoria della console
@@ -510,6 +523,8 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = Movimento: nessun telefono connesso
 Scan with your phone to use it as Kinect. = Scansiona con il telefono per usarlo come Kinect.
 Same Wi-Fi, stand 2-3 m back, full body visible. = Stessa rete Wi-Fi, stai a 2-3 m, corpo intero visibile.
+Deferred memory watches = Protezione della memoria differita
+Protects the memory just copied to video once per batch of work instead of after every copy, and checks it by content. Far fewer system calls in games that rewrite their data every frame (Call of Duty: Modern Warfare 2). Switch it off if a game shows flickering or wrong objects. = Protegge la memoria appena copiata nella memoria video una volta per lotto di lavoro invece che dopo ogni copia, e la verifica in base al contenuto. Molte meno chiamate di sistema nei giochi che riscrivono i dati a ogni fotogramma (Call of Duty: Modern Warfare 2). Disattivala se un gioco mostra oggetti che sfarfallano o sono sbagliati.
 
 [added ja]
 Console storage = 本体ストレージ
@@ -556,6 +571,8 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = モーション: スマートフォン未接続
 Scan with your phone to use it as Kinect. = スマートフォンでスキャンして Kinect として使用します。
 Same Wi-Fi, stand 2-3 m back, full body visible. = 同じ Wi-Fi で、2-3 m 離れて全身が映るように立ってください。
+Deferred memory watches = メモリ保護の遅延
+Protects the memory just copied to video once per batch of work instead of after every copy, and checks it by content. Far fewer system calls in games that rewrite their data every frame (Call of Duty: Modern Warfare 2). Switch it off if a game shows flickering or wrong objects. = ビデオへコピーしたばかりのメモリを、コピーのたびではなく処理のまとまりごとに一度保護し、内容で確認します。毎フレームデータを書き換えるゲームでシステムコールが大幅に減ります（Call of Duty: Modern Warfare 2）。オブジェクトのちらつきや表示の誤りが出る場合はオフにしてください。
 
 [added ko]
 Console storage = 본체 저장 공간
@@ -602,6 +619,8 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = 모션: 연결된 휴대폰 없음
 Scan with your phone to use it as Kinect. = 휴대폰으로 스캔하여 Kinect로 사용하세요.
 Same Wi-Fi, stand 2-3 m back, full body visible. = 같은 Wi-Fi에서 2-3 m 떨어져 전신이 보이게 서세요.
+Deferred memory watches = 지연된 메모리 보호
+Protects the memory just copied to video once per batch of work instead of after every copy, and checks it by content. Far fewer system calls in games that rewrite their data every frame (Call of Duty: Modern Warfare 2). Switch it off if a game shows flickering or wrong objects. = 비디오로 막 복사한 메모리를 복사할 때마다가 아니라 작업 묶음마다 한 번 보호하고 내용으로 확인합니다. 매 프레임 데이터를 다시 쓰는 게임에서 시스템 호출이 크게 줄어듭니다(Call of Duty: Modern Warfare 2). 게임에서 오브젝트가 깜박이거나 잘못 보이면 끄세요.
 
 [added nl]
 Console storage = Consoleopslag
@@ -648,6 +667,8 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = Beweging: geen telefoon verbonden
 Scan with your phone to use it as Kinect. = Scan met je telefoon om hem als Kinect te gebruiken.
 Same Wi-Fi, stand 2-3 m back, full body visible. = Zelfde wifi, sta 2-3 m achteruit, hele lichaam zichtbaar.
+Deferred memory watches = Uitgestelde geheugenbewaking
+Protects the memory just copied to video once per batch of work instead of after every copy, and checks it by content. Far fewer system calls in games that rewrite their data every frame (Call of Duty: Modern Warfare 2). Switch it off if a game shows flickering or wrong objects. = Beschermt het net naar video gekopieerde geheugen één keer per werkpakket in plaats van na elke kopie, en controleert het op inhoud. Veel minder systeemaanroepen in games die hun gegevens elk beeld opnieuw schrijven (Call of Duty: Modern Warfare 2). Zet het uit als een game knipperende of verkeerde objecten toont.
 
 [added pl]
 Console storage = Pamięć konsoli
@@ -694,6 +715,8 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = Ruch: brak połączonego telefonu
 Scan with your phone to use it as Kinect. = Zeskanuj telefonem, aby użyć go jako Kinecta.
 Same Wi-Fi, stand 2-3 m back, full body visible. = Ta sama sieć Wi-Fi, stań 2-3 m dalej, całe ciało widoczne.
+Deferred memory watches = Odroczona ochrona pamięci
+Protects the memory just copied to video once per batch of work instead of after every copy, and checks it by content. Far fewer system calls in games that rewrite their data every frame (Call of Duty: Modern Warfare 2). Switch it off if a game shows flickering or wrong objects. = Chroni pamięć właśnie skopiowaną do wideo raz na porcję pracy zamiast po każdej kopii i sprawdza ją po zawartości. Znacznie mniej wywołań systemowych w grach, które w każdej klatce zapisują dane od nowa (Call of Duty: Modern Warfare 2). Wyłącz, jeśli gra pokazuje migające lub błędne obiekty.
 
 [added ru]
 Console storage = Память консоли
@@ -740,6 +763,8 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = Движение: телефон не подключён
 Scan with your phone to use it as Kinect. = Отсканируйте телефоном, чтобы использовать его как Kinect.
 Same Wi-Fi, stand 2-3 m back, full body visible. = Та же сеть Wi-Fi, встаньте в 2-3 м, всё тело в кадре.
+Deferred memory watches = Отложенная защита памяти
+Protects the memory just copied to video once per batch of work instead of after every copy, and checks it by content. Far fewer system calls in games that rewrite their data every frame (Call of Duty: Modern Warfare 2). Switch it off if a game shows flickering or wrong objects. = Защищает только что скопированную в видеопамять память один раз на пакет работы, а не после каждой копии, и проверяет её по содержимому. Гораздо меньше системных вызовов в играх, которые перезаписывают данные каждый кадр (Call of Duty: Modern Warfare 2). Отключите, если в игре мерцают или неправильно отображаются объекты.
 
 [added tr]
 Console storage = Konsol depolama alanı
@@ -786,6 +811,8 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = Hareket: bağlı telefon yok
 Scan with your phone to use it as Kinect. = Kinect olarak kullanmak için telefonunuzla tarayın.
 Same Wi-Fi, stand 2-3 m back, full body visible. = Aynı Wi-Fi, 2-3 m geride durun, tüm vücut görünsün.
+Deferred memory watches = Ertelenmiş bellek koruması
+Protects the memory just copied to video once per batch of work instead of after every copy, and checks it by content. Far fewer system calls in games that rewrite their data every frame (Call of Duty: Modern Warfare 2). Switch it off if a game shows flickering or wrong objects. = Videoya yeni kopyalanan belleği her kopyadan sonra değil, her iş grubunda bir kez korur ve içeriğiyle denetler. Verilerini her karede yeniden yazan oyunlarda çok daha az sistem çağrısı (Call of Duty: Modern Warfare 2). Bir oyunda titreyen ya da yanlış nesneler görünürse kapatın.
 
 [added zh-Hans]
 Console storage = 主机存储空间
@@ -832,6 +859,8 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = 动作：未连接手机
 Scan with your phone to use it as Kinect. = 用手机扫描，即可将其用作 Kinect。
 Same Wi-Fi, stand 2-3 m back, full body visible. = 连接同一 Wi-Fi，站在 2-3 米外，全身入镜。
+Deferred memory watches = 延迟内存保护
+Protects the memory just copied to video once per batch of work instead of after every copy, and checks it by content. Far fewer system calls in games that rewrite their data every frame (Call of Duty: Modern Warfare 2). Switch it off if a game shows flickering or wrong objects. = 对刚复制到显存的内存按每批工作保护一次，而不是每次复制后都保护，并按内容检查。在每帧都重写数据的游戏中大幅减少系统调用（Call of Duty: Modern Warfare 2）。如果游戏出现闪烁或错误的物体，请关闭。
 
 [added zh-Hant]
 Console storage = 主機儲存空間
@@ -878,3 +907,5 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = 動作：未連接手機
 Scan with your phone to use it as Kinect. = 用手機掃描，即可將其當作 Kinect 使用。
 Same Wi-Fi, stand 2-3 m back, full body visible. = 連接同一 Wi-Fi，站在 2-3 公尺外，全身入鏡。
+Deferred memory watches = 延遲記憶體保護
+Protects the memory just copied to video once per batch of work instead of after every copy, and checks it by content. Far fewer system calls in games that rewrite their data every frame (Call of Duty: Modern Warfare 2). Switch it off if a game shows flickering or wrong objects. = 對剛複製到顯示記憶體的記憶體按每批工作保護一次，而非每次複製後都保護，並依內容檢查。在每格畫面都重寫資料的遊戲中大幅減少系統呼叫（Call of Duty: Modern Warfare 2）。若遊戲出現閃爍或錯誤的物件，請關閉。

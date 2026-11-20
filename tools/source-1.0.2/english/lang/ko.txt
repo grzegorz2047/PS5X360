@@ -127,6 +127,7 @@ DLC\sscan\slimit\sreached. = DLC\s검색\s한도에\s도달했습니다.
 DLCs = DLC
 Dark\stheme\son.\sThe\semulator\swill\srestart. = 어두운\s테마\s켜짐.\s에뮬레이터가\s다시\s시작됩니다.
 Decal\sfix = 데칼\s보정
+Deferred\smemory\swatches = 지연된\s메모리\s보호
 Delete = 삭제
 Delete\sletters\sfrom\sthe\ssearch\sor\schange\sthe\sfilter\swith\sL1\sand\sR1. = 검색어를\s지우거나\sL1과\sR1로\s필터를\s바꾸세요.
 Depth\sprecision = 깊이\s정밀도
@@ -349,6 +350,7 @@ Press\sSquare\sagain\sto\sremove.\sSaves\sand\sachievements\sremain\sin\sremoved
 Profile\sremoved.\sSaves\sand\sachievements\sretained\sin\sthe\sbackup. = 프로필을\s제거했습니다.\s저장\s데이터와\s업적은\s백업에\s보관되어\s있습니다.
 Profiles = 프로필
 Profiles\sand\splayers = 프로필과\s플레이어
+Protects\sthe\smemory\sjust\scopied\sto\svideo\sonce\sper\sbatch\sof\swork\sinstead\sof\safter\severy\scopy,\sand\schecks\sit\sby\scontent.\sFar\sfewer\ssystem\scalls\sin\sgames\sthat\srewrite\stheir\sdata\severy\sframe\s(Call\sof\sDuty:\sModern\sWarfare\s2).\sSwitch\sit\soff\sif\sa\sgame\sshows\sflickering\sor\swrong\sobjects. = 비디오로\s막\s복사한\s메모리를\s복사할\s때마다가\s아니라\s작업\s묶음마다\s한\s번\s보호하고\s내용으로\s확인합니다.\s매\s프레임\s데이터를\s다시\s쓰는\s게임에서\s시스템\s호출이\s크게\s줄어듭니다(Call\sof\sDuty:\sModern\sWarfare\s2).\s게임에서\s오브젝트가\s깜박이거나\s잘못\s보이면\s끄세요.
 Publisher = 배급사
 Puts\severy\sVideo,\sPerformance,\sAudio,\sControls\sand\sSystem\soption\sback\sto\sits\srecommended\svalue.\sEach\sgame's\sown\ssettings\sstay\sas\sthey\sare. = 비디오,\s성능,\s오디오,\s컨트롤,\s시스템의\s모든\s옵션을\s권장값으로\s되돌립니다.\s각\s게임의\s고유\s설정은\s그대로입니다.
 RADV\sgraphics\s(PS5_Vulkan),\sXMA\saudio\s(FFmpeg)\sand\sXenia\sCanary\spatches.\sNo\sgames,\sBIOS\sor\skeys\sare\sincluded. = RADV\s그래픽(PS5_Vulkan),\sXMA\s오디오(FFmpeg),\sXenia\sCanary\s패치.\s게임,\sBIOS,\s키는\s포함되지\s않습니다.

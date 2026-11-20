@@ -123,6 +123,7 @@ DLC\sscan\slimit\sreached. = Se\salcanzó\sel\slímite\sde\sbúsqueda\sde\sDLCs.
 DLCs = DLCs
 Dark\stheme\son.\sThe\semulator\swill\srestart. = Tema\soscuro\sactivado.\sEl\semulador\sse\sreiniciará.
 Decal\sfix = Corrección\sde\scalcomanías
+Deferred\smemory\swatches = Protección\sde\smemoria\sdiferida
 Delete = Borrar
 Delete\sletters\sfrom\sthe\ssearch\sor\schange\sthe\sfilter\swith\sL1\sand\sR1. = Borra\sletras\sde\sla\sbúsqueda\so\scambia\sel\sfiltro\scon\sL1\sy\sR1.
 Depth\sprecision = Precisión\sde\sla\sprofundidad
@@ -332,6 +333,7 @@ Press\sSquare\sagain\sto\sremove.\sSaves\sand\sachievements\sremain\sin\sremoved
 Profile\sremoved.\sSaves\sand\sachievements\sretained\sin\sthe\sbackup. = Perfil\seliminado.\sPartidas\sy\slogros\sconservados\sen\sla\scopia\sde\sseguridad.
 Profiles = Perfiles
 Profiles\sand\splayers = Perfiles\sy\sjugadores
+Protects\sthe\smemory\sjust\scopied\sto\svideo\sonce\sper\sbatch\sof\swork\sinstead\sof\safter\severy\scopy,\sand\schecks\sit\sby\scontent.\sFar\sfewer\ssystem\scalls\sin\sgames\sthat\srewrite\stheir\sdata\severy\sframe\s(Call\sof\sDuty:\sModern\sWarfare\s2).\sSwitch\sit\soff\sif\sa\sgame\sshows\sflickering\sor\swrong\sobjects. = Protege\sla\smemoria\srecién\scopiada\sal\svídeo\suna\svez\spor\slote\sde\strabajo\sen\slugar\sde\sdespués\sde\scada\scopia,\sy\sla\scomprueba\spor\scontenido.\sMuchas\smenos\sllamadas\sal\ssistema\sen\sjuegos\sque\sreescriben\ssus\sdatos\sen\scada\sfotograma\s(Call\sof\sDuty:\sModern\sWarfare\s2).\sDesactívala\ssi\sun\sjuego\smuestra\sobjetos\sque\sparpadean\so\sestán\smal.
 Puts\severy\sVideo,\sPerformance,\sAudio,\sControls\sand\sSystem\soption\sback\sto\sits\srecommended\svalue.\sEach\sgame's\sown\ssettings\sstay\sas\sthey\sare. = Devuelve\stodas\slas\sopciones\sde\sVídeo,\sRendimiento,\sAudio,\sControles\sy\sSistema\sa\ssu\svalor\srecomendado.\sLos\sajustes\spropios\sde\scada\sjuego\sno\scambian.
 RADV\sgraphics\s(PS5_Vulkan),\sXMA\saudio\s(FFmpeg)\sand\sXenia\sCanary\spatches.\sNo\sgames,\sBIOS\sor\skeys\sare\sincluded. = Gráficos\sRADV\s(PS5_Vulkan),\saudio\sXMA\s(FFmpeg)\sy\sparches\sXenia\sCanary.\sNo\sse\sincluyen\sjuegos,\sBIOS\sni\sclaves.
 RUNNING\s\s·\s\sX:\sCONTINUE = EN\sEJECUCIÓN\s\s·\s\sX:\sCONTINUAR
