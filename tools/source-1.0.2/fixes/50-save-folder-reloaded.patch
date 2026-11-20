@@ -1,0 +1,364 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/storage_devices.h b/.deps/xenia-canary/src/xenia/kernel/xam/storage_devices.h
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/storage_devices.h
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/storage_devices.h
+@@ -12,9 +12,16 @@
+ // /data/homebrew/PPSA83600/saves) is the hard drive, device 1, as before.
+ // Each writable drive mounted at one of the console's mount points
+ // (/mnt/ext0.., /mnt/usb0..) is a device of its own, with an ID fixed by
+-// its mount point, and keeps its saves in <drive>/PS5X360/saves (or below a
+-// writable folder of the drive when its top is not writable), laid out as the
+-// internal folder (<xuid>/<title>/<content type>/<name>).
++// its mount point, and keeps its saves in <drive>/PS5X360Reloaded/saves (or
++// below a writable folder of the drive when its top is not writable), laid out
++// as the internal folder (<xuid>/<title>/<content type>/<name>).
++//
++// Fix 50: the folder is named after the product (XBOX360PS5_PRODUCT_NAME,
++// xbox360ps5/app_identity.hpp); until 1.0.4 it was <drive>/PS5X360/saves. A
++// drive's old folder is moved to the new name, by one rename on the same
++// filesystem, before the drives are scanned (MigrateDrives); with both present
++// nothing is moved or merged and the new one is used. The official PS5X360
++// never uses <drive>/PS5X360/saves (it is fix 27's).
+ //
+ // Header only and free of the rest of the core, so that
+ // tools/check-save-devices.cpp drives the same decisions with a fake
+@@ -24,6 +31,7 @@
+ #ifndef XENIA_KERNEL_XAM_STORAGE_DEVICES_H_
+ #define XENIA_KERNEL_XAM_STORAGE_DEVICES_H_
+ 
++#include <errno.h>
+ #include <fcntl.h>
+ #include <sys/stat.h>
+ #include <sys/statvfs.h>
+@@ -39,6 +47,8 @@
+ #include <utility>
+ #include <vector>
+ 
++#include "xbox360ps5/app_identity.hpp"  // fix 50: XBOX360PS5_PRODUCT_NAME
++
+ namespace xe {
+ namespace kernel {
+ namespace xam {
+@@ -89,13 +99,103 @@ inline const Slot* FindSlot(uint32_t device_id) {
+ // Where a drive may keep its saves, in order: its top, else a folder of the
+ // drive that the app may write while the top is not (the PS5's extended
+ // storage: /mnt/ext1 is the system's, its homebrew and xbox360 folders are
+-// not). Each is <base>/PS5X360/saves.
++// not). Each is <base>/<kSaveFolder>/saves.
+ inline constexpr const char* kSaveBases[] = {"", "homebrew", "xbox360"};
+ 
++// Fix 50: the drives' saves folder, named after the product so that it follows
++// the app's name; and fix 27's name, which drives of 1.0.3 testers still have.
++inline constexpr const char kSaveFolder[] = XBOX360PS5_PRODUCT_NAME;
++inline constexpr const char kLegacySaveFolder[] = "PS5X360";
++
+ inline std::filesystem::path SaveRoot(const std::filesystem::path& mount,
+                                       std::string_view base = "") {
+   const auto folder = base.empty() ? mount : mount / std::string(base);
+-  return folder / "PS5X360" / "saves";
++  return folder / kSaveFolder / "saves";
++}
++inline std::filesystem::path LegacySaveRoot(const std::filesystem::path& mount,
++                                            std::string_view base = "") {
++  const auto folder = base.empty() ? mount : mount / std::string(base);
++  return folder / kLegacySaveFolder / "saves";
++}
++
++// Fix 50: moving a drive's <base>/PS5X360/saves to <base>/<kSaveFolder>/saves.
++// One rename() on the same filesystem (both are in <base>): nothing is copied,
++// so there is nothing half-done to clean up. Steps, each safe to repeat:
++//   old saves folder missing          nothing to do
++//   new saves folder present (both)   nothing moved or merged; the new one is
++//                                     used, the old one left as it is
++//   else                              mkdir <base>/<kSaveFolder> (may exist),
++//                                     rename old saves -> new saves, then rmdir
++//                                     <base>/PS5X360, which works only if empty
++// Interrupted after the mkdir, the next scan does the rest; after the rename,
++// the old folder is gone and nothing is left to do. A failed rename leaves
++// everything where it was, and the scan uses the old folder (Scan).
++// What it needs (PosixFs below; a fake in the checks), only calls that work in
++// the console's sandbox (stat, mkdir, rename, rmdir; no lstat there):
++//   bool IsDirectory(const path&)
++//   bool Exists(const path&)                       stat succeeds
++//   bool MakeDirectory(const path&, int* error)    or it is a directory already
++//   bool Rename(const path& from, const path& to, int* error)
++//   bool RemoveDirectory(const path&)              rmdir: empty folders only
++struct Migration {
++  enum class Result { kNone, kMoved, kBothKept, kFailed } result = Result::kNone;
++  std::filesystem::path from, to;  // the old and the new saves folder
++  bool old_folder_removed = false;  // kMoved: <base>/PS5X360 was empty and is gone
++  std::string step;                 // kFailed: "mkdir" or "rename"
++  int error = 0;                    // kFailed: errno
++};
++
++template <class Fs>
++Migration MigrateSaves(Fs& fs, const std::filesystem::path& folder) {
++  Migration migration;
++  migration.from = folder / kLegacySaveFolder / "saves";
++  migration.to = folder / kSaveFolder / "saves";
++  if (!fs.IsDirectory(migration.from)) return migration;
++  if (fs.Exists(migration.to)) {
++    migration.result = Migration::Result::kBothKept;
++    return migration;
++  }
++  int error = 0;
++  if (!fs.MakeDirectory(folder / kSaveFolder, &error)) {
++    migration.result = Migration::Result::kFailed;
++    migration.step = "mkdir";
++    migration.error = error;
++    return migration;
++  }
++  if (!fs.Rename(migration.from, migration.to, &error)) {
++    migration.result = Migration::Result::kFailed;
++    migration.step = "rename";
++    migration.error = error;
++    return migration;
++  }
++  migration.result = Migration::Result::kMoved;
++  migration.old_folder_removed = fs.RemoveDirectory(folder / kLegacySaveFolder);
++  return migration;
++}
++
++// Every mounted drive's bases (its top, and its homebrew and xbox360 folders),
++// before the scan (content_manager.cc). Only folders with an old saves folder
++// are touched; what was done or found is added to `out` (kNone left out).
++template <class Fs>
++void MigrateDrives(Fs& fs, const std::filesystem::path& mount_root,
++                   std::vector<Migration>* out) {
++  if (mount_root.empty()) return;
++  for (const auto& slot : kSlots) {
++    const auto mount = mount_root / slot.mount;
++    try {
++      if (!fs.IsMountPoint(mount)) continue;
++      for (const char* base : kSaveBases) {
++        const auto folder = *base ? mount / base : mount;
++        if (*base && !fs.IsDirectory(folder)) continue;
++        Migration migration = MigrateSaves(fs, folder);
++        if (migration.result != Migration::Result::kNone && out) {
++          out->push_back(std::move(migration));
++        }
++      }
++    } catch (...) {
++      // A drive that cannot be read is left as it is; the scan reports it.
++    }
++  }
+ }
+ 
+ // A package's folder below a device's saves root (ContentManager's layout).
+@@ -155,8 +255,8 @@ struct Skipped {
+ };
+ 
+ // The folders a console or a PC makes on any drive it sees. A USB mount whose
+-// top holds nothing else (names starting with "." aside) and so no PS5X360,
+-// homebrew or xbox360 folder is not offered: on the console of candidate 29
++// top holds nothing else (names starting with "." aside) and so no saves
++// (PS5X360Reloaded or PS5X360), homebrew or xbox360 folder is not offered: on the console of candidate 29
+ // that was usb2, the second partition of the Ubuntu installer stick in usb1
+ // (the sandbox gives every mount its own made-up st_dev, and /dev cannot be
+ // read, so nothing else tells such a partition apart). Once anything else is
+@@ -311,8 +411,9 @@ std::vector<Device> Scan(Fs& fs, const std::filesystem::path& internal_root,
+           if (skipped) {
+             skipped->push_back(
+                 {device.mount, device.id, Skipped::Why::kSystemOnly, 0,
+-                 "empty but for the PS5's System folder, without a PS5X360 "
+-                 "folder (taken for another partition of a drive, as an "
++                 "empty but for the PS5's System folder, without a "
++                 XBOX360PS5_PRODUCT_NAME
++                 " folder (taken for another partition of a drive, as an "
+                  "installer stick's)"});
+           }
+           continue;
+@@ -328,6 +429,17 @@ std::vector<Device> Scan(Fs& fs, const std::filesystem::path& internal_root,
+           break;
+         }
+       }
++      // Fix 50: an old PS5X360/saves folder that could not be moved (the
++      // rename failed) stays in use, so its saves are not lost from view.
++      for (const char* base : kSaveBases) {
++        if (found) break;
++        const auto root = LegacySaveRoot(mount, base);
++        trace("old saves folder? " + root.string());
++        if (fs.IsDirectory(root) && fs.ProbeWritable(root)) {
++          device.root = root;
++          found = true;
++        }
++      }
+       std::string tried;
+       for (const char* base : kSaveBases) {  // else the first writable base
+         if (found) break;
+@@ -680,7 +792,7 @@ std::string Notice(const SavedDrive& saved, Tr tr) {
+ inline constexpr const char* kUiTexts[] = {
+     "Where should the game save?",
+     "The game asks where to keep its saved data.",
+-    "Each drive keeps its saves in its own PS5X360/saves folder.",
++    "Each drive keeps its saves in its own PS5X360Reloaded/saves folder.",
+     "Hard drive",
+     "Internal storage",
+     "M.2 SSD / extended storage",
+@@ -733,6 +845,31 @@ struct PosixFs {
+     std::error_code error;
+     return std::filesystem::is_directory(path, error);
+   }
++  // Fix 50 (MigrateSaves): stat, mkdir, rename and rmdir only.
++  bool Exists(const std::filesystem::path& path) {
++    struct stat info {};
++    return ::stat(path.c_str(), &info) == 0;
++  }
++  bool MakeDirectory(const std::filesystem::path& path, int* error) {
++    if (::mkdir(path.c_str(), 0777) == 0) return true;
++    const int failure = errno;
++    struct stat info {};
++    if (failure == EEXIST && ::stat(path.c_str(), &info) == 0 &&
++        S_ISDIR(info.st_mode)) {
++      return true;
++    }
++    if (error) *error = failure;
++    return false;
++  }
++  bool Rename(const std::filesystem::path& from,
++              const std::filesystem::path& to, int* error) {
++    if (::rename(from.c_str(), to.c_str()) == 0) return true;
++    if (error) *error = errno;
++    return false;
++  }
++  bool RemoveDirectory(const std::filesystem::path& path) {
++    return ::rmdir(path.c_str()) == 0;
++  }
+   bool ProbeWritable(const std::filesystem::path& directory) {
+     const auto probe = directory / ".ps5x360-write-test";
+     const int file =
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.cc b/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.cc
+@@ -12,8 +12,10 @@
+ #include "xenia/kernel/xam/xcontent/xcontent_package_container.h"
+ #include "xenia/kernel/xam/xcontent/xcontent_package_directory.h"
+ 
++#include <algorithm>  // fix 50
+ #include <array>
+ #include <cerrno>
++#include <cstring>  // fix 50
+ 
+ #include "third_party/fmt/include/fmt/format.h"
+ #include "xenia/base/filesystem.h"
+@@ -796,6 +798,10 @@ uint64_t ContentManager::GetContentFreeSpace(uint32_t device_id) const {
+   return drive_stats.free;
+ }
+ 
++// Fix 50: set by the title to show a notice when a drive has both saves
++// folders (the drive's folder that holds them as the argument).
++void (*storage_notice)(const std::string& drive) = nullptr;
++
+ void ContentManager::ScanStorageDevicesLocked() const {
+   std::vector<storage::Skipped> skipped;
+   storage::PosixFs fs;
+@@ -807,6 +813,49 @@ void ContentManager::ScanStorageDevicesLocked() const {
+            external_storage_root ? external_storage_root : "(none)");
+     FlushLog();
+   }
++  // Fix 50: drives' PS5X360/saves folders moved to the product's name first,
++  // so the scan finds them there. Each move is logged with its exact paths;
++  // a drive with both folders is reported once a session, with a notice.
++  if (external_storage_root) {
++    std::vector<storage::Migration> migrations;
++    try {
++      storage::MigrateDrives(fs, external_storage_root, &migrations);
++    } catch (...) {
++      XELOGE("Storage: the saves folder move failed; the drives are as they were");
++    }
++    static std::vector<std::string> reported;
++    for (const auto& migration : migrations) {
++      using Result = storage::Migration::Result;
++      if (migration.result == Result::kMoved) {
++        XELOGW("Storage: saves folder moved: {} -> {}{}",
++               migration.from.string(), migration.to.string(),
++               migration.old_folder_removed
++                   ? "; the empty old folder was removed"
++                   : "; the old folder holds other files and was kept");
++        FlushLog();
++        continue;
++      }
++      const std::string key = migration.from.string();
++      if (std::find(reported.begin(), reported.end(), key) != reported.end()) {
++        continue;
++      }
++      reported.push_back(key);
++      if (migration.result == Result::kBothKept) {
++        XELOGW("Storage: both {} and {} exist; {} is used, the old folder was "
++               "left as it is (nothing moved or merged)",
++               migration.from.string(), migration.to.string(),
++               migration.to.string());
++        if (storage_notice) {
++          storage_notice(migration.to.parent_path().parent_path().string());
++        }
++      } else {
++        XELOGW("Storage: could not move {} to {} ({} failed: {}); the old "
++               "folder stays in use",
++               migration.from.string(), migration.to.string(), migration.step,
++               std::strerror(migration.error));
++      }
++    }
++  }
+   std::vector<storage::Device> devices;
+   try {
+     devices = storage::Scan(
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
+@@ -910,7 +910,7 @@ dword_result_t XamShowDeviceSelectorUI_entry(
+         overlapped);
+   }
+   desc += "\n";
+-  desc += UiText("Each drive keeps its saves in its own PS5X360/saves folder.");
++  desc += UiText("Each drive keeps its saves in its own PS5X360Reloaded/saves folder.");
+   return xeXamDispatchDialog<StorageDeviceDialog>(
+       new StorageDeviceDialog(imgui_drawer, title, desc, buttons,
+                               static_cast<uint32_t>(prompt.focus)),
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -36,6 +36,7 @@ namespace xe::kernel::xam {
+ extern const char* (*ui_text)(const char* english);  // xam_ui.cc: the system windows' text
+ extern const char* external_storage_root;  // content_manager.cc: drives to save on (fix 27)
+ extern void (*save_drive_chosen)(uint32_t title_id, uint32_t device_id);  // xam_ui.cc (fix 27)
++extern void (*storage_notice)(const std::string& drive);  // content_manager.cc (fix 50)
+ }
+ #include <cctype>
+ #include <mutex>
+@@ -68,8 +69,8 @@ static const char* CoreUiText(const char* english) {
+     {"M.2 SSD / extended storage", "M.2 SSD / extended storage"},
+     {"USB %s", "USB %s"},
+     {"%s GB free", "%s GB free"},
+-    {"Each drive keeps its saves in its own PS5X360/saves folder.",
+-     "Each drive keeps its saves in its own PS5X360/saves folder."},
++    {"Each drive keeps its saves in its own PS5X360Reloaded/saves folder.",
++     "Each drive keeps its saves in its own PS5X360Reloaded/saves folder."},
+     {"The saved drive (%s) is not mounted; choose another.",
+      "The saved drive (%s) is not mounted; choose another."},
+     {"The saved drive (%s) cannot be written; choose another.",
+@@ -1611,6 +1612,14 @@ std::string GameTitleId(const std::filesystem::path& path) {
+       });
+ }
+ }  // namespace
++// Fix 50: a drive that has both saves folders (content_manager.cc reports it once a session):
++// the new one is used and the old one left as it is.
++static void StorageNotice(const std::string& drive) {
++  xbox360ps5::Notify({XBOX360PS5_PRODUCT_NAME,
++                      std::string(xbox360ps5::Tr("This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is:")) +
++                          " " + drive,
++                      "", false});
++}
+ int main(int argc, char** argv) {
+   config::config_folder = "/app0/assets";
+   // A window each time a game asks where to save (the core chose the hard drive without one),
+@@ -1618,9 +1627,10 @@ int main(int argc, char** argv) {
+   cvars::storage_selection_dialog = true;
+   xe::kernel::xam::ui_text = &CoreUiText;
+   // Fix 27: each writable drive mounted under /mnt (ext0.., usb0..) is offered too,
+-  // its saves in <drive>/PS5X360/saves.
++  // its saves in <drive>/PS5X360Reloaded/saves (fix 50: moved there from <drive>/PS5X360/saves).
+   xe::kernel::xam::external_storage_root = "/mnt";
+   xe::kernel::xam::save_drive_chosen = &SaveDriveChosen;
++  xe::kernel::xam::storage_notice = &StorageNotice;
+   const std::filesystem::path storage = "/download0/xbox360ps5";
+   std::error_code error;
+   std::filesystem::create_directories(storage, error);
