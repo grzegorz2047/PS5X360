@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
 // Fix 27 (tools/source-1.0.2/fixes/27-save-device-choice.patch): when a game asks where to save
 // (XamShowDeviceSelectorUI), every writable drive the console has mounted is offered besides the
-// internal folder, each as a storage device of its own with its saves in <drive>/PS5X360/saves
+// internal folder, each as a storage device of its own with its saves in <drive>/PS5X360Reloaded/saves
+// (fix 50: named after the product; <drive>/PS5X360/saves until 1.0.4, moved by MigrateDrives:
+// tools/check-save-folder.cpp)
 // (or below a writable folder of the drive). A "Save drive" setting names one drive to use
 // without asking. The decisions live in the core's header-only xenia/kernel/xam/storage_devices.h,
 // which the content manager, the device exports and the window call; this check drives them with
@@ -185,8 +187,8 @@ void CheckScan() {
   assert(devices[0].kind == storage::Kind::kInternal && devices[0].root == kInternal);
   // ext1: its top and homebrew are not writable, xbox360 is.
   assert(devices[1].kind == storage::Kind::kExtended && devices[1].name == "ext1");
-  assert(devices[1].mount == "/mnt/ext1" && devices[1].root == "/mnt/ext1/xbox360/PS5X360/saves");
-  assert(devices[2].root == "/mnt/usb0/PS5X360/saves" && devices[2].free == 500000000000ull);
+  assert(devices[1].mount == "/mnt/ext1" && devices[1].root == "/mnt/ext1/xbox360/PS5X360Reloaded/saves");
+  assert(devices[2].root == "/mnt/usb0/PS5X360Reloaded/saves" && devices[2].free == 500000000000ull);
   assert(devices[2].space_known && devices[2].capacity == 2000000000000ull);
   // USB numbers in slot order (one disk each).
   assert(devices[2].number == 1 && devices[3].number == 2 && devices[4].number == 3);
@@ -195,25 +197,25 @@ void CheckScan() {
   // folder the drive does not have.
   assert((fs.probes == std::vector<std::string>{"/mnt/ext1", "/mnt/ext1/homebrew", "/mnt/ext1/xbox360",
                                                 "/mnt/usb0", "/mnt/usb1", "/mnt/usb2"}));
-  assert(!fs.IsDirectory("/mnt/usb0/PS5X360") && !fs.IsDirectory("/mnt/ext1/xbox360/PS5X360"));
+  assert(!fs.IsDirectory("/mnt/usb0/PS5X360Reloaded") && !fs.IsDirectory("/mnt/ext1/xbox360/PS5X360Reloaded"));
 
   // A saves folder already there is kept (the same game finds its saves), probed in itself.
   FakeFs again = Console();
-  again.AddDir("/mnt/ext1/xbox360/PS5X360/saves");
-  again.AddDir("/mnt/usb0/PS5X360/saves");
+  again.AddDir("/mnt/ext1/xbox360/PS5X360Reloaded/saves");
+  again.AddDir("/mnt/usb0/PS5X360Reloaded/saves");
   const auto second = storage::Scan(again, kInternal, "/mnt");
   assert(Ids(second) == Ids(devices));
   for (size_t i = 0; i < devices.size(); ++i) assert(second[i].root == devices[i].root);
-  assert(again.probes[0] == "/mnt/ext1/PS5X360/saves" || again.probes[0] == "/mnt/ext1/xbox360/PS5X360/saves");
+  assert(again.probes[0] == "/mnt/ext1/PS5X360Reloaded/saves" || again.probes[0] == "/mnt/ext1/xbox360/PS5X360Reloaded/saves");
   // ...and wins over a base that became writable since.
   FakeFs opened = Console();
   opened.read_only.clear();
-  opened.AddDir("/mnt/ext1/xbox360/PS5X360/saves");
-  assert(storage::Scan(opened, kInternal, "/mnt")[1].root == "/mnt/ext1/xbox360/PS5X360/saves");
+  opened.AddDir("/mnt/ext1/xbox360/PS5X360Reloaded/saves");
+  assert(storage::Scan(opened, kInternal, "/mnt")[1].root == "/mnt/ext1/xbox360/PS5X360Reloaded/saves");
   // A writable top is used first.
   FakeFs root_ok = Console();
   root_ok.read_only.clear();
-  assert(storage::Scan(root_ok, kInternal, "/mnt")[1].root == "/mnt/ext1/PS5X360/saves");
+  assert(storage::Scan(root_ok, kInternal, "/mnt")[1].root == "/mnt/ext1/PS5X360Reloaded/saves");
 
   // A mount that is the same filesystem as an offered one (same st_dev) is offered once.
   FakeFs twice = Console();
@@ -293,14 +295,14 @@ void CheckSpace() {
 void CheckFolders() {
   FakeFs fs = Console();
   const auto devices = storage::Scan(fs, kInternal, "/mnt");
-  assert(storage::RootFor(devices, 7) == "/mnt/usb0/PS5X360/saves");
-  assert(storage::RootFor(devices, 4) == "/mnt/ext1/xbox360/PS5X360/saves");
-  assert(storage::RootFor(devices, 9) == "/mnt/usb2/PS5X360/saves");
+  assert(storage::RootFor(devices, 7) == "/mnt/usb0/PS5X360Reloaded/saves");
+  assert(storage::RootFor(devices, 4) == "/mnt/ext1/xbox360/PS5X360Reloaded/saves");
+  assert(storage::RootFor(devices, 9) == "/mnt/usb2/PS5X360Reloaded/saves");
   for (uint32_t id : {1u, 0u, 2u, 10u, 99u, 0xFFFFFFFFu}) assert(storage::RootFor(devices, id) == kInternal);
   assert(storage::MetadataId(devices, 7) == 7 && storage::MetadataId(devices, 4) == 4);
   for (uint32_t id : {1u, 0u, 2u, 10u, 99u}) assert(storage::MetadataId(devices, id) == 1);
   assert(Same(storage::PackageRoot(storage::RootFor(devices, 7), 0xE00012345678ABCDull, 0x573607E4, 1).string(),
-              "/mnt/usb0/PS5X360/saves/E00012345678ABCD/573607E4/00000001"));
+              "/mnt/usb0/PS5X360Reloaded/saves/E00012345678ABCD/573607E4/00000001"));
   assert(Same(storage::PackageRoot(storage::RootFor(devices, 1), 0, 0x4D5307E6, 2).string(),
               std::string(kInternal) + "/0000000000000000/4D5307E6/00000002"));
   assert((storage::ListFor(devices, 0) == std::vector<uint32_t>{1, 4, 7, 8, 9}));
@@ -311,9 +313,9 @@ void CheckFolders() {
 
 void CheckHoldsTitle() {
   FakeFs fs = Console();
-  fs.AddDir("/mnt/usb0/PS5X360/saves/E00012345678ABCD/573607E4/00000001");
-  fs.AddDir("/mnt/usb0/PS5X360/saves/notes/4D5307E6");  // not a profile folder
-  fs.AddDir("/mnt/usb2/PS5X360/saves/0000000000000000/4D5307E6");  // common content
+  fs.AddDir("/mnt/usb0/PS5X360Reloaded/saves/E00012345678ABCD/573607E4/00000001");
+  fs.AddDir("/mnt/usb0/PS5X360Reloaded/saves/notes/4D5307E6");  // not a profile folder
+  fs.AddDir("/mnt/usb2/PS5X360Reloaded/saves/0000000000000000/4D5307E6");  // common content
   const auto devices = storage::Scan(fs, kInternal, "/mnt");
   assert(storage::HoldsTitle(fs, devices[2], 0x573607E4));
   assert(!storage::HoldsTitle(fs, devices[2], 0x4D5307E6));
@@ -515,7 +517,7 @@ void CheckPartitions() {
   assert(storage::Scan(unknown, kInternal, "/mnt").size() == 5);
   // The log line carries what told them apart.
   const auto text = storage::Describe(storage::Scan(*new FakeFs(Console()), kInternal, "/mnt"));
-  assert(text.find("9 /mnt/usb2/PS5X360/saves [dev cb /dev/da2s1 exfatfs]") != std::string::npos);
+  assert(text.find("9 /mnt/usb2/PS5X360Reloaded/saves [dev cb /dev/da2s1 exfatfs]") != std::string::npos);
   std::puts("ok partitions: a second partition of an offered drive and a memory disk are not "
             "offered (logged why); the internal disk and unknown sources never merge drives");
 }
@@ -601,9 +603,9 @@ void CheckSystemOnly() {
   // A PS5X360 folder on it (saves made there before): offered, its saves folder used.
   FakeFs used = Console();
   used.AddDir("/mnt/usb2/System");
-  used.AddDir("/mnt/usb2/PS5X360/saves");
+  used.AddDir("/mnt/usb2/PS5X360Reloaded/saves");
   auto offered = storage::Scan(used, kInternal, "/mnt");
-  assert(offered.size() == 5 && offered[4].id == 9 && offered[4].root == "/mnt/usb2/PS5X360/saves");
+  assert(offered.size() == 5 && offered[4].id == 9 && offered[4].root == "/mnt/usb2/PS5X360Reloaded/saves");
   // Anything else on it, a file too: offered.
   FakeFs file = Console();
   file.AddDir("/mnt/usb2/System");
@@ -664,7 +666,7 @@ void CheckSavedDrive() {
   saved = check(7);  // valid: usb0
   assert(saved.state == storage::Saved::kUse && saved.index == 2 && saved.mount == "/mnt/usb0");
   saved = check(4);  // valid: ext1 in its xbox360 folder
-  assert(saved.state == storage::Saved::kUse && devices[saved.index].root == "/mnt/ext1/xbox360/PS5X360/saves");
+  assert(saved.state == storage::Saved::kUse && devices[saved.index].root == "/mnt/ext1/xbox360/PS5X360Reloaded/saves");
   saved = check(1);
   assert(saved.state == storage::Saved::kUse && saved.index == 0 && saved.mount == kInternal);
   // Stale: usb0 unplugged.
@@ -765,7 +767,7 @@ void CheckTranslations() {
 void CheckLanguageFiles(const char* folder) {
   std::vector<std::string> keys = {
       "Internal storage", "M.2 SSD / extended storage", "USB %s", "%s GB free", "Console storage",
-      "Each drive keeps its saves in its own PS5X360/saves folder.",
+      "Each drive keeps its saves in its own PS5X360Reloaded/saves folder.",
       "The saved drive (%s) is not mounted; choose another.",
       "The saved drive (%s) cannot be written; choose another.",
       "The saved drive (%s) does not have enough free space; choose another.",

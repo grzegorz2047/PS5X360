@@ -50,6 +50,7 @@ on:
       - 'tools/check-hang-watch.cpp'
       - 'tools/check-memexport-loss.cpp'
       - 'tools/check-frame-cost.cpp'
+      - 'tools/check-save-folder.cpp'
       - 'tools/check-title-id.py'
       - 'tools/check-kinect-fake-relay.py'
       - 'tools/check-english-source.py'

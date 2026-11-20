@@ -194,7 +194,7 @@ M.2 SSD / extended storage (ext1) = SSD M.2 / armazenamento estendido (ext1)
 M.2 SSD / extended storage (ext2) = SSD M.2 / armazenamento estendido (ext2)
 M.2 SSD / extended storage (ext3) = SSD M.2 / armazenamento estendido (ext3)
 %s GB free = %s GB livres
-Each drive keeps its saves in its own PS5X360/saves folder. = Cada unidade guarda os salvamentos na própria pasta PS5X360/saves.
+Each drive keeps its saves in its own PS5X360Reloaded/saves folder. = Cada unidade guarda os salvamentos na própria pasta PS5X360Reloaded/saves.
 Save drive = Unidade de salvamento
 Ask every time = Perguntar sempre
 Where games keep their saves. A drive chosen here is used without asking while it is plugged in and writable; otherwise the game asks again and says why. = Onde os jogos guardam os salvamentos. Uma unidade escolhida aqui é usada sem perguntar enquanto estiver conectada e gravável; senão, o jogo pergunta de novo e diz o motivo.
@@ -219,6 +219,8 @@ Saves and settings were not copied from PS5X360: not enough free space. = Os sal
 Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed. = Alguns salvamentos ou configurações não puderam ser copiados do PS5X360 (o log os lista). Os arquivos dele não foram alterados.
 Saves were not copied from PS5X360: this app already has saves of its own. = Os salvamentos não foram copiados do PS5X360: este app já tem salvamentos próprios.
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Os salvamentos e as configurações não foram copiados do PS5X360: uma pasta não pôde ser verificada (o log diz o motivo). A próxima inicialização tenta de novo.
+# Fix 50: the notice for a drive with both saves folders (the same key in every section).
+This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Esta unidade tem as pastas PS5X360/saves e PS5X360Reloaded/saves. É usada a PS5X360Reloaded/saves; a pasta antiga ficou como estava:
 
 [added pt]
 Console storage = Armazenamento da consola
@@ -230,7 +232,7 @@ M.2 SSD / extended storage (ext1) = SSD M.2 / armazenamento expandido (ext1)
 M.2 SSD / extended storage (ext2) = SSD M.2 / armazenamento expandido (ext2)
 M.2 SSD / extended storage (ext3) = SSD M.2 / armazenamento expandido (ext3)
 %s GB free = %s GB livres
-Each drive keeps its saves in its own PS5X360/saves folder. = Cada unidade guarda os jogos guardados na sua própria pasta PS5X360/saves.
+Each drive keeps its saves in its own PS5X360Reloaded/saves folder. = Cada unidade guarda os jogos guardados na sua própria pasta PS5X360Reloaded/saves.
 Save drive = Unidade dos jogos guardados
 Ask every time = Perguntar sempre
 Where games keep their saves. A drive chosen here is used without asking while it is plugged in and writable; otherwise the game asks again and says why. = Onde os jogos guardam o progresso. Uma unidade escolhida aqui é usada sem perguntar enquanto estiver ligada e permitir escrita; caso contrário, o jogo volta a perguntar e indica o motivo.
@@ -253,6 +255,7 @@ Saves and settings were not copied from PS5X360: not enough free space. = Os jog
 Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed. = Alguns jogos guardados ou definições não puderam ser copiados do PS5X360 (o registo indica quais). Os ficheiros dele não foram alterados.
 Saves were not copied from PS5X360: this app already has saves of its own. = Os jogos guardados não foram copiados do PS5X360: esta aplicação já tem jogos guardados próprios.
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Os jogos guardados e as definições não foram copiados do PS5X360: não foi possível verificar uma pasta (o registo indica o motivo). O próximo arranque tenta novamente.
+This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Esta unidade tem as pastas PS5X360/saves e PS5X360Reloaded/saves. É usada a PS5X360Reloaded/saves; a pasta antiga ficou como estava:
 
 [added es]
 Console storage = Almacenamiento de la consola
@@ -264,7 +267,7 @@ M.2 SSD / extended storage (ext1) = SSD M.2 / almacenamiento ampliado (ext1)
 M.2 SSD / extended storage (ext2) = SSD M.2 / almacenamiento ampliado (ext2)
 M.2 SSD / extended storage (ext3) = SSD M.2 / almacenamiento ampliado (ext3)
 %s GB free = %s GB libres
-Each drive keeps its saves in its own PS5X360/saves folder. = Cada unidad guarda las partidas en su propia carpeta PS5X360/saves.
+Each drive keeps its saves in its own PS5X360Reloaded/saves folder. = Cada unidad guarda las partidas en su propia carpeta PS5X360Reloaded/saves.
 Save drive = Unidad de guardado
 Ask every time = Preguntar siempre
 Where games keep their saves. A drive chosen here is used without asking while it is plugged in and writable; otherwise the game asks again and says why. = Dónde guardan los juegos sus partidas. Una unidad elegida aquí se usa sin preguntar mientras esté conectada y se pueda escribir en ella; si no, el juego vuelve a preguntar y explica el motivo.
@@ -287,6 +290,7 @@ Saves and settings were not copied from PS5X360: not enough free space. = Las pa
 Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed. = Algunas partidas guardadas o ajustes no se han podido copiar de PS5X360 (el registro los indica). Sus propios archivos no se han modificado.
 Saves were not copied from PS5X360: this app already has saves of its own. = Las partidas guardadas no se han copiado de PS5X360: esta aplicación ya tiene sus propias partidas guardadas.
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Las partidas guardadas y los ajustes no se han copiado de PS5X360: no se ha podido comprobar una carpeta (el registro indica el motivo). El próximo inicio lo intentará de nuevo.
+This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Esta unidad tiene las carpetas PS5X360/saves y PS5X360Reloaded/saves. Se usa PS5X360Reloaded/saves; la carpeta antigua se ha dejado como estaba:
 
 [added es-419]
 Console storage = Almacenamiento de la consola
@@ -298,7 +302,7 @@ M.2 SSD / extended storage (ext1) = SSD M.2 / almacenamiento extendido (ext1)
 M.2 SSD / extended storage (ext2) = SSD M.2 / almacenamiento extendido (ext2)
 M.2 SSD / extended storage (ext3) = SSD M.2 / almacenamiento extendido (ext3)
 %s GB free = %s GB libres
-Each drive keeps its saves in its own PS5X360/saves folder. = Cada unidad guarda las partidas en su propia carpeta PS5X360/saves.
+Each drive keeps its saves in its own PS5X360Reloaded/saves folder. = Cada unidad guarda las partidas en su propia carpeta PS5X360Reloaded/saves.
 Save drive = Unidad de guardado
 Ask every time = Preguntar siempre
 Where games keep their saves. A drive chosen here is used without asking while it is plugged in and writable; otherwise the game asks again and says why. = Dónde guardan los juegos sus partidas. Una unidad elegida aquí se usa sin preguntar mientras esté conectada y se pueda escribir en ella; si no, el juego vuelve a preguntar y explica el motivo.
@@ -321,6 +325,7 @@ Saves and settings were not copied from PS5X360: not enough free space. = Las pa
 Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed. = Algunas partidas guardadas o parte de la configuración no se pudieron copiar de PS5X360 (el registro las indica). Sus propios archivos no se modificaron.
 Saves were not copied from PS5X360: this app already has saves of its own. = Las partidas guardadas no se copiaron de PS5X360: esta aplicación ya tiene sus propias partidas guardadas.
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Las partidas guardadas y la configuración no se copiaron de PS5X360: no se pudo comprobar una carpeta (el registro indica el motivo). El próximo inicio lo intentará de nuevo.
+This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Esta unidad tiene las carpetas PS5X360/saves y PS5X360Reloaded/saves. Se usa PS5X360Reloaded/saves; la carpeta antigua se dejó como estaba:
 
 [added de]
 Console storage = Konsolenspeicher
@@ -332,7 +337,7 @@ M.2 SSD / extended storage (ext1) = M.2-SSD / erweiterter Speicher (ext1)
 M.2 SSD / extended storage (ext2) = M.2-SSD / erweiterter Speicher (ext2)
 M.2 SSD / extended storage (ext3) = M.2-SSD / erweiterter Speicher (ext3)
 %s GB free = %s GB frei
-Each drive keeps its saves in its own PS5X360/saves folder. = Jedes Laufwerk speichert seine Spielstände im eigenen Ordner PS5X360/saves.
+Each drive keeps its saves in its own PS5X360Reloaded/saves folder. = Jedes Laufwerk speichert seine Spielstände im eigenen Ordner PS5X360Reloaded/saves.
 Save drive = Speicherlaufwerk
 Ask every time = Jedes Mal fragen
 Where games keep their saves. A drive chosen here is used without asking while it is plugged in and writable; otherwise the game asks again and says why. = Wo Spiele ihre Spielstände speichern. Ein hier gewähltes Laufwerk wird ohne Nachfrage verwendet, solange es angeschlossen und beschreibbar ist; sonst fragt das Spiel erneut und nennt den Grund.
@@ -355,6 +360,7 @@ Saves and settings were not copied from PS5X360: not enough free space. = Spiels
 Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed. = Einige Spielstände oder Einstellungen konnten nicht aus PS5X360 kopiert werden (das Protokoll nennt sie). Dessen eigene Dateien wurden nicht geändert.
 Saves were not copied from PS5X360: this app already has saves of its own. = Spielstände wurden nicht aus PS5X360 kopiert: Diese App hat bereits eigene Spielstände.
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Spielstände und Einstellungen wurden nicht aus PS5X360 kopiert: Ein Ordner konnte nicht geprüft werden (das Protokoll nennt den Grund). Der nächste Start versucht es erneut.
+This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Dieses Laufwerk hat PS5X360/saves und PS5X360Reloaded/saves. PS5X360Reloaded/saves wird verwendet; der alte Ordner wurde nicht verändert:
 
 [added fr]
 Console storage = Stockage de la console
@@ -366,7 +372,7 @@ M.2 SSD / extended storage (ext1) = SSD M.2 / stockage étendu (ext1)
 M.2 SSD / extended storage (ext2) = SSD M.2 / stockage étendu (ext2)
 M.2 SSD / extended storage (ext3) = SSD M.2 / stockage étendu (ext3)
 %s GB free = %s Go libres
-Each drive keeps its saves in its own PS5X360/saves folder. = Chaque périphérique conserve ses sauvegardes dans son propre dossier PS5X360/saves.
+Each drive keeps its saves in its own PS5X360Reloaded/saves folder. = Chaque périphérique conserve ses sauvegardes dans son propre dossier PS5X360Reloaded/saves.
 Save drive = Périphérique de sauvegarde
 Ask every time = Toujours demander
 Where games keep their saves. A drive chosen here is used without asking while it is plugged in and writable; otherwise the game asks again and says why. = Où les jeux conservent leurs sauvegardes. Un périphérique choisi ici est utilisé sans demander tant qu'il est branché et accessible en écriture ; sinon, le jeu demande à nouveau en indiquant pourquoi.
@@ -389,6 +395,7 @@ Saves and settings were not copied from PS5X360: not enough free space. = Les sa
 Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed. = Certaines sauvegardes ou certains réglages n'ont pas pu être copiés depuis PS5X360 (le journal les indique). Ses propres fichiers n'ont pas été modifiés.
 Saves were not copied from PS5X360: this app already has saves of its own. = Les sauvegardes n'ont pas été copiées depuis PS5X360 : cette application a déjà ses propres sauvegardes.
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Les sauvegardes et les réglages n'ont pas été copiés depuis PS5X360 : un dossier n'a pas pu être vérifié (le journal indique pourquoi). Le prochain démarrage réessaiera.
+This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Ce périphérique contient PS5X360/saves et PS5X360Reloaded/saves. PS5X360Reloaded/saves est utilisé ; l'ancien dossier a été laissé tel quel :
 
 [added it]
 Console storage = Memoria della console
@@ -400,7 +407,7 @@ M.2 SSD / extended storage (ext1) = SSD M.2 / memoria estesa (ext1)
 M.2 SSD / extended storage (ext2) = SSD M.2 / memoria estesa (ext2)
 M.2 SSD / extended storage (ext3) = SSD M.2 / memoria estesa (ext3)
 %s GB free = %s GB liberi
-Each drive keeps its saves in its own PS5X360/saves folder. = Ogni unità conserva i salvataggi nella propria cartella PS5X360/saves.
+Each drive keeps its saves in its own PS5X360Reloaded/saves folder. = Ogni unità conserva i salvataggi nella propria cartella PS5X360Reloaded/saves.
 Save drive = Unità di salvataggio
 Ask every time = Chiedi ogni volta
 Where games keep their saves. A drive chosen here is used without asking while it is plugged in and writable; otherwise the game asks again and says why. = Dove i giochi conservano i salvataggi. Un'unità scelta qui viene usata senza chiedere finché è collegata e scrivibile; altrimenti il gioco chiede di nuovo e spiega il motivo.
@@ -423,6 +430,7 @@ Saves and settings were not copied from PS5X360: not enough free space. = Salvat
 Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed. = Alcuni salvataggi o impostazioni non sono stati copiati da PS5X360 (il registro li elenca). I suoi file non sono stati modificati.
 Saves were not copied from PS5X360: this app already has saves of its own. = I salvataggi non sono stati copiati da PS5X360: questa app ha già salvataggi propri.
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Salvataggi e impostazioni non sono stati copiati da PS5X360: non è stato possibile controllare una cartella (il registro indica il motivo). Il prossimo avvio riproverà.
+This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Questa unità contiene PS5X360/saves e PS5X360Reloaded/saves. Viene usata PS5X360Reloaded/saves; la vecchia cartella è stata lasciata com'era:
 
 [added ja]
 Console storage = 本体ストレージ
@@ -434,7 +442,7 @@ M.2 SSD / extended storage (ext1) = M.2 SSD / 拡張ストレージ (ext1)
 M.2 SSD / extended storage (ext2) = M.2 SSD / 拡張ストレージ (ext2)
 M.2 SSD / extended storage (ext3) = M.2 SSD / 拡張ストレージ (ext3)
 %s GB free = 空き容量 %s GB
-Each drive keeps its saves in its own PS5X360/saves folder. = 各ドライブのセーブデータは、そのドライブの PS5X360/saves フォルダーに保存されます。
+Each drive keeps its saves in its own PS5X360Reloaded/saves folder. = 各ドライブのセーブデータは、そのドライブの PS5X360Reloaded/saves フォルダーに保存されます。
 Save drive = セーブ先ドライブ
 Ask every time = 毎回確認する
 Where games keep their saves. A drive chosen here is used without asking while it is plugged in and writable; otherwise the game asks again and says why. = ゲームのセーブデータの保存先です。ここで選んだドライブは、接続されていて書き込める間は確認なしで使われます。そうでない場合は、理由を示して再度確認します。
@@ -457,6 +465,7 @@ Saves and settings were not copied from PS5X360: not enough free space. = PS5X36
 Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed. = PS5X360 から一部のセーブデータまたは設定をコピーできませんでした（ログに記録されています）。PS5X360 のファイルは変更されていません。
 Saves were not copied from PS5X360: this app already has saves of its own. = PS5X360 からセーブデータをコピーしませんでした：このアプリにはすでに独自のセーブデータがあります。
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = PS5X360 からセーブデータと設定をコピーできませんでした：フォルダーを確認できませんでした（理由はログに記録されています）。次回の起動時に再試行します。
+This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = このドライブには PS5X360/saves と PS5X360Reloaded/saves の両方があります。PS5X360Reloaded/saves を使用し、古いフォルダーはそのままにしました:
 
 [added ko]
 Console storage = 본체 저장 공간
@@ -468,7 +477,7 @@ M.2 SSD / extended storage (ext1) = M.2 SSD / 확장 저장 공간 (ext1)
 M.2 SSD / extended storage (ext2) = M.2 SSD / 확장 저장 공간 (ext2)
 M.2 SSD / extended storage (ext3) = M.2 SSD / 확장 저장 공간 (ext3)
 %s GB free = %s GB 남음
-Each drive keeps its saves in its own PS5X360/saves folder. = 각 드라이브는 자체 PS5X360/saves 폴더에 저장 데이터를 보관합니다.
+Each drive keeps its saves in its own PS5X360Reloaded/saves folder. = 각 드라이브는 자체 PS5X360Reloaded/saves 폴더에 저장 데이터를 보관합니다.
 Save drive = 저장 드라이브
 Ask every time = 매번 묻기
 Where games keep their saves. A drive chosen here is used without asking while it is plugged in and writable; otherwise the game asks again and says why. = 게임 저장 데이터를 보관할 위치입니다. 여기서 선택한 드라이브는 연결되어 있고 쓰기가 가능한 동안 묻지 않고 사용됩니다. 그렇지 않으면 이유를 알리고 다시 묻습니다.
@@ -491,6 +500,7 @@ Saves and settings were not copied from PS5X360: not enough free space. = PS5X36
 Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed. = PS5X360에서 일부 저장 데이터 또는 설정을 복사하지 못했습니다(로그에 기록됨). PS5X360의 파일은 변경되지 않았습니다.
 Saves were not copied from PS5X360: this app already has saves of its own. = PS5X360에서 저장 데이터를 복사하지 않았습니다: 이 앱에 이미 자체 저장 데이터가 있습니다.
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = PS5X360에서 저장 데이터와 설정을 복사하지 못했습니다: 폴더를 확인할 수 없었습니다(로그에 이유가 기록됨). 다음 시작 시 다시 시도합니다.
+This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = 이 드라이브에 PS5X360/saves와 PS5X360Reloaded/saves가 모두 있습니다. PS5X360Reloaded/saves를 사용하며 이전 폴더는 그대로 두었습니다:
 
 [added nl]
 Console storage = Consoleopslag
@@ -502,7 +512,7 @@ M.2 SSD / extended storage (ext1) = M.2-SSD / uitgebreide opslag (ext1)
 M.2 SSD / extended storage (ext2) = M.2-SSD / uitgebreide opslag (ext2)
 M.2 SSD / extended storage (ext3) = M.2-SSD / uitgebreide opslag (ext3)
 %s GB free = %s GB vrij
-Each drive keeps its saves in its own PS5X360/saves folder. = Elk station bewaart zijn opgeslagen spellen in een eigen map PS5X360/saves.
+Each drive keeps its saves in its own PS5X360Reloaded/saves folder. = Elk station bewaart zijn opgeslagen spellen in een eigen map PS5X360Reloaded/saves.
 Save drive = Station voor opgeslagen spellen
 Ask every time = Elke keer vragen
 Where games keep their saves. A drive chosen here is used without asking while it is plugged in and writable; otherwise the game asks again and says why. = Waar games hun opgeslagen spellen bewaren. Een station dat je hier kiest, wordt zonder vragen gebruikt zolang het is aangesloten en beschrijfbaar is; anders vraagt de game het opnieuw en zegt waarom.
@@ -525,6 +535,7 @@ Saves and settings were not copied from PS5X360: not enough free space. = Opgesl
 Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed. = Sommige opgeslagen spellen of instellingen konden niet uit PS5X360 worden gekopieerd (het logboek noemt ze). De eigen bestanden daarvan zijn niet gewijzigd.
 Saves were not copied from PS5X360: this app already has saves of its own. = Opgeslagen spellen zijn niet gekopieerd uit PS5X360: deze app heeft al eigen opgeslagen spellen.
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Opgeslagen spellen en instellingen zijn niet gekopieerd uit PS5X360: een map kon niet worden gecontroleerd (het logboek noemt de reden). De volgende start probeert het opnieuw.
+This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Dit station heeft zowel PS5X360/saves als PS5X360Reloaded/saves. PS5X360Reloaded/saves wordt gebruikt; de oude map is ongewijzigd gelaten:
 
 [added pl]
 Console storage = Pamięć konsoli
@@ -536,7 +547,7 @@ M.2 SSD / extended storage (ext1) = Dysk SSD M.2 / rozszerzona pamięć masowa (
 M.2 SSD / extended storage (ext2) = Dysk SSD M.2 / rozszerzona pamięć masowa (ext2)
 M.2 SSD / extended storage (ext3) = Dysk SSD M.2 / rozszerzona pamięć masowa (ext3)
 %s GB free = Wolne: %s GB
-Each drive keeps its saves in its own PS5X360/saves folder. = Każdy dysk przechowuje zapisy we własnym folderze PS5X360/saves.
+Each drive keeps its saves in its own PS5X360Reloaded/saves folder. = Każdy dysk przechowuje zapisy we własnym folderze PS5X360Reloaded/saves.
 Save drive = Dysk zapisów
 Ask every time = Pytaj za każdym razem
 Where games keep their saves. A drive chosen here is used without asking while it is plugged in and writable; otherwise the game asks again and says why. = Gdzie gry przechowują zapisy. Wybrany tu dysk jest używany bez pytania, dopóki jest podłączony i zapisywalny; w przeciwnym razie gra zapyta ponownie i poda powód.
@@ -559,6 +570,7 @@ Saves and settings were not copied from PS5X360: not enough free space. = Zapisy
 Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed. = Części zapisów lub ustawień nie udało się skopiować z PS5X360 (log je wymienia). Jego własne pliki nie zostały zmienione.
 Saves were not copied from PS5X360: this app already has saves of its own. = Zapisy nie zostały skopiowane z PS5X360: ta aplikacja ma już własne zapisy.
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Zapisy i ustawienia nie zostały skopiowane z PS5X360: nie udało się sprawdzić folderu (log podaje powód). Następne uruchomienie spróbuje ponownie.
+This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Na tym dysku są foldery PS5X360/saves i PS5X360Reloaded/saves. Używany jest PS5X360Reloaded/saves; stary folder pozostawiono bez zmian:
 
 [added ru]
 Console storage = Память консоли
@@ -570,7 +582,7 @@ M.2 SSD / extended storage (ext1) = SSD M.2 / расширенное храни�
 M.2 SSD / extended storage (ext2) = SSD M.2 / расширенное хранилище (ext2)
 M.2 SSD / extended storage (ext3) = SSD M.2 / расширенное хранилище (ext3)
 %s GB free = Свободно: %s ГБ
-Each drive keeps its saves in its own PS5X360/saves folder. = Каждый накопитель хранит сохранения в своей папке PS5X360/saves.
+Each drive keeps its saves in its own PS5X360Reloaded/saves folder. = Каждый накопитель хранит сохранения в своей папке PS5X360Reloaded/saves.
 Save drive = Накопитель для сохранений
 Ask every time = Спрашивать каждый раз
 Where games keep their saves. A drive chosen here is used without asking while it is plugged in and writable; otherwise the game asks again and says why. = Где игры хранят сохранения. Выбранный здесь накопитель используется без вопросов, пока он подключён и доступен для записи; иначе игра спросит снова и объяснит причину.
@@ -593,6 +605,7 @@ Saves and settings were not copied from PS5X360: not enough free space. = Сох
 Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed. = Некоторые сохранения или настройки не удалось скопировать из PS5X360 (они указаны в журнале). Его собственные файлы не изменены.
 Saves were not copied from PS5X360: this app already has saves of its own. = Сохранения не скопированы из PS5X360: у этого приложения уже есть собственные сохранения.
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Сохранения и настройки не скопированы из PS5X360: не удалось проверить папку (причина указана в журнале). При следующем запуске будет новая попытка.
+This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = На этом диске есть и PS5X360/saves, и PS5X360Reloaded/saves. Используется PS5X360Reloaded/saves; старая папка оставлена без изменений:
 
 [added tr]
 Console storage = Konsol depolama alanı
@@ -604,7 +617,7 @@ M.2 SSD / extended storage (ext1) = M.2 SSD / genişletilmiş depolama (ext1)
 M.2 SSD / extended storage (ext2) = M.2 SSD / genişletilmiş depolama (ext2)
 M.2 SSD / extended storage (ext3) = M.2 SSD / genişletilmiş depolama (ext3)
 %s GB free = %s GB boş
-Each drive keeps its saves in its own PS5X360/saves folder. = Her sürücü kayıtlarını kendi PS5X360/saves klasöründe tutar.
+Each drive keeps its saves in its own PS5X360Reloaded/saves folder. = Her sürücü kayıtlarını kendi PS5X360Reloaded/saves klasöründe tutar.
 Save drive = Kayıt sürücüsü
 Ask every time = Her seferinde sor
 Where games keep their saves. A drive chosen here is used without asking while it is plugged in and writable; otherwise the game asks again and says why. = Oyunların kayıtlarını tuttuğu yer. Burada seçilen sürücü, takılı ve yazılabilir olduğu sürece sormadan kullanılır; aksi halde oyun nedenini belirterek yeniden sorar.
@@ -627,6 +640,7 @@ Saves and settings were not copied from PS5X360: not enough free space. = Kayıt
 Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed. = Bazı kayıtlar veya ayarlar PS5X360'tan kopyalanamadı (günlükte listelenir). Onun kendi dosyaları değiştirilmedi.
 Saves were not copied from PS5X360: this app already has saves of its own. = Kayıtlar PS5X360'tan kopyalanmadı: bu uygulamanın zaten kendi kayıtları var.
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Kayıtlar ve ayarlar PS5X360'tan kopyalanmadı: bir klasör denetlenemedi (nedeni günlükte yazıyor). Bir sonraki başlatmada yeniden denenecek.
+This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Bu sürücüde hem PS5X360/saves hem de PS5X360Reloaded/saves var. PS5X360Reloaded/saves kullanılıyor; eski klasör olduğu gibi bırakıldı:
 
 [added zh-Hans]
 Console storage = 主机存储空间
@@ -638,7 +652,7 @@ M.2 SSD / extended storage (ext1) = M.2 SSD / 扩展存储空间 (ext1)
 M.2 SSD / extended storage (ext2) = M.2 SSD / 扩展存储空间 (ext2)
 M.2 SSD / extended storage (ext3) = M.2 SSD / 扩展存储空间 (ext3)
 %s GB free = 可用 %s GB
-Each drive keeps its saves in its own PS5X360/saves folder. = 每个驱动器的存档都保存在其自己的 PS5X360/saves 文件夹中。
+Each drive keeps its saves in its own PS5X360Reloaded/saves folder. = 每个驱动器的存档都保存在其自己的 PS5X360Reloaded/saves 文件夹中。
 Save drive = 存档驱动器
 Ask every time = 每次询问
 Where games keep their saves. A drive chosen here is used without asking while it is plugged in and writable; otherwise the game asks again and says why. = 游戏存档的保存位置。在此选择的驱动器只要已连接且可写入，就会直接使用而不再询问；否则游戏会再次询问并说明原因。
@@ -661,6 +675,7 @@ Saves and settings were not copied from PS5X360: not enough free space. = 未从
 Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed. = 部分存档或设置未能从 PS5X360 复制（日志中列出）。PS5X360 自身的文件未被更改。
 Saves were not copied from PS5X360: this app already has saves of its own. = 未从 PS5X360 复制存档：此应用已有自己的存档。
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = 未从 PS5X360 复制存档和设置：无法检查某个文件夹（原因见日志）。下次启动时将重试。
+This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = 此驱动器上同时有 PS5X360/saves 和 PS5X360Reloaded/saves。将使用 PS5X360Reloaded/saves；旧文件夹保持不变：
 
 [added zh-Hant]
 Console storage = 主機儲存空間
@@ -672,7 +687,7 @@ M.2 SSD / extended storage (ext1) = M.2 SSD / 擴充儲存空間 (ext1)
 M.2 SSD / extended storage (ext2) = M.2 SSD / 擴充儲存空間 (ext2)
 M.2 SSD / extended storage (ext3) = M.2 SSD / 擴充儲存空間 (ext3)
 %s GB free = 可用 %s GB
-Each drive keeps its saves in its own PS5X360/saves folder. = 每個磁碟機的存檔都儲存在其自己的 PS5X360/saves 資料夾中。
+Each drive keeps its saves in its own PS5X360Reloaded/saves folder. = 每個磁碟機的存檔都儲存在其自己的 PS5X360Reloaded/saves 資料夾中。
 Save drive = 存檔磁碟機
 Ask every time = 每次詢問
 Where games keep their saves. A drive chosen here is used without asking while it is plugged in and writable; otherwise the game asks again and says why. = 遊戲存檔的儲存位置。在此選擇的磁碟機只要已連接且可寫入，就會直接使用而不再詢問；否則遊戲會再次詢問並說明原因。
@@ -695,3 +710,4 @@ Saves and settings were not copied from PS5X360: not enough free space. = 未從
 Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed. = 部分存檔或設定未能從 PS5X360 複製（記錄中列出）。PS5X360 本身的檔案未被變更。
 Saves were not copied from PS5X360: this app already has saves of its own. = 未從 PS5X360 複製存檔：此應用程式已有自己的存檔。
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = 未從 PS5X360 複製存檔和設定：無法檢查某個資料夾（原因見記錄）。下次啟動時將重試。
+This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = 此磁碟機上同時有 PS5X360/saves 和 PS5X360Reloaded/saves。將使用 PS5X360Reloaded/saves；舊資料夾保持不變：
