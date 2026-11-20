@@ -25,7 +25,7 @@ Portuguese (Brazil) as an ordinary translation (pt-BR.txt):
     comments that quote Portuguese interface text changed to the English (TEXT_EDITS).
   * english/lang/<code>.txt for every interface language: the language files keyed by English.
     The eboot reads them from /app0/assets/lang/ (fixes/README.md). Keys that a later fix renames
-    (RENAMES: fix 46, PS5X360Reloaded's own title ID and name) are written renamed, each
+    (RENAMES: fix 46, PS5X360Reloaded's own title ID and name; fix 54, the measurement's 10 s) are written renamed, each
     language's text with the same replacement; fix 25's code keeps the keys it was made with.
 
 Inputs: --tree, an assembled tree (assemble.py) with fixes up to 24; when fix 25 is already
@@ -131,6 +131,8 @@ RENAMES = [
      'PPSA50011', 'PPSA83600', 46),
     ('PS5X360 Guide', 'PS5X360', 'PS5X360Reloaded', 46),
     ('PS5X360: experimental Xbox 360 emulator for PlayStation 5.', 'PS5X360', 'PS5X360Reloaded', 46),
+    # Fix 54: the guide's measurement samples for 10 s (every translation has its one "5").
+    ('Measure performance (5 s)', '5', '10', 54),
 ]
 RENAMED = {key: (old, new) for key, old, new, _ in RENAMES}
 

@@ -51,6 +51,7 @@ on:
       - 'tools/check-title-id.py'
       - 'tools/check-kinect-fake-relay.py'
       - 'tools/check-english-source.py'
+      - 'tools/check-measure-10s.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
