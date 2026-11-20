@@ -67,6 +67,7 @@ checks=(
   check-gpu-wait-lines.cpp         # fix 58
   check-nui-image-scan.cpp         # fix 57
   check-phone-qr-panel.cpp         # fix 63
+  check-native-mutant.cpp          # fix 64
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -98,6 +99,7 @@ declare -A fix_of=(
   [check-gpu-wait-lines.cpp]=58
   [check-nui-image-scan.cpp]=57
   [check-phone-qr-panel.cpp]=63
+  [check-native-mutant.cpp]=64
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
