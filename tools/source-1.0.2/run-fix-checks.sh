@@ -10,7 +10,8 @@
 # host's C compiler) run with python3, and tools/check-gdfx-names.sh (fix 26: GDFX names and
 # guest paths, linked with the tree's xenia/base and disc image device) with bash.
 # check-game-info.cpp reads a committed excerpt of the official package's assets/gameinfo.txt, and
-# the whole file too when PS5X360_GAMEINFO names it (fix 43).
+# the whole file too when PS5X360_GAMEINFO names it (fix 43). check-guest-crash.cpp (fix 45) runs
+# threads that time XmaDecoder's pause handshake (100 ms with the fix; 1.0.2's still waiting at 300 ms).
 set -euo pipefail
 repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 tree=$(realpath "$1")
@@ -36,6 +37,7 @@ checks=(
   check-ui-lang-overlay.cpp        # fix 43
   check-game-info.cpp              # fix 43
   check-kinect-usb.cpp             # fix 44
+  check-guest-crash.cpp            # fix 45
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -43,6 +45,7 @@ declare -A arguments=(
   [check-cover-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-ui-lang-overlay.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-game-info.cpp]="$repo/tools/source-1.0.2/fixtures/gameinfo-excerpt.txt"
+  [check-guest-crash.cpp]="$repo/tools/source-1.0.2/english/lang"
 )
 mkdir -p "$tree/tools" "$tree/build/fix-checks"
 status=0
