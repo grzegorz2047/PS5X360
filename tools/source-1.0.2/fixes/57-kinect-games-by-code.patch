@@ -230,18 +230,20 @@ index 5a5720c..036f17a 100644
  #if XE_PLATFORM_PS5
    static std::atomic<bool> motion_reported{false};
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
-index 20be75b..c855dff 100644
+index 20be75b..2636c47 100644
 --- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
 +++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
-@@ -38,6 +38,7 @@
+@@ -37,7 +37,9 @@
+ #include "xbox360ps5/virtual_skeleton.hpp"
  #include "xbox360ps5/virtual_nui.hpp"
  #include "xbox360ps5/virtual_hands.hpp"
++#include "xbox360ps5/kinect_hand_view.hpp"
  #include "xenia/kernel/kernel_state.h"
 +#include "xenia/kernel/kinect_title.h"
  #include "xenia/kernel/user_module.h"
  #include "xenia/kernel/util/shim_utils.h"
  #include "xenia/kernel/xboxkrnl/xboxkrnl_private.h"
-@@ -703,15 +704,21 @@ struct SkeletonSource {
+@@ -703,15 +705,25 @@ struct SkeletonSource {
  };
  SkeletonSource g_skeleton_source;
  std::atomic<bool> g_skeleton_binding_tried{false};
@@ -251,6 +253,10 @@ index 20be75b..c855dff 100644
 +// r11" the hand reach seam replaces loads (0x820E0000 in both).
 +std::atomic<uint32_t> g_skeleton_return{0};
 +std::atomic<uint64_t> g_hand_seam_r11{0};
++// The hand reach thresholds the title compares with, read from its code (FindHandThresholds).
++std::atomic<float> g_reach_needed{0.4f}, g_direction_needed{0.7071f};
++// Phone frame received -> handed to the title, over the 150 frames of a hands line.
++std::atomic<uint64_t> g_latency_sum_us{0}, g_latency_count{0}, g_latency_max_us{0};
  
  // Targeted estimated hand reach fallback. Keep the title's own direction
  // thresholds, 15-update debounce, edge creation and menu consumers intact.
@@ -265,7 +271,7 @@ index 20be75b..c855dff 100644
        !object || uint64_t(object) + 0x2740 > 0x100000000ull ||
        !IsGuestRangeMapped(memory, object + 0x1D80 + 0x5F8, 4, false) ||
        !IsGuestRangeMapped(memory, object + 0x2710, 0x78, true)) return;
-@@ -723,10 +730,30 @@ void EstimatedHandsHandler(cpu::ppc::PPCContext* context, KernelState* kernel) {
+@@ -723,10 +735,30 @@ void EstimatedHandsHandler(cpu::ppc::PPCContext* context, KernelState* kernel) {
      if (kernel->xam_state()->IsUserSignedIn(slot) &&
          kernel->xam_state()->GetUserProfile(slot)) signed_in_mask |= 1u << slot;
    }
@@ -300,7 +306,7 @@ index 20be75b..c855dff 100644
    const auto hands = xbox360ps5::motion::EstimateHands(pose);
    const xbox360ps5::motion::EstimatedHand values[] = {hands.right, hands.left};
    auto* output = memory->TranslateVirtual(object);
-@@ -753,17 +780,34 @@ void EstimatedHandsHandler(cpu::ppc::PPCContext* context, KernelState* kernel) {
+@@ -753,17 +785,42 @@ void EstimatedHandsHandler(cpu::ppc::PPCContext* context, KernelState* kernel) {
  }
  
  void BindEstimatedHands(KernelState* kernel, cpu::XexModule* xex) {
@@ -335,10 +341,33 @@ index 20be75b..c855dff 100644
      return;
    }
 +  g_hand_seam_r11 = seam.r11;
++  const auto thresholds = xbox360ps5::motion::FindHandThresholds(ExecutableCode(kernel), seam);
++  if (thresholds.found) {
++    g_reach_needed = thresholds.reach;
++    g_direction_needed = thresholds.direction;
++  }
++  XELOGW("Virtual Kinect: the title's hand reach thresholds {} m, direction {} ({})",
++         g_reach_needed.load(), g_direction_needed.load(),
++         thresholds.found ? "read from its code" : "not found in its code; the DBZ values");
    // A new owned guest page, within the PPC relative branch reach. Never borrow
    // padding from the executable or overwrite an existing guest allocation.
    auto* heap = memory->LookupHeap(0x83C00000);
-@@ -899,8 +943,21 @@ void SkeletonGetNextFrameHandler(cpu::ppc::PPCContext* ppc_context,
+@@ -849,6 +906,14 @@ X_HRESULT SkeletonGetNextFrame(KernelState* kernel_state, uint32_t wait_ms,
+   source.delivered_period = period;
+   const xbox360ps5::motion::Frame pose = xbox360ps5::motion::Snapshot();
+   const uint32_t tracking_id = source.identity.Update(pose);
++  if (pose.tracked) {
++    // Fix 57 diagnostics: how old the phone's frame is when the title gets it.
++    const uint64_t age = uint64_t(std::max<int64_t>(0, std::chrono::duration_cast<std::chrono::microseconds>(
++        clock::now() - pose.received).count()));
++    g_latency_sum_us += age;
++    ++g_latency_count;
++    if (age > g_latency_max_us.load()) g_latency_max_us = age;
++  }
+   uint32_t signed_in_mask = 0;
+   for (uint32_t slot = 0; slot < 4; ++slot) {
+     if (kernel_state->xam_state()->IsUserSignedIn(slot) &&
+@@ -899,8 +964,38 @@ void SkeletonGetNextFrameHandler(cpu::ppc::PPCContext* ppc_context,
    // Reviewed DBZ caller embeds its frame at object+80. Observe the previous
    // update without changing guest state. The hand context is separate from
    // the raised-hand prompt; a delivered skeleton is not proof it is usable.
@@ -353,6 +382,23 @@ index 20be75b..c855dff 100644
 +    edges_right += xe::load_and_swap<uint32_t>(data + 0x2780) != 0;
 +    edges_left += xe::load_and_swap<uint32_t>(data + 0x2784) != 0;
 +    context_frames += xe::load_and_swap<uint32_t>(data + 0x1D80 + 0x5F8) == 0;
++    // Fixes 57/63: the title's hand state for the motion panel (kinect_hand_view.hpp).
++    xbox360ps5::motion::GameHands hands;
++    hands.valid = true;
++    hands.context = xe::load_and_swap<uint32_t>(data + 0x1D80 + 0x5F8) == 0;
++    hands.reach_needed = g_reach_needed.load();
++    hands.direction_needed = g_direction_needed.load();
++    for (int side = 0; side < 2; ++side) {
++      auto& hand = side ? hands.left : hands.right;
++      hand.magnitude = xe::load_and_swap<float>(data + 0x2710 + side * 4);
++      hand.x = xe::load_and_swap<float>(data + 0x2720 + side * 16);
++      hand.y = xe::load_and_swap<float>(data + 0x2724 + side * 16);
++      hand.z = xe::load_and_swap<float>(data + 0x2728 + side * 16);
++      for (int n = 0; n < xbox360ps5::motion::kHandDirections; ++n)
++        hand.counters[n] = int32_t(xe::load_and_swap<uint32_t>(data + 0x2750 + side * 0x14 + n * 4));
++      hand.held = xe::load_and_swap<uint32_t>(data + 0x2778 + side * 4);
++    }
++    xbox360ps5::motion::PublishGameHands(hands);
 +  }
    if (ppc_context->r[3] == X_E_SUCCESS &&
 -      uint32_t(ppc_context->lr) == 0x821B51D0 && frame >= 0x80 &&
@@ -361,19 +407,27 @@ index 20be75b..c855dff 100644
        xbox360ps5::motion::guest_skeleton_frames.load() % 150 == 0) {
      const uint32_t object = frame - 0x80;
      Memory* memory = kernel_state->memory();
-@@ -910,16 +967,20 @@ void SkeletonGetNextFrameHandler(cpu::ppc::PPCContext* ppc_context,
+@@ -910,16 +1005,28 @@ void SkeletonGetNextFrameHandler(cpu::ppc::PPCContext* ppc_context,
        auto u32 = [data](size_t at) { return xe::load_and_swap<uint32_t>(data + at); };
        auto f32 = [data](size_t at) { return xe::load_and_swap<float>(data + at); };
        XELOGW("Virtual Kinect hands: context unavailable {} magnitude {}/{} "
 -             "vectors ({},{},{})/({},{},{}) edges {:08X}/{:08X}",
 +             "vectors ({},{},{})/({},{},{}) edges {:08X}/{:08X}; last 150 frames: "
-+             "context available in {}, edges right {} left {}",
++             "context available in {}, edges right {} left {}; phone arms {:.2f}/{:.2f} m; "
++             "phone frame to the title {:.1f} ms average, {:.1f} ms at most",
               u32(0x1D80 + 0x5F8), f32(0x2710), f32(0x2714),
               f32(0x2720), f32(0x2724), f32(0x2728),
               f32(0x2730), f32(0x2734), f32(0x2738),
 -             u32(0x2780), u32(0x2784));
-+             u32(0x2780), u32(0x2784), context_frames, edges_right, edges_left);
++             u32(0x2780), u32(0x2784), context_frames, edges_right, edges_left,
++             xbox360ps5::motion::PhoneArmLength(xbox360ps5::motion::Snapshot(), true),
++             xbox360ps5::motion::PhoneArmLength(xbox360ps5::motion::Snapshot(), false),
++             g_latency_count.load() ? double(g_latency_sum_us.load()) / 1000.0 / double(g_latency_count.load()) : 0.0,
++             double(g_latency_max_us.load()) / 1000.0);
 +      edges_right = edges_left = context_frames = 0;
++      g_latency_sum_us = 0;
++      g_latency_count = 0;
++      g_latency_max_us = 0;
  #if !XE_PLATFORM_PS5
        // Explicit one-shot HOST investigation: replay the reviewed SDK feed
        // with the current frame to inspect its HRESULT. Never run on PS5.
@@ -385,7 +439,7 @@ index 20be75b..c855dff 100644
          hand_probe_done = true;
          const uint64_t a = (uint64_t(u32(0x30)) + 6) * 4;
          const uint64_t b = (uint64_t(u32(0x50)) + 14) * 4;
-@@ -950,15 +1011,15 @@ void SkeletonGetNextFrameHandler(cpu::ppc::PPCContext* ppc_context,
+@@ -950,15 +1057,15 @@ void SkeletonGetNextFrameHandler(cpu::ppc::PPCContext* ppc_context,
  // an extern handler on the function. Done once, at the title's first camera
  // request, which is before it can have asked for a skeleton frame.
  void BindSkeletonSource(KernelState* kernel_state) {
@@ -406,7 +460,7 @@ index 20be75b..c855dff 100644
    cpu::XexModule* xex = module ? module->xex_module() : nullptr;
    if (!xex) {
      return;
-@@ -981,6 +1042,10 @@ void BindSkeletonSource(KernelState* kernel_state) {
+@@ -981,6 +1088,10 @@ void BindSkeletonSource(KernelState* kernel_state) {
      return;
    }
    const uint32_t address = found[0];
@@ -417,7 +471,7 @@ index 20be75b..c855dff 100644
    cpu::Function* function = nullptr;
    const cpu::Symbol::Status status = xex->DeclareFunction(address, &function);
    if (!function || (status != cpu::Symbol::Status::kNew &&
-@@ -1017,8 +1082,8 @@ void BindSkeletonSource(KernelState* kernel_state) {
+@@ -1017,8 +1128,8 @@ void BindSkeletonSource(KernelState* kernel_state) {
    xbox360ps5::motion::guest_skeleton_bound = true;
    BindEstimatedHands(kernel_state, xex);
    XELOGW("Virtual Kinect: skeleton frames of the title come from the "
@@ -428,15 +482,16 @@ index 20be75b..c855dff 100644
  }
  
  }  // namespace
-@@ -1041,6 +1106,7 @@ void ShutdownCameraDevice() {
+@@ -1041,6 +1152,8 @@ void ShutdownCameraDevice() {
      g_skeleton_source.notified_user = xbox360ps5::motion::kUserIndexNone;
    }
    g_skeleton_binding_tried = false;
 +  g_skeleton_return = 0;
++  xbox360ps5::motion::ResetGameHands();
    xbox360ps5::motion::guest_skeleton_bound = false;
    xbox360ps5::motion::guest_skeleton_frames = 0;
    xbox360ps5::motion::guest_skeleton_bodies = 0;
-@@ -1128,9 +1194,18 @@ dword_result_t PsCamDeviceRequest_entry(dword_t request_ptr) {
+@@ -1128,9 +1241,18 @@ dword_result_t PsCamDeviceRequest_entry(dword_t request_ptr) {
    if (!request_ptr) {
      return X_STATUS_INVALID_PARAMETER;
    }
@@ -474,10 +529,10 @@ index 4d5e4f6..9ab6952 100644
  // Downloads, one after another on a thread of its own, the covers the list
 diff --git a/include/xbox360ps5/nui_image_scan.hpp b/include/xbox360ps5/nui_image_scan.hpp
 new file mode 100644
-index 0000000..c2501b5
+index 0000000..1cfb959
 --- /dev/null
 +++ b/include/xbox360ps5/nui_image_scan.hpp
-@@ -0,0 +1,287 @@
+@@ -0,0 +1,337 @@
 +// SPDX-License-Identifier: MIT
 +// Fix 57: what the virtual Kinect needs from a title's executable, found by the shape
 +// of its code instead of addresses traced in one image.
@@ -502,7 +557,9 @@ index 0000000..c2501b5
 +//    hand reach at 0x2710(r30).
 +#pragma once
 +#include <cstddef>
++#include <algorithm>
 +#include <cstdint>
++#include <cstring>
 +#include <vector>
 +
 +namespace xbox360ps5::motion {
@@ -762,6 +819,54 @@ index 0000000..c2501b5
 +  }
 +  if (seam.matches != 1) seam.site = 0;
 +  return seam;
++}
++
++// The thresholds the hand reach code compares with, read where the seam's lis points: right
++// after it the title forms a base ("addi rB,r11,b") and loads its constants from it ("lfs
++// f,d(rB)"; DBZ 821B4DB8-821B4DC8: 0x9C the reach, 0x610 and 0x60C the direction, -/+). The
++// reach threshold is the first load, the direction one the positive one of the others.
++struct HandThresholds {
++  bool found = false;
++  float reach = 0.4f, direction = 0.7071f;
++};
++inline float FloatAt(const CodeView& view, uint32_t address) {
++  const uint32_t bits = view.Word(address);
++  float value;
++  std::memcpy(&value, &bits, 4);
++  return value;
++}
++inline HandThresholds FindHandThresholds(const CodeView& view, const HandSeam& seam) {
++  HandThresholds result;
++  if (!seam.site || !view.Has(seam.site + 8)) return result;
++  // "addi rB, r11, b" within the two instructions after the seam's lfs.
++  int base_reg = -1;
++  uint32_t base = 0;
++  for (uint32_t at = seam.site + 8; at <= seam.site + 12 && view.Has(at); at += 4) {
++    const uint32_t w = view.Word(at);
++    if (w >> 26 == 14 && ((w >> 16) & 31) == 11) {
++      base_reg = int((w >> 21) & 31);
++      base = uint32_t(seam.r11) + uint32_t(int32_t(int16_t(w & 0xFFFF)));
++      break;
++    }
++  }
++  if (base_reg < 0) return result;
++  std::vector<float> loads;
++  for (uint32_t at = seam.site + 8; at < seam.site + 0x30 && view.Has(at); at += 4) {
++    const uint32_t w = view.Word(at);
++    if (w >> 26 == 48 && int((w >> 16) & 31) == base_reg) {
++      const uint32_t address = base + uint32_t(int32_t(int16_t(w & 0xFFFF)));
++      if (!view.Has(address)) return result;
++      loads.push_back(FloatAt(view, address));
++    }
++  }
++  if (loads.size() < 2) return result;
++  float direction = 0;
++  for (size_t n = 1; n < loads.size(); ++n) direction = std::max(direction, loads[n]);
++  if (!(loads[0] > 0.05f && loads[0] < 2.0f && direction > 0.1f && direction < 1.0f)) return result;
++  result.found = true;
++  result.reach = loads[0];
++  result.direction = direction;
++  return result;
 +}
 +
 +}  // namespace xbox360ps5::motion
@@ -1044,3 +1149,116 @@ index bbdfb50..6b173f0 100644
    // What is happening by itself: covers being fetched, a game just found.
    // Under the name, on the left: the sheets cover the right side.
    c.alpha = 1.0f;
+diff --git a/include/xbox360ps5/kinect_hand_view.hpp b/include/xbox360ps5/kinect_hand_view.hpp
+new file mode 100644
+index 0000000..b49f702
+--- /dev/null
++++ b/include/xbox360ps5/kinect_hand_view.hpp
+@@ -0,0 +1,107 @@
++// SPDX-License-Identifier: MIT
++// Fixes 57 and 63: what a Kinect game makes of the player's hands, for the motion panel.
++//
++// Dragon Ball Z for Kinect moves through its menus with an arm held out: each update the game
++// measures each hand's reach (a length and a unit direction, sensor axes) and, for each of five
++// directions (right, left, up, down, towards the sensor), counts the updates in a row where the
++// reach is at least its threshold (0.4) and the direction's component beyond its other
++// threshold (0.7071); at 15 the direction is "held" and the menu moves once. The kernel side
++// (xboxkrnl_pscam.cc) reads those values from the game every frame and publishes them here;
++// the panel over the game draws them, so a player sees how far the game thinks the arm
++// reaches, against what it needs, and how long it still has to be held.
++#pragma once
++#include <algorithm>
++#include <cmath>
++#include <cstdint>
++#include <mutex>
++
++#include "xbox360ps5/motion_input.hpp"
++
++namespace xbox360ps5::motion {
++
++constexpr int kHandDirections = 5;
++// The title's own debounce (DBZ 821B4ED8: cmplwi counter, 0xF).
++constexpr int kHoldUpdates = 15;
++
++struct GameHand {
++  float magnitude = 0, x = 0, y = 0, z = 0;  // the game's reach, sensor axes
++  int32_t counters[kHandDirections] = {};    // updates in a row per direction (-1: re-arm)
++  uint32_t held = 0;                         // directions held (bits 1, 2, 4, 8, 0x10)
++};
++struct GameHands {
++  bool valid = false;            // a hand-reach title is running and was read this frame
++  bool context = false;          // the title's own hand context is available
++  float reach_needed = 0.4f;     // read from the title's code at binding
++  float direction_needed = 0.7071f;
++  GameHand right, left;
++  std::chrono::steady_clock::time_point at{};
++};
++
++inline std::mutex game_hands_mutex;
++inline GameHands game_hands;
++inline void PublishGameHands(const GameHands& hands) {
++  std::lock_guard lock(game_hands_mutex);
++  game_hands = hands;
++  game_hands.at = std::chrono::steady_clock::now();
++}
++inline GameHands SnapshotGameHands() {
++  std::lock_guard lock(game_hands_mutex);
++  GameHands copy = game_hands;
++  if (std::chrono::steady_clock::now() - copy.at > std::chrono::milliseconds(500)) copy.valid = false;
++  return copy;
++}
++inline void ResetGameHands() {
++  std::lock_guard lock(game_hands_mutex);
++  game_hands = {};
++}
++
++// The direction bits the title sets for a reach (DBZ 821B4DB0-821B4E1C, the same for both
++// hands): 2 right (x >= t), 1 left (x <= -t), 4 up (y >= t), 8 down (y <= -t), 0x10 towards
++// the sensor (z >= t), only while the reach is at least the reach threshold.
++inline uint32_t Directions(const GameHand& hand, float reach_needed, float direction_needed) {
++  if (!(hand.magnitude >= reach_needed)) return 0;
++  uint32_t bits = 0;
++  if (hand.x >= direction_needed) bits |= 2;
++  else if (hand.x <= -direction_needed) bits |= 1;
++  if (hand.y >= direction_needed) bits |= 4;
++  else if (hand.y <= -direction_needed) bits |= 8;
++  if (hand.z >= direction_needed) bits |= 0x10;
++  return bits;
++}
++// How far the longest running count is towards a held direction, 0..1.
++inline float HoldProgress(const GameHand& hand) {
++  int best = 0;
++  for (int n = 0; n < kHandDirections; ++n) best = std::max(best, int(hand.counters[n]));
++  return std::clamp(float(best) / float(kHoldUpdates), 0.0f, 1.0f);
++}
++
++// Where the player stands, from the phone's pose (hips at Z = kBodyDistance - distance; the
++// bridge's metres). Dragon Ball Z's own body check wants 1.8 to 3.5 m and at least ten joints
++// seen well (NUI-HANDOFF, 821B6F68).
++enum class Positioning { kOk, kStepBack, kStepCloser, kWholeBody };
++constexpr float kNearestMetres = 1.8f, kFarthestMetres = 3.5f, kBridgeBodyDistance = 2.5f;
++inline Positioning PositionHint(const Frame& pose) {
++  if (!pose.tracked) return Positioning::kOk;
++  int seen = 0;
++  for (const auto& joint : pose.joints) seen += joint.confidence >= 0.5f;
++  // Head, both hands and both feet (pose.mjs order 3, 7, 11, 15, 19).
++  bool ends = true;
++  for (int n : {3, 7, 11, 15, 19}) ends = ends && pose.joints[size_t(n)].confidence >= 0.5f;
++  if (seen < 10 || !ends) return Positioning::kWholeBody;
++  const float distance = kBridgeBodyDistance - pose.joints[0].z;
++  if (distance < kNearestMetres) return Positioning::kStepBack;
++  if (distance > kFarthestMetres) return Positioning::kStepCloser;
++  return Positioning::kOk;
++}
++
++// The phone's shoulder-to-hand length (metres), for the scale diagnostics: the arm as the
++// phone measured it, next to the reach the game made of it. 0 when not seen.
++inline float PhoneArmLength(const Frame& pose, bool right) {
++  const Joint& s = pose.joints[right ? 8 : 4];
++  const Joint& h = pose.joints[right ? 11 : 7];
++  if (!pose.tracked || s.confidence < 0.5f || h.confidence < 0.5f) return 0;
++  const float dx = h.x - s.x, dy = h.y - s.y, dz = h.z - s.z;
++  return std::sqrt(dx * dx + dy * dy + dz * dz);
++}
++
++}  // namespace xbox360ps5::motion
