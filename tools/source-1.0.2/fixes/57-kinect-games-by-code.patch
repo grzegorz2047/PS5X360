@@ -74,10 +74,15 @@ index 0000000..0b6f863
 +
 +#endif  // XENIA_KERNEL_KINECT_TITLE_H_
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/apps/xam_app.cc b/.deps/xenia-canary/src/xenia/kernel/xam/apps/xam_app.cc
-index c850d9d..a8ddd25 100644
+index c850d9d..eec5952 100644
 --- a/.deps/xenia-canary/src/xenia/kernel/xam/apps/xam_app.cc
 +++ b/.deps/xenia-canary/src/xenia/kernel/xam/apps/xam_app.cc
-@@ -12,6 +12,7 @@
+@@ -9,9 +9,12 @@
+ 
+ #include "xenia/kernel/xam/apps/xam_app.h"
+ 
++#include <atomic>
++
  #include "xenia/base/logging.h"
  #include "xbox360ps5/motion_input.hpp"
  #include "xbox360ps5/virtual_nui.hpp"
@@ -85,7 +90,31 @@ index c850d9d..a8ddd25 100644
  #include "xenia/kernel/kernel_state.h"
  #include "xenia/kernel/user_module.h"
  #include "xenia/kernel/nui.h"
-@@ -206,30 +207,47 @@ X_HRESULT XamApp::ExecuteDispatchMessage(uint32_t message, uint32_t buffer_ptr,
+@@ -163,6 +166,23 @@ X_HRESULT XamApp::ExecuteDispatchMessage(uint32_t message, uint32_t buffer_ptr,
+       XELOGD("XNuiDelayUI unimplemented({:08X})", ms_delay);
+       return X_E_SUCCESS;
+     }
++    case 0x0002B002: {
++      // Xbox360PS5 (fix 57): the Kinect SDK sends each skeleton frame the title made to the
++      // system's identity service, once a frame (Dragon Ball Z for Kinect: 824A46E8 builds
++      // 0xB00 bytes, a header {5, 0x5254} and the frame from +0x30, then compares the answer
++      // with 8301000B and otherwise only clears a flag). There is no such service here: the
++      // answer stays E_FAIL, as before, without an "Unimplemented XAM message" line for each
++      // frame (3887 in two minutes on 1.0.4_candidate_21).
++      if (xbox360ps5::motion::enabled.load() && KinectRequiredTitle(kernel_state_)) {
++        static std::atomic<bool> said{false};
++        if (!said.exchange(true))
++          XELOGW("Virtual Kinect: the title sends its skeleton frames to the identity "
++                 "service (XMsg FE/2B002, {} bytes); none here, answered E_FAIL (said once)",
++                 buffer_length);
++        return X_E_FAIL;
++      }
++      break;
++    }
+     case 0x0002B003: {
+       // Games used in:
+       // 4D5309C9
+@@ -206,30 +226,47 @@ X_HRESULT XamApp::ExecuteDispatchMessage(uint32_t message, uint32_t buffer_ptr,
      }
      case 0x0002C009: {
        // Registers (non-zero) or removes (zero) a Kinect identity callback.
