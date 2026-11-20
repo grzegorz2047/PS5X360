@@ -7,7 +7,7 @@
 //      exiting threads (more threads than slots over a game), the ring of recent draws and
 //      resolves (oldest first, the newest 32 kept).
 //  (b) the Watcher, stepped with a clock of its own: nothing while the UI loop turns and calls
-//      return; a fence wait of the "gpu" thread that lasts 4 s gives one report (UI and GPU
+//      return; a fence wait of the "gpu" thread that lasts 3 s gives one report (UI and GPU
 //      heartbeats, the queue, each watched thread, the draws of the open submissions, the GPU
 //      hang verdict) with a probe and the shaders of the draws in flight to write out; a line
 //      every 5 s while it lasts; the report again after 20 s; "HANG over" when it ends. A UI loop
@@ -20,6 +20,12 @@
 //      game loop only (stopped before the exit's waits) with the UI loop's beats, and
 //      crash_report.cpp reports the signals that end a process without a fault (SIGPIPE then
 //      ignored).
+//  (d) candidate 4 (candidate 1 left no line at all with Ninja Gaiden II): the heartbeat line
+//      (loops, frames, GPU ring, last submission, the log writer's progress, calls in progress);
+//      the watch thread sleeps with usleep (no condition variable), writes to hang-watch.txt opened
+//      at the start with write() and fsync(), to the kernel log, and to the stream only through
+//      NetLogTry (its lock taken only if free); the log counts lines handed to its writer and
+//      lines written.
 // Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh).
 #undef NDEBUG
 #include "../include/xbox360ps5/gpu_diagnostics.hpp"  // includes hang_watch.hpp (fix 47)
@@ -215,8 +221,8 @@ void CheckWatcher() {
   hw::ui_loop.Mark(hw::kUiSample);
   const uint64_t t2 = hw::NowMs();
   stopped.Observe(t2);
-  Expect(stopped.Observe(t2 + 3000).lines.empty(), "3 s: nothing");
-  auto step = stopped.Observe(t2 + 4100);
+  Expect(stopped.Observe(t2 + 2500).lines.empty(), "2.5 s: nothing");
+  auto step = stopped.Observe(t2 + 3100);
   Show("UI loop stopped", step.lines);
   Expect(Has(step.lines, "HANG verdict: the UI loop is stopped outside a GPU wait"), "UI stop verdict");
 
@@ -258,6 +264,32 @@ void ExpectIn(const char* path, const std::vector<std::string>& parts) {
   for (const auto& part : parts) Expect(text.find(part) != std::string::npos, std::string(path) + " has: " + part);
 }
 
+void CheckHeartbeat() {
+  hw::ui_loop.Mark(hw::kUiPaint);
+  hw::gpu_thread.Mark(hw::kGpuExecute);
+  hw::Submitted(42, 41);
+  hw::log_appended = 120;
+  hw::log_written = 95;
+  Blocked gpu("gpu", "fence", 42);
+  hw::BeatInput in;
+  in.start_ms = hw::NowMs() - 12500;
+  in.now_ms = hw::NowMs();
+  in.frames = 700;
+  in.swaps = 705;
+  in.ring_read = 0x104B;
+  in.ring_write = 0x1057;
+  const std::string line = hw::HeartbeatLine(in);
+  std::printf("   %s\n", line.c_str());
+  Expect(line.rfind("HANG beat +12.5 s: ui ", 0) == 0, "beat: time since the start");
+  Expect(line.find("(paint) gpu ") != std::string::npos && line.find("(executing the ring)") != std::string::npos,
+         "beat: both loops and their phase");
+  Expect(line.find("frames 700 swaps 705 ring 104B/1057 sub 42 (") != std::string::npos, "beat: frames, ring, submission");
+  Expect(line.find("log 120/95") != std::string::npos, "beat: the log writer's progress");
+  Expect(line.find(" gpu:fence:") != std::string::npos, "beat: the call in progress");
+  gpu.Release();
+  Expect(hw::HeartbeatLine(in).find("calls: none") != std::string::npos, "beat: no call in progress");
+}
+
 void CheckTree() {
   const char* core = ".deps/xenia-canary/src/xenia/";
   ExpectIn("include/xbox360ps5/gpu_diagnostics.hpp",
@@ -275,7 +307,7 @@ void CheckTree() {
             "xbox360ps5::hang_watch::Submitted(submission_index,"});
   const std::string main_text = Read("src/canary_game_main.cpp");
   Expect(main_text.find("class HangWatchThread") != std::string::npos, "the watch thread");
-  const size_t start = main_text.find("auto hang_watch_thread = std::make_unique<HangWatchThread>(log_root);");
+  const size_t start = main_text.find("auto hang_watch_thread = std::make_unique<HangWatchThread>(");
   const size_t loop = main_text.find("while (!context.HasQuitFromUIThread()) {", start);
   const size_t reset = main_text.find("hang_watch_thread.reset();", start);
   const size_t cancel = main_text.find("xe::ui::controller_keyboard::Cancel();", start);
@@ -288,6 +320,21 @@ void CheckTree() {
                  std::string::npos,
          "the UI loop marks its Paint");
   Expect(main_text.find("ui_loop.Mark(xbox360ps5::hang_watch::kUiMeasure);") != std::string::npos, "a measurement is marked");
+  // Candidate 4.
+  const size_t klass = main_text.find("class HangWatchThread {");
+  const size_t klass_end = main_text.find("std::thread thread_;", klass);
+  Expect(klass != std::string::npos && klass_end != std::string::npos, "the watch class");
+  const std::string watch = main_text.substr(klass, klass_end - klass);
+  for (const char* part : {"\"hang-watch.txt\"", "O_WRONLY | O_CREAT | O_TRUNC", "::fsync(fd_);", "::usleep(250000);",
+                           "xbox360ps5::NetLogTry(line, size);", "sceKernelDebugOutText(0, line);", "hw::HeartbeatLine(in)"})
+    Expect(watch.find(part) != std::string::npos, std::string("the watch has: ") + part);
+  for (const char* part : {"condition_variable", "Stage(", "XELOG", "std::fopen"})
+    Expect(watch.find(part) == std::string::npos, std::string("the watch never uses: ") + part);
+  ExpectIn(".deps/xenia-canary/src/xenia/base/logging.cc",
+           {"xbox360ps5::hang_watch::log_written.fetch_add(", "xbox360ps5::hang_watch::log_appended.fetch_add("});
+  ExpectIn("platform/ps5/net_log.cpp",
+           {"bool NetLogTry(const char* text, size_t size) {", "std::unique_lock<std::mutex> lock(guard, std::try_to_lock);"});
+  ExpectIn("include/xbox360ps5/crash_report.hpp", {"bool NetLogTry(const char* text, size_t size);"});
   ExpectIn("platform/ps5/crash_report.cpp",
            {"constexpr int kEndingSignals[] = {SIGHUP, SIGINT, SIGQUIT, SIGTERM, SIGXCPU, SIGXFSZ, SIGPIPE};",
             "for (int signal : kEndingSignals) sigaction(signal, &ending, nullptr);",
@@ -299,6 +346,7 @@ void CheckTree() {
 int main() {
   CheckSlots();
   CheckWork();
+  CheckHeartbeat();
   CheckWatcher();
   CheckTree();
   if (failures) {
