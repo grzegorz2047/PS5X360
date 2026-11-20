@@ -480,6 +480,8 @@ oi::Probe LstatNotFound() {
   };
   return probe;
 }
+
+void WithoutLstat(const fs::path& root, bool unreadable) {
   const fs::path official = root / "official", own = root / "console";
   const auto before = Snapshot(official);
   const auto facts = oi::Gather(official, own, Room(kBig), NoLstat());
