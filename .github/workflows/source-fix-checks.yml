@@ -48,6 +48,7 @@ on:
       - 'tools/check-app-identity.cpp'
       - 'tools/check-official-import.cpp'
       - 'tools/check-hang-watch.cpp'
+      - 'tools/check-memexport-loss.cpp'
       - 'tools/check-title-id.py'
       - 'tools/check-kinect-fake-relay.py'
       - 'tools/check-english-source.py'

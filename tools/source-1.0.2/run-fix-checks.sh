@@ -55,6 +55,7 @@ checks=(
   check-app-identity.cpp           # fix 46
   check-official-import.cpp        # fix 46
   check-hang-watch.cpp             # fix 47
+  check-memexport-loss.cpp         # fix 48
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -72,6 +73,7 @@ declare -A fix_of=(
   [check-jit-backports.cpp]=38 [check-net-log-drain.cpp]=39 [check-review-fix30.cpp]="35 36 37"
   [check-app-identity.cpp]=46 [check-official-import.cpp]=46
   [check-hang-watch.cpp]=47
+  [check-memexport-loss.cpp]=48
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
