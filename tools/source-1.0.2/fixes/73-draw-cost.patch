@@ -1,7 +1,7 @@
 diff --git a/include/xbox360ps5/frame_cost.hpp b/include/xbox360ps5/frame_cost.hpp
 --- a/include/xbox360ps5/frame_cost.hpp
 +++ b/include/xbox360ps5/frame_cost.hpp
-@@ -264,6 +264,95 @@ class UploadTimer {
+@@ -264,6 +264,113 @@ class UploadTimer {
    bool active_;
    uint64_t since_;
  };
@@ -13,6 +13,9 @@ diff --git a/include/xbox360ps5/frame_cost.hpp b/include/xbox360ps5/frame_cost.h
 +// memexport buffers, recording the draw, and what follows it. Each mark takes the time since the
 +// previous one (or the start) less the time other sections (uploads, textures, readbacks) took in
 +// it; whatever follows the last mark (an early return included) counts as "after".
++// With ~200k draws a second (MW2) the timer must not cost much itself: only every
++// draw_sample_every-th draw is timed (8 by default; the parts are scaled back), and the counters,
++// written by the GPU thread alone, are raised with a relaxed load and store (no locked add).
 +enum DrawPart : uint32_t {
 +  kDrawPrimitive = 0, kDrawTargets, kDrawPipeline, kDrawState, kDrawBindings, kDrawBuffers, kDrawRecord,
 +  kDrawAfter, kDrawParts
@@ -23,7 +26,13 @@ diff --git a/include/xbox360ps5/frame_cost.hpp b/include/xbox360ps5/frame_cost.h
 +  return part < kDrawParts ? names[part] : "?";
 +}
 +inline std::array<std::atomic<uint64_t>, kDrawParts> draw_part_ticks{};
-+inline std::atomic<uint64_t> draw_calls{0};
++inline std::atomic<uint64_t> draw_calls{0}, draw_sampled{0};
++inline std::atomic<uint32_t> draw_sample_every{8};
++inline thread_local uint32_t draw_sample_counter = 0;
++// One writer (the GPU thread): a plain add, readable by the summary without a data race.
++inline void AddOwn(std::atomic<uint64_t>& counter, uint64_t value) {
++  counter.store(counter.load(std::memory_order_relaxed) + value, std::memory_order_relaxed);
++}
 +// The other sections' ticks so far (written on this thread at their exits).
 +inline uint64_t OtherSectionTicks() {
 +  uint64_t sum = 0;
@@ -35,9 +44,13 @@ diff --git a/include/xbox360ps5/frame_cost.hpp b/include/xbox360ps5/frame_cost.h
 + public:
 +  DrawTimer() : active_(gpu_thread) {
 +    if (!active_) return;
++    AddOwn(draw_calls, 1);
++    const uint32_t every = draw_sample_every.load(std::memory_order_relaxed);
++    active_ = every <= 1 || draw_sample_counter++ % every == 0;
++    if (!active_) return;
++    AddOwn(draw_sampled, 1);
 +    since_ = Ticks();
 +    other_ = OtherSectionTicks();
-+    draw_calls.fetch_add(1, std::memory_order_relaxed);
 +  }
 +  ~DrawTimer() { Mark(kDrawAfter); }
 +  // The time since the previous mark, without other sections, was this part.
@@ -45,7 +58,7 @@ diff --git a/include/xbox360ps5/frame_cost.hpp b/include/xbox360ps5/frame_cost.h
 +    if (!active_) return;
 +    const uint64_t now = Ticks(), other = OtherSectionTicks();
 +    const uint64_t wall = now - since_, nested = other - other_;
-+    draw_part_ticks[part].fetch_add(wall > nested ? wall - nested : 0, std::memory_order_relaxed);
++    AddOwn(draw_part_ticks[part], wall > nested ? wall - nested : 0);
 +    since_ = now;
 +    other_ = other;
 +  }
@@ -69,13 +82,18 @@ diff --git a/include/xbox360ps5/frame_cost.hpp b/include/xbox360ps5/frame_cost.h
 +    last_ns_ = ns_now;
 +    const double s = seconds > 0 ? seconds : 1;
 +    const uint64_t calls = draw_calls.load(std::memory_order_relaxed);
++    const uint64_t sampled = draw_sampled.load(std::memory_order_relaxed);
 +    const double calls_s = double(calls - last_calls_) / s;
++    const uint64_t sampled_now = sampled - last_sampled_;
++    // The timed draws stand for all of them.
++    const double scale = sampled_now ? double(calls - last_calls_) / double(sampled_now) : 0.0;
 +    last_calls_ = calls;
++    last_sampled_ = sampled;
 +    std::string parts;
 +    double total = 0;
 +    for (uint32_t n = 0; n < kDrawParts; ++n) {
 +      const uint64_t ticks = draw_part_ticks[n].load(std::memory_order_relaxed);
-+      const double ms = double(ticks - last_parts_[n]) * ns_per_tick / 1e6 / s;
++      const double ms = double(ticks - last_parts_[n]) * scale * ns_per_tick / 1e6 / s;
 +      last_parts_[n] = ticks;
 +      total += ms;
 +      char item[80];
@@ -90,7 +108,7 @@ diff --git a/include/xbox360ps5/frame_cost.hpp b/include/xbox360ps5/frame_cost.h
 +
 + private:
 +  std::array<uint64_t, kDrawParts> last_parts_{};
-+  uint64_t last_calls_ = 0, last_ticks_ = 0, last_ns_ = 0;
++  uint64_t last_calls_ = 0, last_sampled_ = 0, last_ticks_ = 0, last_ns_ = 0;
 +  double last_ns_per_tick_ = 0;
 +};
 +

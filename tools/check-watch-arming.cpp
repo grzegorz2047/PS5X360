@@ -6,7 +6,8 @@
 //  (a) include/xbox360ps5/frame_cost.hpp: ArmTimer counts on the GPU thread only and for the four
 //      views only; calls, protection calls (through current_arm while it runs), the time in the
 //      call and the part until the lock was taken; nested timers restore the outer one;
-//      ArmReporter gives each view's rates since its previous line;
+//      write notices are counted per view from any thread; ArmReporter gives each view's rates
+//      since its previous line;
 //  (b) the assembled tree: PhysicalHeap::EnableAccessCallbacks times itself after its early
 //      return, notes the lock right after taking it, and EnableAccessCallbacksInner notes each
 //      protection call before making it; the line in the summary after fix 73's.
@@ -83,6 +84,13 @@ void CheckTimer() {
   Expect(fc::alias_calls[0] == 3 && fc::alias_protects[0] == 6, "view A0000000: 3 calls, 6 protections");
   Expect(fc::alias_calls[2] == 1 && fc::alias_protects[2] == 1, "view E0000000: 1 call, 1 protection");
   Expect(fc::alias_calls[1] == 0 && fc::alias_calls[3] == 0, "the others: none");
+  // Write notices come from any thread.
+  for (int n = 0; n < 3; ++n) fc::NoteWriteNotice(0xC0000000u);
+  fc::NoteWriteNotice(0x40000000u);
+  Expect(fc::alias_write_notices[1] == 3 && fc::alias_write_notices[0] == 0, "write notices counted per view, from any thread");
+  const std::string notices = reporter.Line(1);
+  Expect(notices.find("C0000000 0 calls/s, 0 protections/s, 0.0 ms/s (lock 0.0 ms/s), 3 write notices/s") != std::string::npos,
+         "the line gives the write notices");
   const auto value = [&](const std::string& after) {
     const size_t at = line.find(after);
     return at == std::string::npos ? -1.0 : std::atof(line.c_str() + at + after.size());
@@ -119,6 +127,10 @@ void CheckTree() {
     ++at;
   }
   Expect(body != std::string::npos && notes == 2, "both protection calls of the inner loop are noted before they are made");
+  const size_t trigger = code.find("bool PhysicalHeap::TriggerCallbacks(");
+  const size_t notice = code.find("if (is_write) xbox360ps5::frame_cost::NoteWriteNotice(heap_base_);  // fix 74", trigger);
+  Expect(trigger != std::string::npos && notice != std::string::npos && notice - trigger < 400,
+         "every write notice is counted per view");
   const std::string main_code = Read("src/canary_game_main.cpp");
   const size_t draws = main_code.find("XELOGW(\"{}\", frame_cost_draws.Line(double(summary_samples)));");
   const size_t arming = main_code.find("XELOGW(\"{}\", frame_cost_arming.Line(double(summary_samples)));");
