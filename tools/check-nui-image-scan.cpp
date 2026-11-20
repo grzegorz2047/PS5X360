@@ -248,6 +248,30 @@ void CheckBodyScale() {
   CHECK(m::Distance(bent_out.joints[8], bent_out.joints[9]) >= 0.9f * m::kUpperArmMetres - 1e-3f);
   CHECK(m::Distance(bent_out.joints[9], bent_out.joints[10]) >= 0.9f * m::kForearmMetres - 1e-3f);
   CHECK(bent_out.joints[10].y > bent_out.joints[9].y);  // the forearm still points up
+  // Depth only as far as the picture-plane length leaves room for (1.0.5_candidate_1). The
+  // right hand "on its shoulder" with both bones seen at full length but put 0.4 m towards
+  // the camera (1.0.4_candidate_28's monocular error) comes back to the shoulder...
+  {
+    m::Frame adult_pose = Body(1.0f, false);
+    adult_pose.joints[9] = {-0.18f, 0.2f, 0, 0.9f};                // elbow 0.30 below the shoulder
+    adult_pose.joints[10] = {-0.2f, 0.46f, 0.4f, 0.9f};             // wrist up by the shoulder, 0.4 in front
+    adult_pose.joints[11] = {-0.2f, 0.54f, 0.42f, 0.9f};
+    m::BodyScaleState s1;
+    m::Frame plain = Body(1.0f, true);  // the bones' lengths, learnt from frames without the error
+    for (int n = 0; n < 60; ++n) m::ObserveBody(s1, plain);
+    const m::Frame fixed = m::NormalizeBody(s1, adult_pose);
+    CHECK(std::fabs(fixed.joints[11].z - fixed.joints[8].z) < 0.15f);
+    CHECK(m::Distance(fixed.joints[11], fixed.joints[8]) < 0.2f);
+    // ...while a punch at the camera (the forearm looks short in the picture) keeps its depth.
+    m::Frame punch = Body(1.0f, false);
+    punch.joints[9] = {-0.2f, 0.42f, 0.25f, 0.9f};   // the upper arm forward and a little down
+    punch.joints[10] = {-0.2f, 0.45f, 0.5f, 0.9f};   // the forearm straight at the camera
+    punch.joints[11] = {-0.2f, 0.45f, 0.58f, 0.9f};
+    m::BodyScaleState s2;
+    for (int n = 0; n < 60; ++n) m::ObserveBody(s2, punch);
+    const m::Frame kept = m::NormalizeBody(s2, punch);
+    CHECK(kept.joints[11].z - kept.joints[8].z > 0.45f);
+  }
   // An adult stays an adult; a huge or tiny reading is clamped (x0.8 .. x2).
   m::BodyScaleState adult;
   m::ObserveBody(adult, Body(1.0f, false));

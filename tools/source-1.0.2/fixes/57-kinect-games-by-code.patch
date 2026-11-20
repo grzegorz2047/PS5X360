@@ -560,10 +560,10 @@ index 20be75b..72b04c6 100644
  }
 diff --git a/include/xbox360ps5/body_scale.hpp b/include/xbox360ps5/body_scale.hpp
 new file mode 100644
-index 0000000..3564346
+index 0000000..1b56cc3
 --- /dev/null
 +++ b/include/xbox360ps5/body_scale.hpp
-@@ -0,0 +1,133 @@
+@@ -0,0 +1,143 @@
 +// SPDX-License-Identifier: MIT
 +// Fix 57: the phone's pose brought to a plausible body size before a game sees it.
 +//
@@ -657,11 +657,21 @@ index 0000000..3564346
 +    for (int bone = 0; bone < 3; ++bone) {
 +      Joint& next = out.joints[arm[bone + 1]];
 +      const Joint next_in = next;
-+      const float dx = next_in.x - previous_in.x, dy = next_in.y - previous_in.y, dz = next_in.z - previous_in.z;
-+      const float now = std::sqrt(dx * dx + dy * dy + dz * dz);
++      const float dx = next_in.x - previous_in.x, dy = next_in.y - previous_in.y;
++      float dz = next_in.z - previous_in.z;
 +      const Joint& from = out.joints[arm[bone]];
++      const float flat = std::sqrt(dx * dx + dy * dy);
++      const float measured = state.bones[side][bone] > 0 ? state.bones[side][bone] * factor
++                                                         : std::sqrt(flat * flat + dz * dz);
++      // 1.0.5_candidate_1: a bone can only point as far towards or away from the camera as its
++      // picture-plane length leaves room for: |dz| <= sqrt(L^2 - flat^2). The model's depth is
++      // kept when it fits (a punch at the camera: the bones look short), cut when it does not
++      // (1.0.4_candidate_28: hands "on the shoulders" 0.12-0.53 m in front of them, both bones
++      // seen at nearly full length). Depth is never added.
++      const float room = flat < measured ? std::sqrt(measured * measured - flat * flat) : 0.0f;
++      if (std::fabs(dz) > room) dz = std::copysign(room, dz);
++      const float now = std::sqrt(flat * flat + dz * dz);
 +      if (now > 1e-4f) {
-+        const float measured = state.bones[side][bone] > 0 ? state.bones[side][bone] * factor : now;
 +        const float length = std::max(measured, kMinimumBoneShare * adult[bone]);
 +        next.x = from.x + dx / now * length;
 +        next.y = from.y + dy / now * length;
