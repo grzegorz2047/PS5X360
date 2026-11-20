@@ -172,6 +172,17 @@ after its edits: `eboot.bin` 37,577,765 bytes, SHA-256 `e15468f2…` (`eboot.elf
 | 14 | — | not applicable | reverted in the binary release |
 | lang overrides | English and Polish texts of the new and changed strings (`assets/lang-overrides`) | not applicable to the executable | they are package data: `tools/binary-release/build_package.py` merges them into the package's `assets/lang/*.txt`, which the official executable reads; for the rebuild, fix 25 carries their texts into the English-keyed files of `tools/source-1.0.2/english/lang` (with the 13 other languages of the fork's overrides) |
 
+## Fixes made in source after the port
+
+Fixes numbered from 20 are not binary patch groups: they are changes made in source for problems
+found on the console, each with a host check. [`fixes/README.md`](../tools/source-1.0.2/fixes/README.md)
+lists all of them; the ones that change how the emulator behaves when something goes wrong are
+also listed here.
+
+| Fix | What | Status |
+|---|---|---|
+| 45 (`45-guest-crash-notice`) | a game that crashes (Minecraft in System Link mode on the v1.0.3 draft, `research/minecraft-online-hang/VERDICT.md`) no longer leaves a silent picture at 0 FPS: the core's crash handler no longer waits forever in `XmaDecoder::Pause` (an idle XMA worker is woken; without a dedicated XMA thread, as started, there is nothing to wait for), it tells the port first (weak hook `Xbox360PS5GuestCrashed`) and then leaves its own "Uh-oh!" modal out, the overlay says the game crashed and how to close it (all interface languages), the STALL report's first line names the crashed thread and its PC, the exit skips the Vulkan cache checkpoint the paused GPU worker cannot serve, and a guest thread is not suspended while it holds the log's lock | host-checked (`tools/check-guest-crash.cpp`); candidate 51 not yet tested on a console. The game's own crash is not fixed: it is the game's code |
+
 ## Comparison with the official executable
 
 [`compare.py`](../tools/source-1.0.2/compare.py) on the ELF inside each `eboot.bin` (the
