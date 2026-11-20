@@ -17,6 +17,11 @@ replacing it. This script:
     entry; every other field and the file's layout (key order, indent, CRLF) stay the base's;
   * replaces sce_sys/icon0.png, pic0.png and pic1.png with the PS5X360Reloaded art in
     tools/source-1.0.2/package-art (checked by SHA-256 and size, see its README.md);
+  * replaces the official user docs that name its folder PPSA50011 (tools/source-1.0.2/package-docs,
+    see its README.md): INSTALLATION.md with PS5X360Reloaded's own, RELEASE_NOTES.md with
+    docs/release-notes/v<version>.md, dlc/README.md and updates/README.md with the folder
+    renamed, and leaves out AUTOLOG.md; then refuses the package if any other text file still
+    names PPSA50011 (the English-keyed language files included);
   * replaces eboot.bin, after checking the SELF magic and that the binary carries the release's
     version labels ("PS5X360Reloaded v<version>", "BOOT version <version>"), no candidate label
     and not the official app's "PS5X360 v<version>" label;
@@ -105,6 +110,24 @@ ART = [
      'a44a30407639a3859a6efbffb9ec555a9a220f86c9b886e09e2e48bd8776e377'),
 ]
 PNG_SIGNATURE = b'\x89PNG\r\n\x1a\n'
+
+# The official package's user docs name its folder PPSA50011 (copy the folder there, put DLC and
+# updates in PPSA50011/..., logs in /data/homebrew/PPSA50011/logs); shipped as they are, they
+# would send PS5X360Reloaded's files into the official app's folder. See package-docs/README.md.
+# INSTALLATION.md: PS5X360Reloaded's own (package-docs/INSTALLATION.md, placeholders filled in).
+# RELEASE_NOTES.md: the release's notes, docs/release-notes/v<version>.md.
+# (path, times the official text names PPSA50011): that text with the folder renamed.
+DOC_RENAMES = [('dlc/README.md', 1), ('updates/README.md', 1)]
+# Left out: the official AutoLog payload's guide (it reads /data/homebrew/PPSA50011/logs only).
+DOCS_LEFT_OUT = ['AUTOLOG.md']
+# The package's files that may name the official title id: the notices of where the package came
+# from, the docs that tell PS5X360Reloaded apart from it, and binaries (eboot.bin reads the
+# official folder for the first start's import; the official Kinect tracker and its source).
+# Every other text file naming it stops the packaging.
+# (licenses/PS5X360-<version>-NOTICE.txt too.)
+OFFICIAL_ID_ALLOWED = {'INSTALLATION.md', 'RELEASE_NOTES.md', 'RELEASE.json', 'eboot.bin',
+                       'tools/kinect-tracker.elf', 'KINECT-source-and-licenses.zip'}
+TEXT_SUFFIXES = ('.md', '.txt', '.json', '.toml', '.conf', '.ini', '.cfg', '.html', '.xml')
 
 
 def fail(message):
@@ -244,6 +267,41 @@ def art_files():
     return files
 
 
+def package_docs(files, version, repo, commit, repo_root=ROOT):
+    """Replaces the official user docs that name PPSA50011 (DOC_RENAMES, DOCS_LEFT_OUT, see
+    package-docs/README.md) in `files` ({name under PREFIX: bytes})."""
+    official = BASE_PREFIX.rstrip('/')
+    for name, count in DOC_RENAMES:
+        data = files.get(PREFIX + name)
+        if data is None:
+            fail(f'base package has no {name}')
+        if data.count(official.encode()) != count:
+            fail(f'base package {name} names {official} {data.count(official.encode())} times, not {count}')
+        files[PREFIX + name] = data.replace(official.encode(), TITLE_ID.encode())
+    for name in DOCS_LEFT_OUT:
+        files.pop(PREFIX + name, None)
+    template = (HERE / 'package-docs/INSTALLATION.md').read_text(encoding='utf-8')
+    for key in ('@VERSION@', '@REPOSITORY@', '@COMMIT@'):
+        if key not in template:
+            fail(f'tools/source-1.0.2/package-docs/INSTALLATION.md has no {key}')
+    text = template.replace('@VERSION@', version).replace('@REPOSITORY@', repo).replace('@COMMIT@', commit)
+    files[PREFIX + 'INSTALLATION.md'] = text.encode()
+    notes = repo_root / f'docs/release-notes/v{version}.md'
+    if not notes.is_file():
+        fail(f'no release notes {notes.relative_to(repo_root).as_posix()} for RELEASE_NOTES.md')
+    files[PREFIX + 'RELEASE_NOTES.md'] = notes.read_bytes()
+
+
+def official_id_problems(files, version):
+    """Text files of the package (not OFFICIAL_ID_ALLOWED or the release's NOTICE) that still name
+    the official title id."""
+    official = BASE_PREFIX.rstrip('/').encode()
+    allowed = OFFICIAL_ID_ALLOWED | {f'licenses/PS5X360-{version}-NOTICE.txt'}
+    return sorted(name[len(PREFIX):] for name, data in files.items()
+                  if name[len(PREFIX):] not in allowed
+                  and name.lower().endswith(TEXT_SUFFIXES) and official in data)
+
+
 def check_sources(sources, version):
     if sources.get('version') != version:
         fail(f'SOURCES.json version {sources.get("version")!r} is not {version!r}')
@@ -370,6 +428,9 @@ Other files
     {TITLE_ID}, content id {CONTENT_ID}, name {TITLE_NAME}, so this
     app installs next to the official PS5X360 instead of replacing it), sce_sys/icon0.png,
     pic0.png and pic1.png (the official art marked "RELOADED", tools/source-1.0.2/package-art),
+    the user docs that named the official app's folder (tools/source-1.0.2/package-docs:
+    INSTALLATION.md is PS5X360Reloaded's own, RELEASE_NOTES.md is this release's notes,
+    dlc/README.md and updates/README.md name {PREFIX} instead, AUTOLOG.md is left out),
     assets/lang/*.txt (English-keyed, tools/source-1.0.2/english/lang),
     assets/presets.txt, assets/config/*.toml and assets/patches/*.patch.toml (from the
     repository), VERSION, RELEASE.json, MANIFEST.json, this notice and the licence files above
@@ -426,6 +487,8 @@ def build(base_files, eboot, lang, sources, version, source_url, date, toolchain
     for target, data in licence_texts().items():
         files[PREFIX + target] = data
 
+    package_docs(files, version, repo, commit, repo_root)
+
     files[PREFIX + 'VERSION'] = (version + '\n').encode()
     files[PREFIX + f'licenses/PS5X360-{version}-NOTICE.txt'] = notice(
         version, date, repo, commit, eboot_sha, sources, toolchain, sources_sha)
@@ -454,6 +517,10 @@ def build(base_files, eboot, lang, sources, version, source_url, date, toolchain
     manifest = {name[len(PREFIX):]: {'bytes': len(data), 'sha256': sha256(data)}
                 for name, data in sorted(files.items())}
     files[PREFIX + 'MANIFEST.json'] = (json.dumps(manifest, indent=2) + '\n').encode()
+    named = official_id_problems(files, version)
+    if named:
+        fail(f'files that still name the official title id {BASE_PREFIX.rstrip("/")}: {", ".join(named)} '
+             '(English-keyed language files: tools/source-1.0.2/english/rekey.py RENAMES)')
     return files
 
 
