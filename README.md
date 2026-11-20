@@ -364,10 +364,11 @@ and Microsoft's image server.
 
 Licenses:
 - **The released `eboot.bin` is GPL-3.0** as a whole: it links wolfSSL and ps5-framegen (both
-  GPL-3.0-or-later). Each part keeps its own licence too: PS5X360 code is MIT, Xenia is
-  BSD-3-Clause. The package's `LICENSE` is the GPL-3.0 text, and its `PPSA83600/licenses/` folder
-  has every licence text (the MIT notice of the PS5X360 code in `PS5X360-MIT.txt`) and the notice
-  `PS5X360-1.0.3-NOTICE.txt`.
+  GPL-3.0-or-later). Each part keeps its own licence too: the MIT-licensed PS5X360 code stays
+  MIT, Xenia is BSD-3-Clause. The package's `PPSA83600/licenses/` folder has every licence text
+  and the notice `PS5X360-1.0.3-NOTICE.txt`. From 1.0.4, the package's `LICENSE` is the GPL-3.0
+  text and `PPSA83600/licenses/` has `PS5X360-MIT.txt` (the MIT notice of the PS5X360 code);
+  v1.0.3 shipped the official MIT `LICENSE`.
 - **The source is attached to each release:** `PS5X360-1.0.3-source.tar.xz` (the tree the
   `eboot.bin` was compiled from, with `SOURCES.json`), `PS5X360Reloaded-1.0.3-scripts.tar.gz`
   (this repository at the release commit), `PS5X360-1.0.3-toolchain-source.tar.xz` (the toolchain

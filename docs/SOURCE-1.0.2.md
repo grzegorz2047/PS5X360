@@ -304,6 +304,10 @@ differs in the source, but its bytes (and SHA-256) are not the candidate's.
 over. It replaces the binary releases `v1.0.2-opt` and `v1.0.2-opt-r2`; `release-binary.yml` and
 `tools/binary-release` stay only to rebuild those (the image script `make_images.sh` is shared).
 
+The `contentVersion` derived from the version and the GPL-3.0 `LICENSE` of the package start with
+1.0.4 and are not a v1.0.3 fix: they must not be merged back into `release/source-1.0.3`, because
+rebuilding 1.0.3 with them changes its `contentVersion` and `LICENSE`.
+
 ## Licensing
 
 PS5X360's own code is MIT and Xenia is BSD-3-Clause, but the executable as a whole is

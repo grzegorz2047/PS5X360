@@ -4,7 +4,7 @@ import hashlib
 import zipfile
 
 root = Path(__file__).resolve().parents[1]
-names = ["LICENSE", "docs/AUTOLOG.md", "tools/autolog.py", "tools/check-autolog.py",
+names = ["LICENSE", "licenses/PS5X360-MIT.txt", "docs/AUTOLOG.md", "tools/autolog.py", "tools/check-autolog.py",
          "tools/Configure AutoLog.bat", "tools/Start AutoLog.bat",
          "server/autolog/package.json", "server/autolog/package-lock.json",
          "server/autolog/wrangler.toml", "server/autolog/src/index.js",

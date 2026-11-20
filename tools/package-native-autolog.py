@@ -5,7 +5,7 @@ root=Path(__file__).resolve().parents[1]
 out=root/'build/autolog-native'
 elf=out/'PS5X360-AutoLog.elf'
 assert elf.read_bytes().startswith(b'\x7fELF')
-names=['LICENSE','native/autolog/README.md','native/autolog/collector.c',
+names=['LICENSE','licenses/PS5X360-MIT.txt','native/autolog/README.md','native/autolog/collector.c',
        'native/autolog/local_files.h',
        'native/autolog/start.c','native/autolog/test.c','native/autolog/mbedtls_user_config.h',
        'tools/build-native-autolog.sh','tools/check-native-autolog.sh','tools/check-autolog-ftp.py',

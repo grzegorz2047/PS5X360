@@ -15,6 +15,7 @@ items = {
     "hir-receipt.json": "build/ps5/hir-receipt.json",
     "CPU_TRANSLATION.md": "docs/CPU_TRANSLATION.md",
     "LICENSE": "LICENSE",
+    "licenses/PS5X360-MIT.txt": "licenses/PS5X360-MIT.txt",
     "licenses/XENIA-BSD.txt": "licenses/XENIA-BSD.txt",
     "licenses/FMT.txt": "licenses/FMT.txt",
 }

@@ -19,7 +19,7 @@ Reference projects consulted during the port include [ProsperoEden](https://gith
 
 ## Licenses
 
-The project as a whole is distributed under the GPL-3.0 (the root `LICENSE`), as is the `eboot.bin` built from it, which links GPL-3.0 code. The project's original code, PS5X360 by BrinooTk and the earlier contributions, came under the MIT License and keeps its notice in `licenses/PS5X360-MIT.txt`. The emulator core, graphics driver, native runtime, tools and other dependencies keep their respective licenses; the root GPL-3.0 does not replace third-party BSD, MIT, LGPL or other terms. Copies of notices are included in `licenses/` and in release archives.
+The project as a whole is distributed under the GPL-3.0 (the root `LICENSE`), as is the `eboot.bin` built from it, which links GPL-3.0 code. The project's original code, PS5X360 by BrinooTk and the earlier contributions, came under the MIT License and keeps its notice in `licenses/PS5X360-MIT.txt`; MIT code may be part of a GPL-3.0 work, and this does not relicense it. The emulator core, graphics driver, native runtime, tools and other dependencies keep their respective licenses; the root GPL-3.0 does not replace third-party BSD, MIT, LGPL or other terms. Copies of notices are included in `licenses/` and in release archives.
 
 ## Artwork
 
