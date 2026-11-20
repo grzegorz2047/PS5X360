@@ -206,6 +206,7 @@ also listed here.
 | 69 (`69-suspend-trace`) | a diagnostic for Ninja Gaiden II's black screen on candidate 26 (two job threads that suspended themselves were never woken): the log reports resumes that reach a thread before it suspends itself, and the stall report lists each thread's recent suspensions and resumes | host-checked (`tools/check-suspend-trace.cpp`); console: 1.0.4_candidate_29 |
 | 71 (`71-pending-resume`) | Ninja Gaiden II's black screen (issue #11, candidate 26): a thread that suspends itself right after another thread resumed it no longer sleeps for ever (the early resume is kept for 10 ms); reproduced and checked by a host stress test | host-checked (`tools/check-pending-resume.cpp`); console: next combined candidate (31) |
 | 72 (`72-phone-page-version`) | Kinect with a phone: a phone page left open while the app was updated reloads once by itself, so it runs the console's current page (candidate 28's phone kept an older page and showed no delay line) | host-checked (`tools/check-page-version.cpp`, `tools/check-page-version.mjs`); console: next combined candidate (31) |
+| 73 (`73-draw-cost`) | a diagnostic for 1.0.5: the summary splits the GPU thread's draw time (Modern Warfare 2: 448 ms/s) into primitives, render targets, pipeline, state and constants, bindings, buffers and recording, to choose what to make faster | host-checked (`tools/check-draw-cost.cpp`); console: first 1.0.5 perf candidate |
 
 ## Comparison with the official executable
 

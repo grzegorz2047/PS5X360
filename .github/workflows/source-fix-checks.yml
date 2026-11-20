@@ -76,6 +76,7 @@ on:
       - 'tools/check-pending-resume.cpp'
       - 'tools/check-page-version.cpp'
       - 'tools/check-page-version.mjs'
+      - 'tools/check-draw-cost.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

@@ -78,6 +78,7 @@ checks=(
   check-suspend-trace.cpp          # fix 69
   check-pending-resume.cpp         # fix 71
   check-page-version.cpp           # fix 72
+  check-draw-cost.cpp              # fix 73
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -120,6 +121,7 @@ declare -A fix_of=(
   [check-suspend-trace.cpp]=69
   [check-pending-resume.cpp]=71
   [check-page-version.cpp]=72
+  [check-draw-cost.cpp]=73
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
