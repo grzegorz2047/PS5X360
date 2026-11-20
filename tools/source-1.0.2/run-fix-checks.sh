@@ -12,6 +12,8 @@
 # label in the tree's VERSION and SOURCES.json, the release eboot check, the GPL source tarball
 # step), tools/check-source-package.py (package.py), tools/check-release-guard.py
 # (release-source.yml's decisions) and tools/check-core-commit.py (build.sh's core commit).
+# check-game-info.cpp reads a committed excerpt of the official package's assets/gameinfo.txt, and
+# the whole file too when PS5X360_GAMEINFO names it (fix 43).
 set -euo pipefail
 repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 tree=$(realpath "$1")
@@ -31,10 +33,18 @@ checks=(
   check-system-ui.cpp              # fix 26
   check-fix26-tree.cpp             # fix 26
   check-save-devices.cpp           # fix 27
+  check-home-hints.cpp             # fix 40 (reconstructed files)
+  check-cover-fallback.cpp         # fix 41
+  check-network-self-test.cpp      # fix 42
+  check-ui-lang-overlay.cpp        # fix 43
+  check-game-info.cpp              # fix 43
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-save-devices.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-cover-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-ui-lang-overlay.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-game-info.cpp]="$repo/tools/source-1.0.2/fixtures/gameinfo-excerpt.txt"
 )
 mkdir -p "$tree/tools" "$tree/build/fix-checks"
 status=0

@@ -12,6 +12,7 @@
 \sof\s = \svan\s
 \sout\sof\s5 = \svan\sde\s5
 \swithout\sa\scover\son\sXboxUnity = \szonder\shoes\sop\sXboxUnity
+\swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \szonder\shoes\sop\sXboxUnity\sof\sde\sserver\svan\sMicrosoft
 %d\schanged\s\s> = %d\sgewijzigd\s\s>
 %d\sof\s%d = %d\svan\s%d
 %d\sof\s%d\spatches\senabled = %d\svan\s%d\spatches\singeschakeld

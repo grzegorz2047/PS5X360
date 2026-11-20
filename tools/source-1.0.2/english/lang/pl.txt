@@ -12,6 +12,7 @@
 \sof\s = \sz\s
 \sout\sof\s5 = \sna\s5
 \swithout\sa\scover\son\sXboxUnity = \sbez\sokładki\sw\sXboxUnity
+\swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \sbez\sokładki\sw\sXboxUnity\sani\sna\sserwerze\sMicrosoftu
 %d\schanged\s\s> = Zmienione:\s%d\s\s>
 %d\sof\s%d = %d\sz\s%d
 %d\sof\s%d\spatches\senabled = Włączone\słatki:\s%d\sz\s%d

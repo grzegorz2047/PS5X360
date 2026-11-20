@@ -10,6 +10,7 @@
 \sis\sopen:\sit\swill\sbe\sclosed = \sestá\sabierto:\sse\scerrará
 \sof\s = \sde\s
 \swithout\sa\scover\son\sXboxUnity = \ssin\scarátula\sen\sXboxUnity
+\swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \ssin\sportada\sen\sXboxUnity\sni\sen\sMicrosoft
 %d\schanged\s\s> = %d\scambiadas\s\s>
 %d\sof\s%d = %d\sde\s%d
 %d\sof\s%d\spatches\senabled = %d\sde\s%d\sparches\sactivados

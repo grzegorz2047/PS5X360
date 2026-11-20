@@ -12,6 +12,7 @@
 \sof\s = \s/\s
 \sout\sof\s5 = \s/\s5
 \swithout\sa\scover\son\sXboxUnity = \s개는\sXboxUnity에\s표지\s없음
+\swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \sXboxUnity와\sMicrosoft\s서버에\s표지\s없음
 %d\schanged\s\s> = %d개\s변경\s\s>
 %d\sof\s%d = %d\s/\s%d
 %d\sof\s%d\spatches\senabled = 패치\s%d\s/\s%d개\s켜짐

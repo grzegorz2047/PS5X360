@@ -6,9 +6,13 @@
 #include "xenia/base/logging.h"
 
 // Defined in an unpublished file of 1.0.x; declared by the core's vulkan_presenter.cc and set by
-// presenter_sidecar.hpp from /app0/framegen.conf (the menu's frame generation switch).
+// presenter_sidecar.hpp from framegen.conf (the menu's frame generation switch). Name, default,
+// description and category as the official 1.0.2 eboot registers it (fix 40; 0x1230a6-0x1230be:
+// strings 0x1dc1a3b, 0x1dc1a53, 0x1d23974, default false).
 DEFINE_bool(ps5_frame_interpolation, false,
-            "Frame generation (ps5-framegen); set from framegen.conf.", "GPU");
+            "Independent Vulkan midpoint interpolation prototype. Requires the presenter sidecar "
+            "and measured display pacing; disabled by default.",
+            "Vulkan");
 
 namespace xbox360ps5 {
 // 1.0.x radv_dispatch.cpp chooses the console's OpenGL driver under the Vulkan renderer

@@ -12,6 +12,7 @@
 \sof\s = \sdi\s
 \sout\sof\s5 = \ssu\s5
 \swithout\sa\scover\son\sXboxUnity = \ssenza\scopertina\ssu\sXboxUnity
+\swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \ssenza\scopertina\ssu\sXboxUnity\sné\ssul\sserver\sdi\sMicrosoft
 %d\schanged\s\s> = %d\smodificate\s\s>
 %d\sof\s%d = %d\sdi\s%d
 %d\sof\s%d\spatches\senabled = %d\sdi\s%d\spatch\sattive

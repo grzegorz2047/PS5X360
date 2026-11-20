@@ -12,6 +12,7 @@
 \sof\s = \sde\s
 \sout\sof\s5 = \sde\s5
 \swithout\sa\scover\son\sXboxUnity = \ssem\scapa\sno\sXboxUnity
+\swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \ssem\scapa\sno\sXboxUnity\snem\sna\sMicrosoft
 %d\schanged\s\s> = %d\salteradas\s\s>
 %d\sof\s%d = %d\sde\s%d
 %d\sof\s%d\spatches\senabled = %d\sde\s%d\spatches\sligados
