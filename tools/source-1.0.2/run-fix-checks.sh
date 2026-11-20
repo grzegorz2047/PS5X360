@@ -11,7 +11,8 @@
 # guest paths, linked with the tree's xenia/base and disc image device) with bash.
 # check-game-info.cpp reads a committed excerpt of the official package's assets/gameinfo.txt, and
 # the whole file too when PS5X360_GAMEINFO names it (fix 43). check-guest-crash.cpp (fix 45) runs
-# threads that time XmaDecoder's pause handshake (100 ms with the fix; 1.0.2's still waiting at 300 ms).
+# threads that time XmaDecoder's pause handshake (100 ms as a rule and 1 s at most with the fix; 1.0.2's
+# still waiting at 300 ms) and suspends one of its own threads with SIGUSR1 while it holds a lock.
 set -euo pipefail
 repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 tree=$(realpath "$1")

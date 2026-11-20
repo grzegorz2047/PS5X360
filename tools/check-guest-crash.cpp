@@ -8,21 +8,42 @@
 //      ("STALL after a guest crash on thread F8000104 at PC 824F849C, 16 s ago; the emulator paused
 //      itself ...") and is the line it always was when nothing crashed; the crashed thread's state
 //      and the overlay's detail. In the assembled tree: the core declares the weak hook and calls
-//      it in ExceptionCallback before Pause(), canary_game_main.cpp defines it, logs the headline
-//      and names the crashed thread in ReportStall, and the overlay shows the notice.
+//      it in ExceptionCallback before it builds the dump and pauses, and leaves its own "Uh-oh!"
+//      modal out when the port has the hook; canary_game_main.cpp defines it, logs the headline,
+//      names the crashed thread in ReportStall, shows the notice and skips the Vulkan cache's exit
+//      checkpoint (the paused GPU worker would hold the way out for 30 s).
 //  (b) the overlay's two notices (English keys) are in every language file of
 //      tools/source-1.0.2/english/lang (the argument), Polish translated.
 //  (c) a model of XmaDecoder's pause handshake: a worker that sleeps on an auto-reset event and
 //      checks paused_ after each pass over the contexts (signal pause_fence_, wait on
-//      resume_fence_). With the fix, Pause() returns within 100 ms with the worker idle and no
-//      context kicked, over and over, and without a worker loop (xma_inline) at once; the 1.0.2
-//      Pause (no Set) is still waiting after 300 ms in both cases and only a kick (or a signal
-//      nobody sends) lets it go: the frozen crash handler. The tree's XmaDecoder::Pause,
-//      WorkerThreadMain and Resume are checked to be what the model runs.
-// Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh).
+//      resume_fence_). With the fix, Pause() returns with the worker idle and no context kicked
+//      (expected within 100 ms; at most a few of 50 rounds slower, none over 1 s: shared runners),
+//      with the worker busy, and at once without a worker loop (xma_inline); the 1.0.2 Pause (no
+//      Set) is still waiting after 300 ms in both cases and only a kick (or a signal nobody sends)
+//      lets it go: the frozen crash handler. Whether the worker loop runs is decided once in
+//      Setup: the port applies its settings again during a game, and a Pause that read the cvar
+//      then (fix 45's draft) waited for a loop that never ran, or returned while one still
+//      decoded. The tree's XmaDecoder::Setup, WriteRegister, Pause, WorkerThreadMain and Resume
+//      are checked to be what the model runs.
+//  (d) once Pause() returns, Emulator::Pause suspends every guest thread wherever it is (on the
+//      PS5 a signal). A thread stopped while it holds the log's recent_mutex_ would block every
+//      thread that logs next, the frame loop and its STALL report too. The model: a thread
+//      holding a lock under fix 45's SuspensionDeferral is stopped only once it lets go, and
+//      another thread then takes the lock; without it, the lock stays held for as long as the
+//      thread is stopped. The deferral nests. In the tree: threading_posix.cc's
+//      SuspensionDeferral and logging.cc's uses of it (RememberLine, KeepRecentLines,
+//      WriteRecentLines, Logger::AppendLine).
+// Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh). With fix 45
+// left out (skip_fixes) there is nothing to check.
 #undef NDEBUG
+#if __has_include("../port/guest_crash.hpp")
 #include "../port/guest_crash.hpp"  // the assembled tree's port/ (run from <tree>/tools)
 
+#include <pthread.h>
+#include <signal.h>
+#include <time.h>
+
+#include <algorithm>
 #include <atomic>
 #include <cassert>
 #include <chrono>
@@ -34,6 +55,7 @@
 #include <initializer_list>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -62,9 +84,16 @@ std::string ReadTree(const char* path) {
 
 bool Has(const std::string& text, const std::string& part) { return text.find(part) != std::string::npos; }
 
+size_t Count(const std::string& text, const std::string& part) {
+  size_t count = 0;
+  for (size_t at = text.find(part); at != std::string::npos; at = text.find(part, at + part.size())) ++count;
+  return count;
+}
+
 // The text from `start` to the first "\n}\n" after it (a function's body at namespace level).
 std::string Body(const std::string& text, const std::string& start) {
   const auto at = text.find(start);
+  if (at == std::string::npos) std::fprintf(stderr, "  not found: %s\n", start.c_str());
   assert(at != std::string::npos && "function not found in the tree");
   const auto end = text.find("\n}\n", at);
   assert(end != std::string::npos);
@@ -163,16 +192,26 @@ void TreeUsesIt() {
       std::string(39, ' ') + "uint64_t fault_address)";
   const std::string emulator = ReadTree(".deps/xenia-canary/src/xenia/emulator.cc");
   assert(Has(emulator, hook + " __attribute__((weak));"));
-  // In ExceptionCallback: the crash dump is logged, the port told, then Pause().
+  // In ExceptionCallback: the port told as soon as the function and thread are known (before the
+  // dump is built and flushed, and before Pause()); the guest function not trusted to be there.
+  // The core's modal only without the hook.
   const std::string callback = Body(emulator, "bool Emulator::ExceptionCallback(Exception* ex) {");
-  assert(InOrder(callback, {"XELOGE(\"{}\", crash_msg);", "if (Xbox360PS5GuestCrashed) {",
-                            "guest_function->MapMachineCodeToGuestAddress(ex->pc());",
-                            "Xbox360PS5GuestCrashed(guest_pc, current_thread->handle(), fault_address);",
-                            "  Pause();", "current_thread->Suspend(nullptr);"}));
-  assert(Has(callback, "ex->code() == Exception::Code::kAccessViolation ? ex->fault_address()"));
+  assert(InOrder(callback, {"auto guest_function = code_cache->LookupFunction(ex->pc());",
+                            "if (Xbox360PS5GuestCrashed) {",
+                            "guest_function ? guest_function->MapMachineCodeToGuestAddress(ex->pc())",
+                            "ex->code() == Exception::Code::kAccessViolation ? ex->fault_address()",
+                            "Xbox360PS5GuestCrashed(guest_pc,",
+                            "current_thread ? current_thread->handle() : 0", "std::string crash_msg;",
+                            "XELOGE(\"{}\", crash_msg);", "FlushLog();", "  Pause();",
+                            "if (display_window_ && imgui_drawer_ && !Xbox360PS5GuestCrashed) {",
+                            "ShowMessageBox(", "current_thread->Suspend(nullptr);"}));
+  assert(Count(callback, "Xbox360PS5GuestCrashed(") == 1);  // called once
+  assert(Count(callback, "display_window_ && imgui_drawer_") == 1);
 
   const std::string main = ReadTree("src/canary_game_main.cpp");
-  assert(Has(main, "#include \"guest_crash.hpp\""));
+  // The include after the resolver's declaration, where fix 33's line above it is not context.
+  assert(Has(main, "extern \"C\" void ps5x_resolver_report(char* out, size_t size);  // port/ps5_resolver.cpp\n"
+                   "#include \"guest_crash.hpp\""));
   assert(Has(main, hook + " {"));
   assert(Has(main, "xbox360ps5::guest_crash::Global().Record(guest_pc, thread_handle, fault_address,"));
   // The frame watch's first STALL line comes from StallHeadline; the old text only there.
@@ -186,8 +225,16 @@ void TreeUsesIt() {
   // The overlay: the notice whenever a crash is recorded, with the PC after it.
   assert(Has(main, "const auto crash = xbox360ps5::guest_crash::Global().Get();"));
   assert(Has(main, "notice += xbox360ps5::guest_crash::NoticeDetail(crash);"));
-  std::printf("  the tree: hook declared weak and called before Pause(), defined by the port, used by "
-              "the STALL report and the overlay\n");
+  // The way out after a crash: no snapshot asked of the paused GPU worker (30 s for nothing).
+  const std::string checkpoint = Body(main, "void CheckpointExitCache(");
+  assert(InOrder(checkpoint, {"if (xbox360ps5::guest_crash::Global().Get().recorded) {",
+                              "\"Vulkan cache: exit checkpoint skipped after a guest crash\"", "return;",
+                              "RequestPipelineCacheSnapshot()"}));
+  // The recorder needs no guard inside the exception handler.
+  const std::string header = ReadTree("port/guest_crash.hpp");
+  assert(Has(header, "inline constinit Recorder global_recorder;"));
+  std::printf("  the tree: hook declared weak and called before the dump and Pause(), no core modal with "
+              "it, defined by the port, used by the STALL report, the overlay and the exit checkpoint\n");
 }
 
 // ---------------------------------------------------------------- (b) the language files
@@ -241,6 +288,10 @@ void LanguageFiles(const fs::path& folder) {
   assert(texts["pl"][keys[1]] ==
          "Gra uległa awarii i emulator ją wstrzymał. OPTIONS + touchpad: przewodnik, potem Zamknij "
          "grę i wróć do menu");
+  // es.txt has no Spanish for the guide's row, which shows in English there: the notice names it
+  // as it is on the screen.
+  assert(Has(texts["es"][keys[0]], "Close the game and return to the menu"));
+  assert(Has(texts["es-419"][keys[0]], "Cerrar el juego y volver al menú"));
   // The overlay asks for exactly these keys.
   const std::string main = ReadTree("src/canary_game_main.cpp");
   assert(Has(main, "Tr(\"" + keys[0] + "\")") && Has(main, "Tr(\"" + keys[1] + "\")"));
@@ -297,20 +348,25 @@ class Fence {
   bool signaled_ = false;
 };
 
+// Which XmaDecoder::Pause runs: 1.0.2's (no Set), fix 45's draft (Set, but the live cvar decides
+// whether a worker loop is there) or fix 45's (Set, the worker as Setup started it).
+enum class PauseKind { k102, kDraft, kFix };
+
 // XmaDecoder's worker, Pause and Resume (apu/xma_decoder.cc), with the contexts' work reduced to
 // a count of kicks.
 struct XmaModel {
-  const bool fix;        // fix 45's Pause, else 1.0.2's
-  const bool dedicated;  // cvars::use_dedicated_xma_thread (off with the game option xma_inline)
+  const PauseKind kind;
+  const bool dedicated_worker;  // dedicated_worker_: cvars::use_dedicated_xma_thread at Setup
+  std::atomic<bool> cvar;       // cvars::use_dedicated_xma_thread now (settings applied again)
   std::atomic<bool> worker_running{true}, paused{false};
   std::atomic<int> kicks{0}, passes_with_work{0};
   AutoResetEvent work_event;
   Fence pause_fence, resume_fence;
   std::thread worker;
 
-  XmaModel(bool fix, bool dedicated) : fix(fix), dedicated(dedicated) {
+  XmaModel(PauseKind kind, bool dedicated) : kind(kind), dedicated_worker(dedicated), cvar(dedicated) {
     // XmaDecoder::Setup's XHostThread: WorkerThreadMain only with a dedicated thread.
-    if (dedicated) worker = std::thread([this] { WorkerThreadMain(); });
+    if (dedicated_worker) worker = std::thread([this] { WorkerThreadMain(); });
   }
   void WorkerThreadMain() {
     while (worker_running) {
@@ -327,9 +383,10 @@ struct XmaModel {
   void Pause() {
     if (paused) return;
     paused = true;
-    if (fix) {
-      if (!dedicated) return;  // no worker loop: nobody would signal the fence
-      work_event.Set();        // an idle worker wakes and reaches the paused check
+    if (kind != PauseKind::k102) {
+      const bool loop = kind == PauseKind::kFix ? dedicated_worker : cvar.load();
+      if (!loop) return;  // no worker loop: nobody would signal the fence
+      work_event.Set();   // an idle worker wakes and reaches the paused check
     }
     pause_fence.Wait();
   }
@@ -355,35 +412,56 @@ struct XmaModel {
       std::this_thread::sleep_for(1ms);
     }
   }
+  void WaitPassesAbove(int count) {
+    const auto until = Clock::now() + 2s;
+    while (passes_with_work <= count) {
+      assert(Clock::now() < until && "the worker decodes the kick");
+      std::this_thread::sleep_for(1ms);
+    }
+  }
 };
 
 // Runs Pause() on its own thread (the crashing guest thread in ExceptionCallback).
 struct PauseCall {
+  const Clock::time_point started = Clock::now();
   std::atomic<bool> returned{false};
+  std::atomic<int64_t> took_us{-1};
   std::thread thread;
   explicit PauseCall(XmaModel& model) : thread([this, &model] {
     model.Pause();
+    took_us = std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - started).count();
     returned = true;
   }) {}
   bool ReturnsWithin(std::chrono::milliseconds limit) {
-    const auto until = Clock::now() + limit;
+    const auto until = started + limit;
     while (!returned && Clock::now() < until) std::this_thread::sleep_for(1ms);
     return returned;
   }
   ~PauseCall() { thread.join(); }
 };
 
+// The handshake's bound is 100 ms; a shared runner can stall a thread longer now and then, which
+// says nothing about the fix (1.0.2's Pause does not return at all without a kick). So: every
+// round within 1 s, and all but a few within 100 ms.
+constexpr auto kExpected = 100ms;
+constexpr auto kHardLimit = 1000ms;
+constexpr int kSlowRoundsAllowed = 5;
+
 void FixedPauseWithIdleWorker() {
-  XmaModel model(true, true);
+  XmaModel model(PauseKind::kFix, true);
   // Some audio first, as before the crash; then the guest's audio stops (AudioSystem paused).
   model.Kick();
   model.WaitIdle();
+  int slow = 0;
+  int64_t slowest_us = 0;
   for (int round = 0; round < 50; ++round) {
     const int kicks_before = model.kicks.load();
     {
       PauseCall call(model);
-      assert(call.ReturnsWithin(100ms) && "fix 45: Pause() returns with the worker idle, no kick");
+      assert(call.ReturnsWithin(kHardLimit) && "fix 45: Pause() returns with the worker idle, no kick");
       assert(model.kicks == kicks_before);  // nothing kicked the worker
+      if (call.took_us > std::chrono::duration_cast<std::chrono::microseconds>(kExpected).count()) ++slow;
+      slowest_us = std::max<int64_t>(slowest_us, call.took_us);
     }
     // While paused, a kick is not decoded; after Resume it is.
     const int worked = model.passes_with_work.load();
@@ -391,20 +469,19 @@ void FixedPauseWithIdleWorker() {
     std::this_thread::sleep_for(round == 0 ? 20ms : 0ms);
     assert(model.passes_with_work == worked);
     model.Resume();
-    const auto until = Clock::now() + 2s;
-    while (model.passes_with_work == worked) {
-      assert(Clock::now() < until && "the worker decodes again after Resume");
-      std::this_thread::sleep_for(1ms);
-    }
+    model.WaitPassesAbove(worked);
     model.WaitIdle();
   }
   model.Shutdown();
-  std::printf("  fix 45, worker idle: Pause() returns within 100 ms without a kick (50 pauses, each resumed)\n");
+  std::printf("  fix 45, worker idle: Pause() returns without a kick (50 pauses, each resumed; %d over "
+              "100 ms, slowest %.1f ms)\n",
+              slow, slowest_us / 1000.0);
+  assert(slow <= kSlowRoundsAllowed && "fix 45: Pause() returns within 100 ms as a rule");
 }
 
 void FixedPauseWithBusyWorker() {
   // The worker in the middle of a pass when Pause() comes: it still stops after that pass.
-  XmaModel model(true, true);
+  XmaModel model(PauseKind::kFix, true);
   std::atomic<bool> stop{false};
   std::thread kicker([&] {
     while (!stop) {
@@ -413,22 +490,28 @@ void FixedPauseWithBusyWorker() {
     }
   });
   std::this_thread::sleep_for(20ms);
-  {
-    PauseCall call(model);
-    assert(call.ReturnsWithin(100ms));
+  int slow = 0;
+  for (int round = 0; round < 5; ++round) {
+    {
+      PauseCall call(model);
+      assert(call.ReturnsWithin(kHardLimit));
+      if (call.took_us > std::chrono::duration_cast<std::chrono::microseconds>(kExpected).count()) ++slow;
+    }
+    model.Resume();
+    std::this_thread::sleep_for(5ms);
   }
   stop = true;
   kicker.join();
-  model.Resume();
   model.Shutdown();
-  std::printf("  fix 45, worker busy: Pause() returns within 100 ms\n");
+  std::printf("  fix 45, worker busy: Pause() returns (5 pauses, %d over 100 ms)\n", slow);
+  assert(slow <= 1);
 }
 
 void FixedPauseWithoutWorker() {
-  XmaModel model(true, false);  // xma_inline: the XMA thread returns at once
+  XmaModel model(PauseKind::kFix, false);  // xma_inline: the XMA thread returns at once
   {
     PauseCall call(model);
-    assert(call.ReturnsWithin(100ms) && "fix 45: Pause() does not wait for a worker that does not run");
+    assert(call.ReturnsWithin(kHardLimit) && "fix 45: Pause() does not wait for a worker that does not run");
   }
   model.Resume();
   model.Shutdown();
@@ -437,7 +520,7 @@ void FixedPauseWithoutWorker() {
 
 void OldPauseHangs() {
   {
-    XmaModel model(false, true);
+    XmaModel model(PauseKind::k102, true);
     model.WaitIdle();
     {
       PauseCall call(model);
@@ -445,18 +528,18 @@ void OldPauseHangs() {
       // Only a context kick wakes the worker; after a crash nothing kicks (the guest's audio is
       // paused and its threads are about to be).
       model.Kick();
-      assert(call.ReturnsWithin(2000ms));
+      assert(call.ReturnsWithin(2300ms));
     }
     model.Resume();
     model.Shutdown();
   }
   {
-    XmaModel model(false, false);
+    XmaModel model(PauseKind::k102, false);
     {
       PauseCall call(model);
       assert(!call.ReturnsWithin(300ms) && "1.0.2's Pause() waits for a worker loop that never runs");
       model.pause_fence.Signal();  // what nothing in 1.0.2 does: let the check end
-      assert(call.ReturnsWithin(2000ms));
+      assert(call.ReturnsWithin(2300ms));
     }
     model.Resume();
     model.Shutdown();
@@ -464,17 +547,93 @@ void OldPauseHangs() {
   std::printf("  1.0.2's Pause() still waiting after 300 ms, idle worker or no worker loop: the frozen crash handler\n");
 }
 
+void SettingsAppliedAgain() {
+  // Started with xma_inline (no worker loop), then the settings applied again with it off: the
+  // cvar says "dedicated" while no loop runs.
+  {
+    XmaModel model(PauseKind::kDraft, false);
+    model.cvar = true;
+    {
+      PauseCall call(model);
+      assert(!call.ReturnsWithin(300ms) && "the draft's Pause() waits for a loop that never started");
+      model.pause_fence.Signal();
+      assert(call.ReturnsWithin(2300ms));
+    }
+    model.Resume();
+    model.Shutdown();
+  }
+  {
+    XmaModel model(PauseKind::kFix, false);
+    model.cvar = true;
+    {
+      PauseCall call(model);
+      assert(call.ReturnsWithin(kHardLimit) && "fix 45: the worker as Setup started it decides");
+    }
+    model.Resume();
+    model.Shutdown();
+  }
+  // Started with a worker loop, then the cvar turned off: the draft's Pause() returned while the
+  // worker still decoded; fix 45's waits until the worker has stopped.
+  {
+    XmaModel model(PauseKind::kDraft, true);
+    model.WaitIdle();
+    model.cvar = false;
+    {
+      PauseCall call(model);
+      assert(call.ReturnsWithin(kHardLimit));
+    }
+    const int worked = model.passes_with_work.load();
+    model.Kick();
+    model.WaitPassesAbove(worked);  // decoded although "paused"
+    model.Resume();
+    model.Shutdown();
+  }
+  {
+    XmaModel model(PauseKind::kFix, true);
+    model.WaitIdle();
+    model.cvar = false;
+    {
+      PauseCall call(model);
+      assert(call.ReturnsWithin(kHardLimit));
+    }
+    const int worked = model.passes_with_work.load();
+    model.Kick();
+    std::this_thread::sleep_for(20ms);
+    assert(model.passes_with_work == worked && "fix 45: nothing decoded while paused");
+    model.Resume();
+    model.WaitPassesAbove(worked);
+    model.Shutdown();
+  }
+  std::printf("  settings applied again (the cvar changed after Setup): fix 45 follows the worker as it "
+              "started; the draft's Pause() waited for nothing or returned while decoding\n");
+}
+
 void TreeXmaDecoder() {
   const std::string xma = ReadTree(".deps/xenia-canary/src/xenia/apu/xma_decoder.cc");
-  assert(Has(xma, "work_event_ = xe::threading::Event::CreateAutoResetEvent(false);"));
-  assert(InOrder(xma, {"[this]() {", "if (cvars::use_dedicated_xma_thread) {", "WorkerThreadMain();"}));
+  const std::string xma_h = ReadTree(".deps/xenia-canary/src/xenia/apu/xma_decoder.h");
+  assert(Has(xma_h, "bool dedicated_worker_ = true;"));
+  // The cvar is read once, in Setup, before the worker thread starts.
+  assert(Count(xma, "cvars::use_dedicated_xma_thread") == 1);
+  assert(InOrder(xma, {"dedicated_worker_ = cvars::use_dedicated_xma_thread;",
+                       "work_event_ = xe::threading::Event::CreateAutoResetEvent(false);", "[this]() {",
+                       "if (dedicated_worker_) {", "WorkerThreadMain();", "worker_thread_->Create();"}));
+  const std::string write = Body(xma, "void XmaDecoder::WriteRegister(uint32_t addr, uint32_t value) {");
+  assert(InOrder(write, {"context.Enable();", "if (!dedicated_worker_) {", "context.Work();",
+                         "work_event_->SetBoostPriority();", "if (dedicated_worker_) {", "WaitForWorkDone();"}));
   const std::string worker = Body(xma, "void XmaDecoder::WorkerThreadMain() {");
   assert(InOrder(worker, {"while (worker_running_) {", "contexts_[n]->Work();", "if (paused_) {",
                           "pause_fence_.Signal();", "resume_fence_.Wait();", "if (did_work) {",
                           "xe::threading::Wait(work_event_.get(), false);"}));
   const std::string pause = Body(xma, "void XmaDecoder::Pause() {");
-  assert(InOrder(pause, {"if (paused_) {", "paused_ = true;", "if (!cvars::use_dedicated_xma_thread) {",
-                         "return;", "work_event_->Set();", "pause_fence_.Wait();"}));
+  assert(InOrder(pause, {"if (paused_) {", "paused_ = true;", "if (!dedicated_worker_) {", "return;",
+                         "work_event_->Set();", "pause_fence_.Wait();"}));
+  // Set() unconditionally, once: between the xma_inline return and it only comments.
+  assert(Count(pause, "work_event_->Set();") == 1 && Count(pause, "pause_fence_.Wait();") == 1);
+  const auto inline_return = pause.find("return;\n  }\n", pause.find("if (!dedicated_worker_) {"));
+  const auto set = pause.find("work_event_->Set();");
+  assert(inline_return != std::string::npos && inline_return < set);
+  const std::string between = pause.substr(inline_return, set - inline_return);
+  assert(!Has(between, "if (") && !Has(between, "else") && !Has(between, "{"));
   const std::string resume = Body(xma, "void XmaDecoder::Resume() {");
   assert(InOrder(resume, {"paused_ = false;", "resume_fence_.Signal();"}));
   // The audio worker's pause, which the fix mirrors, wakes its worker the same way.
@@ -482,7 +641,163 @@ void TreeXmaDecoder() {
   assert(InOrder(Body(audio, "void AudioSystem::Pause() {"),
                  {"paused_ = true;", "pending_work_event_->Set();", "pause_fence_.Wait();",
                   "xma_decoder_->Pause();"}));
-  std::printf("  the tree's XmaDecoder::Pause, WorkerThreadMain and Resume are the model's\n");
+  std::printf("  the tree's XmaDecoder::Setup, WriteRegister, Pause, WorkerThreadMain and Resume are the model's\n");
+}
+
+// ---------------------------------------------------------------- (d) suspension and the log lock
+
+// Thread::Suspend on the PS5 is a signal whose handler waits until the thread is resumed.
+constexpr int kSuspendSignal = SIGUSR1;
+std::atomic<bool> model_suspended{false}, model_resume{false};
+
+void ModelSuspendHandler(int) {
+  model_suspended.store(true);
+  while (!model_resume.load()) {
+    timespec nap{0, 1000000};
+    nanosleep(&nap, nullptr);
+  }
+  model_resume.store(false);
+  model_suspended.store(false);
+}
+
+// threading_posix.cc's SuspensionDeferral (fix 45): the suspend signal blocked while it lives,
+// then put back as it was found.
+class ModelDeferral {
+ public:
+  ModelDeferral() {
+    sigset_t signals, previous;
+    sigemptyset(&signals);
+    sigaddset(&signals, kSuspendSignal);
+    pthread_sigmask(SIG_BLOCK, &signals, &previous);
+    was_deferred_ = sigismember(&previous, kSuspendSignal) == 1;
+  }
+  ~ModelDeferral() {
+    if (was_deferred_) return;
+    sigset_t signals;
+    sigemptyset(&signals);
+    sigaddset(&signals, kSuspendSignal);
+    pthread_sigmask(SIG_UNBLOCK, &signals, nullptr);
+  }
+  ModelDeferral(const ModelDeferral&) = delete;
+  ModelDeferral& operator=(const ModelDeferral&) = delete;
+
+ private:
+  bool was_deferred_ = false;
+};
+
+bool SuspendBlocked() {
+  sigset_t now;
+  pthread_sigmask(SIG_BLOCK, nullptr, &now);
+  return sigismember(&now, kSuspendSignal) == 1;
+}
+
+void WaitUntil(const std::atomic<bool>& flag, const char* what) {
+  const auto until = Clock::now() + 5s;
+  while (!flag) {
+    if (Clock::now() >= until) std::fprintf(stderr, "  never: %s\n", what);
+    assert(Clock::now() < until);
+    std::this_thread::sleep_for(1ms);
+  }
+}
+
+bool TakesLockWithin(std::mutex& mutex, std::chrono::milliseconds limit) {
+  const auto until = Clock::now() + limit;
+  do {
+    if (mutex.try_lock()) {
+      mutex.unlock();
+      return true;
+    }
+    std::this_thread::sleep_for(1ms);
+  } while (Clock::now() < until);
+  return false;
+}
+
+// A guest thread in RememberLine (holding recent_mutex_) when Emulator::Pause suspends it; then
+// the frame loop logs. True when the frame loop's log line could not take the lock.
+bool LoggerBlocked(bool deferred) {
+  std::mutex recent_mutex;  // logging.cc's recent_mutex_
+  std::atomic<bool> holding{false}, copied{false};
+  std::thread guest([&] {
+    std::optional<ModelDeferral> deferral;
+    if (deferred) deferral.emplace();
+    {
+      std::lock_guard<std::mutex> lock(recent_mutex);
+      holding = true;
+      while (!copied) std::this_thread::sleep_for(1ms);  // the line's copy, stretched
+    }
+    deferral.reset();  // the end of RememberLine: a pending suspension is taken here
+  });
+  WaitUntil(holding, "the guest thread holds the lock");
+  pthread_kill(guest.native_handle(), kSuspendSignal);  // Emulator::Pause's suspend loop
+  if (deferred) {
+    std::this_thread::sleep_for(50ms);
+    assert(!model_suspended && "deferred: not stopped while it holds the lock");
+  } else {
+    WaitUntil(model_suspended, "the guest thread stopped holding the lock");
+  }
+  copied = true;  // the section would end now, if the thread ran
+  WaitUntil(model_suspended, "the guest thread suspended");
+  // The frame loop's next log line (or its STALL report's recent lines).
+  const bool took = TakesLockWithin(recent_mutex, deferred ? 1000ms : 300ms);
+  model_resume = true;  // Emulator::Resume (or nothing: then for ever)
+  guest.join();
+  assert(!model_suspended && !model_resume);
+  return !took;
+}
+
+void SuspendedWhileLogging() {
+  struct sigaction action {};
+  action.sa_handler = ModelSuspendHandler;
+  sigemptyset(&action.sa_mask);
+  action.sa_flags = SA_RESTART;
+  assert(sigaction(kSuspendSignal, &action, nullptr) == 0);
+
+  assert(LoggerBlocked(false) && "1.0.2: a thread stopped in RememberLine keeps the log's lock");
+  assert(!LoggerBlocked(true) && "fix 45: stopped only once it let go of the lock");
+
+  // It nests: an inner deferral that ends leaves the outer one (a state_mutex_ section, or
+  // Thread::DeferSuspension) in force, and the last one restores what was there.
+  std::thread([] {
+    assert(!SuspendBlocked());
+    {
+      ModelDeferral outer;
+      assert(SuspendBlocked());
+      {
+        ModelDeferral inner;
+        assert(SuspendBlocked());
+      }
+      assert(SuspendBlocked() && "an inner deferral leaves the outer one in force");
+    }
+    assert(!SuspendBlocked());
+  }).join();
+  std::printf("  a thread suspended while it holds the log's lock: 1.0.2 blocks the next logger; with the "
+              "deferral it stops only after the lock is free, and deferrals nest\n");
+}
+
+void TreeSuspensionDeferral() {
+  const std::string threading = ReadTree(".deps/xenia-canary/src/xenia/base/threading.h");
+  assert(Has(threading, "class SuspensionDeferral {"));
+  const std::string posix = ReadTree(".deps/xenia-canary/src/xenia/base/threading_posix.cc");
+  assert(InOrder(Body(posix, "SuspensionDeferral::SuspensionDeferral() {"),
+                 {"sigaddset(&signals, GetSystemSignal(SignalType::kThreadSuspend));",
+                  "pthread_sigmask(SIG_BLOCK, &signals, &previous);", "was_deferred_ =",
+                  "sigismember(&previous, GetSystemSignal(SignalType::kThreadSuspend)) == 1;"}));
+  assert(InOrder(Body(posix, "SuspensionDeferral::~SuspensionDeferral() {"),
+                 {"if (was_deferred_) {", "return;", "pthread_sigmask(SIG_UNBLOCK, &signals, nullptr);"}));
+  const std::string log = ReadTree(".deps/xenia-canary/src/xenia/base/logging.cc");
+  // Every hold of recent_mutex_ is deferred, and the ring's claim-to-publish too.
+  assert(Count(log, "std::lock_guard<std::mutex> lock(recent_mutex_);") == 3);
+  for (const char* function :
+       {"void RememberLine(", "void logging::KeepRecentLines(bool keep) {", "void logging::WriteRecentLines() {"}) {
+    assert(InOrder(Body(log, function),
+                   {"xe::threading::SuspensionDeferral deferral;", "std::lock_guard<std::mutex> lock(recent_mutex_);"}));
+  }
+  const auto append = log.find("  void AppendLine(uint32_t thread_id, const char prefix_char,");
+  assert(append != std::string::npos);
+  assert(InOrder(log.substr(append), {"xe::threading::SuspensionDeferral deferral;",
+                                      "claim_strategy_.claim(count);", "claim_strategy_.publish(range);"}));
+  std::printf("  the tree: SuspensionDeferral restores the mask it found; the log defers suspension around "
+              "recent_mutex_ and the ring's claim and publish\n");
 }
 }  // namespace
 
@@ -508,8 +823,19 @@ int main(int argc, char** argv) {
   FixedPauseWithBusyWorker();
   FixedPauseWithoutWorker();
   OldPauseHangs();
+  SettingsAppliedAgain();
   TreeXmaDecoder();
+  SuspendedWhileLogging();
+  TreeSuspensionDeferral();
   finished = true;
   std::printf("check-guest-crash: all passed\n");
   return 0;
 }
+#else
+#include <cstdio>
+
+int main() {
+  std::printf("check-guest-crash: fix 45 left out (no port/guest_crash.hpp), not checked\n");
+  return 0;
+}
+#endif
