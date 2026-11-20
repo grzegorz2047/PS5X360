@@ -115,9 +115,10 @@ struct FakeFs {
   }
   // Scan.
   bool IsMountPoint(const stdfs::path& path) { return mounts.count(path.string()) != 0; }
+  // A read-only folder is that folder only (a drive whose top cannot be written, its xbox360
+  // folder can), as the console's probe writes a file in the folder itself.
   bool ProbeWritable(const stdfs::path& path) {
-    for (stdfs::path p = path; !p.empty() && p != p.root_path(); p = p.parent_path())
-      if (read_only.count(p.string())) return false;
+    if (read_only.count(path.string())) return false;
     return dirs.count(path.string()) != 0;
   }
   storage::FsInfo Info(const stdfs::path& path) {
