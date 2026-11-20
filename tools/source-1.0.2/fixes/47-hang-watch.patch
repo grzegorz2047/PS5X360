@@ -1253,7 +1253,15 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
  #include "xenia/cpu/entry_probe.h"  // candidate 21: Battlefield 3's render-job probes
  #include "xenia/gpu/memexport_merge.h"  // fix 30: the export lines for Battlefield 3
  #include "xenia/kernel/user_module.h"
-@@ -308,6 +312,11 @@ int scePadSetVibration(int32_t, const void*);
+@@ -180,6 +184,7 @@ DECLARE_bool(upnp);
+ #include "guide_network.hpp"  // fix 22: the network mode from the guide
+ #include "switch_title.hpp"  // fix 33: a title switch keeps the game's own options
+ #include <fcntl.h>
++#include <ctime>  // fix 47: the hang-watch file's name
+ #include "network_self_test.hpp"  // fix 42: the self-test's timing, lookups and TCP probe
+ extern "C" void ps5x_resolver_report(char* out, size_t size);  // port/ps5_resolver.cpp
+ #include "guest_crash.hpp"  // fix 45: a guest crash for the overlay and the STALL report
+@@ -308,6 +313,11 @@ int scePadSetVibration(int32_t, const void*);
  int scePadSetVibrationMode(int32_t, int32_t);
  int sceKernelDebugOutText(int, const char*);
  int sceSystemServiceLoadExec(const char*, const char**);
@@ -1265,7 +1273,7 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
  int sceSystemServiceHideSplashScreen();
  }
  namespace xbox360ps5 {
-@@ -1129,6 +1138,216 @@ void ReportStall(xe::Emulator& emulator, int pass) {
+@@ -1129,6 +1139,248 @@ void ReportStall(xe::Emulator& emulator, int pass) {
      xbox360ps5::ProbeThread(thread->thread()->native_handle(), name);
    }
  }
@@ -1340,9 +1348,26 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
 +  in.guest_physical = reserved(memory->GetPhysicalHeap());
 +}
 +
++// Candidate 20: leaves the newest `keep` hang-watch-*.txt files of the logs folder (by their time
++// of change, stat only), removes the older ones and an old single hang-watch.txt.
++void KeepNewestHangWatchFiles(const std::filesystem::path& folder, size_t keep) {
++  std::vector<std::pair<long long, std::filesystem::path>> files;
++  std::error_code error;
++  for (std::filesystem::directory_iterator at(folder, error), end; !error && at != end; at.increment(error)) {
++    const std::string name = at->path().filename().string();
++    if (name.rfind("hang-watch", 0) != 0 || name.size() < 4 || name.compare(name.size() - 4, 4, ".txt") != 0) continue;
++    struct stat info {};
++    if (::stat(at->path().c_str(), &info) != 0) continue;
++    files.emplace_back(static_cast<long long>(info.st_mtime), at->path());
++  }
++  std::sort(files.begin(), files.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
++  for (size_t n = keep; n < files.size(); ++n) ::unlink(files[n].second.c_str());
++}
++
 +class HangWatchThread {
 + public:
-+  HangWatchThread(std::filesystem::path folder, xe::gpu::CommandProcessor* processor, xe::Memory* memory)
++  HangWatchThread(std::filesystem::path folder, xe::gpu::CommandProcessor* processor, xe::Memory* memory,
++                  uint32_t title_id)
 +      : folder_(std::move(folder)), processor_(processor), memory_(memory) {
 +    // Candidate 4: the file is opened now, while nothing is stuck, and written with write()
 +    // and fsync() only: no lock is waited for later (the log's, the stream's, stdio's).
@@ -1351,7 +1376,21 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
 +    std::error_code error;
 +    std::filesystem::create_directories(folder_, error);
 +    fd_ = hang_watch_fd.load();
-+    if (fd_ < 0) fd_ = ::open((folder_ / "hang-watch.txt").c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
++    if (fd_ < 0) {
++      // 1.0.4_candidate_20: a file of its own each run, named like the game log
++      // (hang-watch-<title>-<UTC time>.txt): a game the system killed kept its last beats only
++      // until the next game started and truncated hang-watch.txt (Ninja Gaiden II, then MW2 on
++      // candidate 18). The newest 12 are kept.
++      KeepNewestHangWatchFiles(folder_, 11);
++      char name[64];
++      const std::time_t now = std::time(nullptr);
++      std::tm utc{};
++      gmtime_r(&now, &utc);
++      std::snprintf(name, sizeof(name), "hang-watch-%08X-%04d%02d%02d-%02d%02d%02d-UTC.txt", title_id,
++                    utc.tm_year + 1900, utc.tm_mon + 1, utc.tm_mday, utc.tm_hour, utc.tm_min, utc.tm_sec);
++      file_name_ = name;
++      fd_ = ::open((folder_ / file_name_).c_str(), O_WRONLY | O_CREAT | O_APPEND, 0644);
++    }
 +    hang_watch_fd.store(fd_);
 +    xbox360ps5::SetCrashReportMirror(fd_);
 +    xbox360ps5::hang_watch::raw_sink.store(&HangWatchRaw, std::memory_order_release);
@@ -1389,7 +1428,7 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
 +    const int rc_configured = sceKernelConfiguredFlexibleMemorySize(&configured);
 +    Emit(fmt::format("HANG watch started: a beat every 250 ms, a report after a 200 ms GPU call or 1 s of UI stop; file {} {}; "
 +                     "direct memory {} MiB, flexible configured {} MiB (rc {:x})",
-+                     (folder_ / "hang-watch.txt").string(), fd_ >= 0 ? "open" : "not open",
++                     (folder_ / file_name_).string(), fd_ >= 0 ? "open" : "not open",
 +                     sceKernelGetDirectMemorySize() >> 20, configured >> 20, unsigned(rc_configured)));
 +    uint64_t next_observe = start + 1000, next_beat = start + 250;
 +    while (!stop_.load()) {
@@ -1475,6 +1514,7 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
 +  xe::gpu::CommandProcessor* processor_ = nullptr;
 +  xe::Memory* memory_ = nullptr;
 +  std::atomic<uint64_t> started_ms_{0};
++  std::string file_name_ = "hang-watch.txt";
 +  int fd_ = -1;
 +  std::atomic<bool> stop_{false};
 +  std::thread thread_;
@@ -1482,7 +1522,7 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
  // Where the time goes in a slow scene: every guest and emulator thread is
  // sampled for a few seconds, and the log gets, per thread, the share spent in
  // generated guest code, in the emulator and in system libraries, with the
-@@ -1321,6 +1540,7 @@ class NativeWindow final : public xe::ui::Window {
+@@ -1321,6 +1573,7 @@ class NativeWindow final : public xe::ui::Window {
      return true;
    }
    void RequestCloseImpl() override {
@@ -1490,7 +1530,7 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
      WindowDestructionReceiver receiver(this);
      OnBeforeClose(receiver);
      OnAfterClose();
-@@ -2314,11 +2534,17 @@ int main(int argc, char** argv) {
+@@ -2314,11 +2567,17 @@ int main(int argc, char** argv) {
        // the working folder) and this restarts the title, which carries on from it.
        auto xam = emulator.kernel_state()->GetKernelModule<xe::kernel::xam::XamModule>("xam.xex");
        xe::kernel::xam::XamModule::restart_hook = [exit_cache] {
@@ -1508,7 +1548,7 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
          XELOGE("Title switch: restart refused {:08X}", unsigned(refused));
        };
        xam->LoadLoaderData();
-@@ -2658,7 +2884,14 @@ int main(int argc, char** argv) {
+@@ -2658,7 +2917,14 @@ int main(int argc, char** argv) {
          float fps_sum = 0.0f, fps_low = 1e9f, swaps_sum = 0.0f;
          const auto game_started = std::chrono::steady_clock::now();
          double next_shot = 5;
@@ -1516,14 +1556,14 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
 +        // stops when the loop ends: the exit below waits for the GPU on purpose).
 +        xbox360ps5::hang_watch::NameThread("ui");
 +        auto hang_watch_thread = std::make_unique<HangWatchThread>(
-+            log_root, emulator.graphics_system()->command_processor(), emulator.memory());
++            log_root, emulator.graphics_system()->command_processor(), emulator.memory(), emulator.title_id());
 +        hang_watch_thread->quit_requested_ = [&context] { return context.HasQuitFromUIThread(); };
          while (!context.HasQuitFromUIThread()) {
 +          xbox360ps5::hang_watch::ui_loop.Mark(xbox360ps5::hang_watch::kUiInput);
  #if 0  // The old OpenGL renderer's "refused operation" latch; the layer has no such state.
            if (started.renderer == int(xbox360ps5::Renderer::kOpenGL) &&
                static_cast<xbox360ps5::gl::OpenGLGraphicsSystem*>(
-@@ -2958,11 +3191,16 @@ int main(int argc, char** argv) {
+@@ -2958,11 +3224,16 @@ int main(int argc, char** argv) {
            xbox360ps5::motion::SetEnabled(settings.motion_phone != 0);
            input->Submit(sample);
            window.SubmitUiPad(sample);
@@ -1540,7 +1580,7 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
            }
            if (std::chrono::steady_clock::now() - sample_at >= std::chrono::seconds(1)) {
              const auto at = std::chrono::steady_clock::now();
-@@ -3087,6 +3325,7 @@ int main(int argc, char** argv) {
+@@ -3087,6 +3358,7 @@ int main(int argc, char** argv) {
              }
            }
          }

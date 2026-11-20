@@ -397,12 +397,16 @@ void CheckTree() {
   const size_t klass_end = main_text.find("std::thread thread_;", klass);
   Expect(klass != std::string::npos && klass_end != std::string::npos, "the watch class");
   const std::string watch = main_text.substr(klass, klass_end - klass);
-  for (const char* part : {"\"hang-watch.txt\"", "O_WRONLY | O_CREAT | O_TRUNC", "::usleep(50000);",
+  // Candidate 20: a file a run (hang-watch-<title>-<UTC time>.txt, appended), the newest 12 kept.
+  for (const char* part : {"\"hang-watch.txt\"", "O_WRONLY | O_CREAT | O_APPEND", "::usleep(50000);",
+                           "KeepNewestHangWatchFiles(folder_, 11);",
+                           "\"hang-watch-%08X-%04d%02d%02d-%02d%02d%02d-UTC.txt\"",
+                           "fd_ = ::open((folder_ / file_name_).c_str(), O_WRONLY | O_CREAT | O_APPEND, 0644);",
                            "HangWatchRawBatch(step.lines);", "next_observe = now + 50;",
                            "hw::HeartbeatLine(in)", "next_beat = now + 250;", "hang_watch_fd.store(fd_);",
                            "xbox360ps5::hang_watch::raw_sink.store(&HangWatchRaw, std::memory_order_release);",
                            "xbox360ps5::SetCrashReportMirror(fd_);", "ReadMemory(in, memory_);",
-                           "if (fd_ < 0) fd_ = ::open(", "HANG watch stopped: the game loop ended",
+                           "if (fd_ < 0) {", "HANG watch stopped: the game loop ended",
                            "std::atexit(HangWatchAtExit);", "std::at_quick_exit(HangWatchAtQuickExit);",
                            "void Emit(const std::string& text) { HangWatchRaw(text.data(), text.size()); }"})
     Expect(watch.find(part) != std::string::npos, std::string("the watch has: ") + part);
