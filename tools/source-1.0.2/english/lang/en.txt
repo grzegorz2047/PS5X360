@@ -14,6 +14,7 @@
 \sof\s = \sof\s
 \sout\sof\s5 = \sout\sof\s5
 \swithout\sa\scover\son\sXboxUnity = \swithout\sa\scover\son\sXboxUnity
+\swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft
 %d\schanged\s\s> = %d\schanged\s\s>
 %d\sof\s%d = %d\sof\s%d
 %d\sof\s%d\spatches\senabled = %d\sof\s%d\spatches\senabled

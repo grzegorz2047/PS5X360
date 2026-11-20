@@ -12,6 +12,7 @@
 \sof\s = \ssur\s
 \sout\sof\s5 = \ssur\s5
 \swithout\sa\scover\son\sXboxUnity = \ssans\sjaquette\ssur\sXboxUnity
+\swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \ssans\sjaquette\ssur\sXboxUnity\sni\ssur\sle\sserveur\sde\sMicrosoft
 %d\schanged\s\s> = %d\smodifiés\s\s>
 %d\sof\s%d = %d\ssur\s%d
 %d\sof\s%d\spatches\senabled = %d\spatchs\sactivés\ssur\s%d

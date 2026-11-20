@@ -1,0 +1,156 @@
+diff --git a/reconstructed/xbox360ps5/game_info.hpp b/reconstructed/xbox360ps5/game_info.hpp
+index 230250c..2893273 100644
+--- a/reconstructed/xbox360ps5/game_info.hpp
++++ b/reconstructed/xbox360ps5/game_info.hpp
+@@ -14,6 +14,11 @@
+ namespace xbox360ps5 {
+ namespace game_info {
+ inline constexpr const char* kPath = "/app0/assets/gameinfo.txt";
++// The file read: kPath (host checks point it at their own copy and reset Shared()).
++inline std::string& Path() {
++  static std::string path = kPath;
++  return path;
++}
+ struct Index {
+   bool loaded = false;
+   std::unordered_map<std::string, std::streamoff> sections;  // title id -> first line's offset
+@@ -38,7 +43,7 @@ inline std::map<std::string, std::string> GameInfoFor(const std::string& title_i
+   auto& index = game_info::Shared();
+   const std::string id = game_info::Upper(title_id);
+   if (index.loaded && id == index.last_id) return index.last;
+-  std::ifstream input(game_info::kPath, std::ios::binary);
++  std::ifstream input(game_info::Path(), std::ios::binary);
+   if (!input) return {};
+   if (!index.loaded) {
+     index.loaded = true;
+diff --git a/reconstructed/xbox360ps5/i18n_ui.hpp b/reconstructed/xbox360ps5/i18n_ui.hpp
+index 382b77d..775657e 100644
+--- a/reconstructed/xbox360ps5/i18n_ui.hpp
++++ b/reconstructed/xbox360ps5/i18n_ui.hpp
+@@ -5,6 +5,8 @@
+ // "<key> = <translation>" per line, "\s" for a space, "\n" a new line, "#" comments. Fix 25
+ // (tools/source-1.0.2/fixes) keys them by English: the official package's files are keyed by
+ // Brazilian Portuguese, so this title needs the files of tools/source-1.0.2/english/lang.
++// Fix 43: as the official loader (0x1c1a50) does, /app0/lang/<code>.txt is read after the
++// package's file into the same table, adding keys or replacing their text (i18n_ui::Files).
+ #pragma once
+ #include <atomic>
+ #include <cstring>
+@@ -18,7 +20,8 @@
+ 
+ namespace xbox360ps5 {
+ // Interface language ids (launcher.cpp's kLanguages): Xbox language ids, plus 18 Spanish
+-// (Latin America) and 19 Portuguese (Portugal).
++// (Latin America) and 19 Portuguese (Portugal). The official table (0x1e63e48, ids 2-19) is the
++// same except for 9, which has no file there (the source language); fix 25 reads pt-BR.txt.
+ inline const char* UiLanguageCode(int id) {
+   switch (id) {
+     case 2: return "ja";
+@@ -67,7 +70,8 @@ inline int GameLanguageForUi(int id) { return id == 18 ? 5 : id == 19 ? 9 : id;
+ namespace i18n_ui {
+ struct Table {
+   int language = -1;
+-  std::string folder;  // Folder() when it was read (LoadUiTranslations)
++  std::string folder;   // Folder() when it was read (LoadUiTranslations)
++  std::string overlay;  // OverlayFolder() then
+   std::map<std::string, std::string> text;
+ };
+ inline std::shared_ptr<const Table>& Current() {
+@@ -98,9 +102,24 @@ inline std::string& Folder() {
+   static std::string folder = "/app0/assets/lang/";
+   return folder;
+ }
+-// One language file into a table.
+-inline void Read(int id, Table& table) {
+-  std::ifstream input(Folder() + UiLanguageCode(id) + ".txt", std::ios::binary);
++// The folder read after Folder(), as the official 1.0.2 reads /app0/lang/<code>.txt after
++// /app0/assets/lang/<code>.txt into the same table (0x1c1b4d, 0x1c1bbe): a line there adds a key
++// or replaces the package file's text of it. The package has no such folder; without it (or
++// without the language's file there) the table is the package file's alone. Its files are keyed
++// like Folder()'s (by English, fix 25). Host checks point it at their own files too.
++inline std::string& OverlayFolder() {
++  static std::string folder = "/app0/lang/";
++  return folder;
++}
++// A language's files, in the order they are read.
++inline std::vector<std::string> Files(int id) {
++  const std::string name = std::string(UiLanguageCode(id)) + ".txt";
++  return {Folder() + name, OverlayFolder() + name};
++}
++// One file's lines into a table (a later line, or file, replaces a key's text); a file that
++// cannot be opened adds nothing.
++inline void ReadFile(const std::string& path, Table& table) {
++  std::ifstream input(path, std::ios::binary);
+   for (std::string line; std::getline(input, line);) {
+     if (!line.empty() && line.back() == '\r') line.pop_back();
+     if (line.empty() || line[0] == '#') continue;
+@@ -107,22 +126,34 @@ inline void Read(int id, Table& table) {
+     const size_t split = line.find(" = ");
+     if (split == std::string::npos) continue;
+-    table.text[Unescape(line.substr(0, split))] = Unescape(line.substr(split + 3));
++    const std::string key = Unescape(line.substr(0, split)), text = Unescape(line.substr(split + 3));
++    // As the official parser (0x220910): a line whose key or text is empty adds nothing, so an
++    // overlay line without text keeps the package file's text.
++    if (key.empty() || text.empty()) continue;
++    table.text[key] = text;
+   }
+ }
++// A language's files into a table: the package's, then the overlay's.
++inline void Read(int id, Table& table) {
++  for (const std::string& path : Files(id)) ReadFile(path, table);
++}
+ }  // namespace i18n_ui
+ 
+ // Loads /app0/assets/lang/<code>.txt for the language (every one, English and Brazilian
+-// Portuguese included: the keys are English, fix 25). Settings::Apply calls this on every
+-// settings change; the file is read again only when the language (or the folder) changed, since
+-// LoadedUiText keeps each table it gave text from for the process.
++// Portuguese included: the keys are English, fix 25), then /app0/lang/<code>.txt over it (fix
++// 43). Settings::Apply calls this on every settings change; the files are read again only when
++// the language (or a folder) changed, since LoadedUiText keeps each table it gave text from for
++// the process.
+ inline void LoadUiTranslations(int id) {
+   {
+     std::lock_guard<std::mutex> guard(i18n_ui::Lock());
+     const auto& current = i18n_ui::Current();
+-    if (current->language == id && current->folder == i18n_ui::Folder()) return;
++    if (current->language == id && current->folder == i18n_ui::Folder() &&
++        current->overlay == i18n_ui::OverlayFolder())
++      return;
+   }
+   auto table = std::make_shared<i18n_ui::Table>();
+   table->language = id;
++  table->overlay = i18n_ui::OverlayFolder();
+   table->folder = i18n_ui::Folder();
+   i18n_ui::Read(id, *table);
+   std::lock_guard<std::mutex> guard(i18n_ui::Lock());
+@@ -130,7 +161,8 @@ inline void LoadUiTranslations(int id) {
+ }
+ // The text of a key in a fallback language's file, or nullptr when the file lacks it: English
+ // (en.txt; fix 23 for every language), Brazilian Portuguese (pt-BR.txt, for Portugal's) or
+-// Spanish (es.txt, for Latin America's). Each file is read once, when first needed.
++// Spanish (es.txt, for Latin America's), each with its overlay file over it (Read). Each is
++// read once, when first needed.
+ inline const char* FallbackUiText(int id, const char* key) {
+   const auto read_file = [](int language) {
+     i18n_ui::Table table;
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+index de778c9..d8446d1 100644
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -659,9 +659,12 @@ Launcher::Fonts Launcher::LoadFonts(ImGuiIO& io) {
+     ImFontGlyphRangesBuilder builder;
+     builder.AddText(entry.name);
+     if (entry.id == language) {
+-      std::ifstream input(std::string("/app0/assets/lang/") + UiLanguageCode(language) + ".txt", std::ios::binary);
+-      const std::string text((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+-      builder.AddText(text.c_str());
++      // The glyphs of the language's files: the package's and /app0/lang/'s (fix 43).
++      for (const std::string& path : i18n_ui::Files(language)) {
++        std::ifstream input(path, std::ios::binary);
++        const std::string text((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
++        builder.AddText(text.c_str());
++      }
+     }
+     builder.BuildRanges(&font.ranges);
+     cjk.push_back(std::move(font));

@@ -8,6 +8,8 @@
 # Then tools/check-assemble-skip.py (the switch that leaves fixes out) and tools/check-english-source.py
 # (fix 25, English keys) run with python3, and tools/check-gdfx-names.sh (fix 26: GDFX names and
 # guest paths, linked with the tree's xenia/base and disc image device) with bash.
+# check-game-info.cpp reads a committed excerpt of the official package's assets/gameinfo.txt, and
+# the whole file too when PS5X360_GAMEINFO names it (fix 43).
 set -euo pipefail
 repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 tree=$(realpath "$1")
@@ -27,10 +29,18 @@ checks=(
   check-system-ui.cpp              # fix 26
   check-fix26-tree.cpp             # fix 26
   check-save-devices.cpp           # fix 27
+  check-home-hints.cpp             # fix 40 (reconstructed files)
+  check-cover-fallback.cpp         # fix 41
+  check-network-self-test.cpp      # fix 42
+  check-ui-lang-overlay.cpp        # fix 43
+  check-game-info.cpp              # fix 43
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-save-devices.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-cover-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-ui-lang-overlay.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-game-info.cpp]="$repo/tools/source-1.0.2/fixtures/gameinfo-excerpt.txt"
 )
 mkdir -p "$tree/tools" "$tree/build/fix-checks"
 status=0

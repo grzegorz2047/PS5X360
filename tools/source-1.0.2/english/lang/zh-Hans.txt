@@ -12,6 +12,7 @@
 \sof\s = \s/\s
 \sout\sof\s5 = \s/\s5
 \swithout\sa\scover\son\sXboxUnity = \s个在\sXboxUnity\s上没有封面
+\swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \sXboxUnity\s和微软服务器上都没有封面
 %d\schanged\s\s> = 已更改\s%d\s项\s\s>
 %d\sof\s%d = %d\s/\s%d
 %d\sof\s%d\spatches\senabled = 已启用\s%d\s/\s%d\s个补丁

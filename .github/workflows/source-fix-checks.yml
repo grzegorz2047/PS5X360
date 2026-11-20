@@ -29,6 +29,11 @@ on:
       - 'tools/check-patch-syntax.py'
       - 'tools/check-bf3-preset.py'
       - 'tools/check-save-devices.cpp'
+      - 'tools/check-home-hints.cpp'
+      - 'tools/check-cover-fallback.cpp'
+      - 'tools/check-network-self-test.cpp'
+      - 'tools/check-ui-lang-overlay.cpp'
+      - 'tools/check-game-info.cpp'
       - 'tools/check-english-source.py'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
