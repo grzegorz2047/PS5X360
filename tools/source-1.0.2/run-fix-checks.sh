@@ -9,6 +9,7 @@
 # (fix 25, English keys) and tools/check-kinect-fake-relay.py (fix 44's test payload, built with the
 # host's C compiler) run with python3, and tools/check-gdfx-names.sh (fix 26: GDFX names and
 # guest paths, linked with the tree's xenia/base and disc image device) with bash.
+# tools/check-kinect-page.mjs (fix 56: the phone camera page and its pairing state) runs with node.
 # check-game-info.cpp reads a committed excerpt of the official package's assets/gameinfo.txt, and
 # the whole file too when PS5X360_GAMEINFO names it (fix 43). check-guest-crash.cpp (fix 45) runs
 # threads that time XmaDecoder's pause handshake (100 ms as a rule and 1 s at most with the fix; 1.0.2's
@@ -70,7 +71,6 @@ declare -A arguments=(
   [check-cover-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-ui-lang-overlay.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-game-info.cpp]="$repo/tools/source-1.0.2/fixtures/gameinfo-excerpt.txt"
-  [check-kinect-pairing.cpp]="$repo/tools/source-1.0.2/fixtures/kinect-index-excerpt.html"
   [check-guest-crash.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-measure-10s.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-library-disc.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -192,6 +192,16 @@ if "$python" -I "$repo/tools/check-kinect-fake-relay.py"; then
   echo "pass check-kinect-fake-relay.py"
 else
   echo "FAIL check-kinect-fake-relay.py"
+  status=1
+fi
+# Fix 56: the phone camera page and its pairing state (port/phone_camera_page.hpp), with node.
+echo "=== check-kinect-page.mjs"
+if [[ " $skipped_fixes " == *" 56 "* ]]; then
+  echo "skip check-kinect-page.mjs (fix 56 left out of this build)"
+elif node "$repo/tools/check-kinect-page.mjs" "$tree"; then
+  echo "pass check-kinect-page.mjs"
+else
+  echo "FAIL check-kinect-page.mjs"
   status=1
 fi
 echo "=== check-gdfx-names.sh"

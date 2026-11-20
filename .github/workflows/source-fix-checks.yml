@@ -59,6 +59,7 @@ on:
       - 'tools/check-multidisc-source.cpp'
       - 'tools/check-library-disc.cpp'
       - 'tools/check-kinect-pairing.cpp'
+      - 'tools/check-kinect-page.mjs'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
