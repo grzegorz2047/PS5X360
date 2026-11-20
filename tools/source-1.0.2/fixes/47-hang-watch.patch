@@ -2,7 +2,7 @@ diff --git a/include/xbox360ps5/hang_watch.hpp b/include/xbox360ps5/hang_watch.h
 new file mode 100644
 --- /dev/null
 +++ b/include/xbox360ps5/hang_watch.hpp
-@@ -0,0 +1,467 @@
+@@ -0,0 +1,476 @@
 +// SPDX-License-Identifier: MIT
 +// Fix 47 of the source rebuild (tools/source-1.0.2/fixes/47-hang-watch.patch): a watch for a
 +// game whose picture stops and whose process the system ends without a crash report (Ninja
@@ -131,6 +131,15 @@ new file mode 100644
 +};
 +// UI loop phases.
 +enum : uint32_t { kUiInput = 1, kUiPaint = 2, kUiSample = 3, kUiMeasure = 4 };
++// A line straight to hang-watch.txt (and the kernel log, and the stream if its lock is free),
++// past the emulator's log: set by the title while a game runs, null otherwise. The core uses it
++// where the process may end right after (a title that terminates itself, exit()).
++using RawSink = void (*)(const char* text, size_t size);
++inline std::atomic<RawSink> raw_sink{nullptr};
++inline void Raw(const std::string& text) {
++  if (RawSink sink = raw_sink.load(std::memory_order_acquire)) sink(text.data(), text.size());
++}
++
 +// The emulator's log (xenia/base/logging.cc): lines handed to its writer thread and lines it
 +// wrote to its sinks (the game log file and the TCP stream).
 +inline std::atomic<uint64_t> log_appended{0}, log_written{0};
@@ -538,6 +547,97 @@ diff --git a/.deps/xenia-canary/src/xenia/base/logging.cc b/.deps/xenia-canary/s
    }
  };
  
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_strings.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_strings.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_strings.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_strings.cc
+@@ -10,6 +10,10 @@
+ #include "xenia/kernel/xboxkrnl/xboxkrnl_strings.h"
+ #include "xenia/kernel/util/shim_utils.h"
+ #include "xenia/kernel/xboxkrnl/xboxkrnl_private.h"
++#if XE_PLATFORM_PS5
++#include <atomic>
++#include "xbox360ps5/hang_watch.hpp"  // fix 47: the game's own messages
++#endif
+ 
+ DEFINE_bool(log_string_format_kernel_calls, false,
+             "Log usage of print formatters like sprintf.", "Logging");
+@@ -640,6 +644,19 @@ dword_result_t DbgPrint_entry(lpstring_t format, const ppc_context_t& ctx) {
+   }
+ 
+   // trim whitespace from end of message
++#if XE_PLATFORM_PS5
++  // Fix 47 (issue #11): a game's own messages say why it stops (Ninja Gaiden II's start code
++  // prints "[XAPI RETURN VALUE] %d" when its main returns, then ends the title). The first 64
++  // go to the normal log as warnings and straight to hang-watch.txt.
++  static std::atomic<uint32_t> ps5_dbgprints{0};
++  if (ps5_dbgprints.fetch_add(1, std::memory_order_relaxed) < 64) {
++    const std::string text =
++        "GUEST DbgPrint: " + std::string(string_util::rtrim(data.str()));
++    XELOGW("{}", text);
++    xbox360ps5::hang_watch::Raw(text);
++    return X_STATUS_SUCCESS;
++  }
++#endif
+   XELOGI("(DbgPrint) {}", string_util::rtrim(data.str()));
+ 
+   return X_STATUS_SUCCESS;
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_info.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_info.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_info.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_info.cc
+@@ -33,6 +33,9 @@
+ #include "xenia/xbox.h"
+ 
+ #include "third_party/fmt/include/fmt/format.h"
++#if XE_PLATFORM_PS5
++#include "xbox360ps5/hang_watch.hpp"  // fix 47
++#endif
+ #include "third_party/fmt/include/fmt/xchar.h"
+ 
+ DEFINE_int32(avpack, 8,
+@@ -560,8 +563,33 @@ dword_result_t XamLoaderGetLaunchData_entry(lpvoid_t buffer_ptr,
+ }
+ DECLARE_XAM_EXPORT1(XamLoaderGetLaunchData, kNone, kSketchy);
+ 
++#if XE_PLATFORM_PS5
++// Fix 47 (issue #11): the game itself ends or relaunches the title; the restart that follows
++// can take the log's last lines with it, so this goes straight to hang-watch.txt too.
++static void Ps5TitleEnd(const char* what, const std::string& path, uint32_t flags) {
++  uint32_t lr = 0, r3 = 0, r30 = 0, pc = 0;
++  if (XThread* thread = XThread::GetCurrentThread()) {
++    const auto* context = thread->thread_state()->context();
++    lr = uint32_t(context->lr);
++    r3 = uint32_t(context->r[3]);
++    r30 = uint32_t(context->r[30]);
++    pc = thread->handle();
++  }
++  const std::string text = fmt::format(
++      "GUEST {} by thread {:08X} from {:08X} (r3 {:08X}, r30 {:08X}){}{}, flags {:08X}",
++      what, pc, lr, r3, r30, path.empty() ? "" : ": ", path, flags);
++  XELOGW("{}", text);
++  xbox360ps5::hang_watch::Raw(text);
++}
++#endif
++
+ void XamLoaderLaunchTitle_entry(lpstring_t raw_name_ptr, dword_t flags) {
+   auto xam = kernel_state()->GetKernelModule<XamModule>("xam.xex");
++#if XE_PLATFORM_PS5
++  Ps5TitleEnd("XamLoaderLaunchTitle",
++              raw_name_ptr ? std::string(raw_name_ptr.value()) : std::string(),
++              uint32_t(flags));
++#endif
+ 
+   auto& loader_data = xam->loader_data();
+   loader_data.launch_flags = flags;
+@@ -616,6 +644,9 @@ void XamLoaderLaunchTitle_entry(lpstring_t raw_name_ptr, dword_t flags) {
+ DECLARE_XAM_EXPORT1(XamLoaderLaunchTitle, kNone, kSketchy);
+ 
+ void XamLoaderTerminateTitle_entry() {
++#if XE_PLATFORM_PS5
++  Ps5TitleEnd("XamLoaderTerminateTitle", std::string(), 0);
++#endif
+   std::string title = "Title terminated";
+   std::string message = "Game requested exit to dashboard.";
+   assert_always("Game requested exit to dashboard via XamLoaderTerminateTitle");
 diff --git a/.deps/xenia-canary/src/xenia/gpu/command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/command_processor.cc
 --- a/.deps/xenia-canary/src/xenia/gpu/command_processor.cc
 +++ b/.deps/xenia-canary/src/xenia/gpu/command_processor.cc
@@ -711,7 +811,7 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
  #include "xenia/cpu/entry_probe.h"  // candidate 21: Battlefield 3's render-job probes
  #include "xenia/gpu/memexport_merge.h"  // fix 30: the export lines for Battlefield 3
  #include "xenia/kernel/user_module.h"
-@@ -1127,6 +1129,139 @@ void ReportStall(xe::Emulator& emulator, int pass) {
+@@ -1127,6 +1129,158 @@ void ReportStall(xe::Emulator& emulator, int pass) {
      xbox360ps5::ProbeThread(thread->thread()->native_handle(), name);
    }
  }
@@ -723,6 +823,26 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
 +// shaders of the draws in flight to the logs folder. Its lines go to logs/hang-watch.txt
 +// (write and fsync), the kernel log and the TCP stream if its lock is free: it never waits
 +// for a lock, so the last heartbeat before the system ends the process is on disk.
++// Fix 47: the raw sink (xbox360ps5/hang_watch.hpp Raw) while the hang watch runs: its file,
++// the kernel log, the stream if free. No lock is waited for.
++std::atomic<int> hang_watch_fd{-1};
++void HangWatchRaw(const char* text, size_t size) {
++  char line[400];
++  const int length = std::snprintf(line, sizeof(line), "[X360] %.*s\n", int(std::min<size_t>(size, 380)), text);
++  if (length <= 0) return;
++  const size_t bytes = std::min<size_t>(size_t(length), sizeof(line) - 1);
++  const int fd = hang_watch_fd.load();
++  if (fd >= 0) {
++    (void)!::write(fd, line, bytes);
++    ::fsync(fd);
++  }
++  sceKernelDebugOutText(0, line);
++  xbox360ps5::NetLogTry(line, bytes);
++}
++// exit() (Canary's HalReturnToFirmware calls it) and quick_exit() leave a line too.
++void HangWatchAtExit() { xbox360ps5::hang_watch::Raw("PROCESS exit(): atexit handlers run"); }
++void HangWatchAtQuickExit() { xbox360ps5::hang_watch::Raw("PROCESS quick_exit(): handlers run"); }
++
 +class HangWatchThread {
 + public:
 +  HangWatchThread(std::filesystem::path folder, xe::gpu::CommandProcessor* processor)
@@ -732,11 +852,21 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
 +    std::error_code error;
 +    std::filesystem::create_directories(folder_, error);
 +    fd_ = ::open((folder_ / "hang-watch.txt").c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
++    hang_watch_fd.store(fd_);
++    xbox360ps5::hang_watch::raw_sink.store(&HangWatchRaw, std::memory_order_release);
++    static const bool exit_handlers = [] {
++      std::atexit(HangWatchAtExit);
++      std::at_quick_exit(HangWatchAtQuickExit);
++      return true;
++    }();
++    (void)exit_handlers;
 +    thread_ = std::thread([this] { Run(); });
 +  }
 +  ~HangWatchThread() {
 +    stop_.store(true);
 +    thread_.join();
++    xbox360ps5::hang_watch::raw_sink.store(nullptr, std::memory_order_release);
++    hang_watch_fd.store(-1);
 +    if (fd_ >= 0) ::close(fd_);
 +  }
 +  HangWatchThread(const HangWatchThread&) = delete;
@@ -745,32 +875,21 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
 + private:
 +  // One line to hang-watch.txt (written and synced), the kernel log, and the TCP stream if its
 +  // lock is free at once.
-+  void Emit(const std::string& text) {
-+    char line[400];
-+    const int length = std::snprintf(line, sizeof(line), "[X360] %s\n", text.c_str());
-+    if (length <= 0) return;
-+    const size_t size = std::min<size_t>(size_t(length), sizeof(line) - 1);
-+    if (fd_ >= 0) {
-+      (void)!::write(fd_, line, size);
-+      ::fsync(fd_);
-+    }
-+    sceKernelDebugOutText(0, line);
-+    xbox360ps5::NetLogTry(line, size);
-+  }
++  void Emit(const std::string& text) { HangWatchRaw(text.data(), text.size()); }
 +  void Run() {
 +    namespace hw = xbox360ps5::hang_watch;
 +    namespace ct = xbox360ps5::cp_trace;
 +    hw::Watcher watcher;
 +    const uint64_t start = hw::NowMs();
-+    Emit(fmt::format("HANG watch started: a beat every 2 s, a report after 3 s of stop; file {} {}",
++    Emit(fmt::format("HANG watch started: a beat every second, a report after 3 s of stop; file {} {}",
 +                     (folder_ / "hang-watch.txt").string(), fd_ >= 0 ? "open" : "not open"));
-+    uint64_t next_observe = start + 1000, next_beat = start + 2000;
++    uint64_t next_observe = start + 1000, next_beat = start + 1000;
 +    while (!stop_.load()) {
 +      // A plain sleep: candidate 1 waited on a condition variable here.
 +      ::usleep(250000);
 +      const uint64_t now = hw::NowMs();
 +      if (now >= next_beat) {
-+        next_beat = now + 2000;
++        next_beat = now + 1000;
 +        hw::BeatInput in;
 +        in.now_ms = now;
 +        in.start_ms = start;
@@ -851,7 +970,25 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
  // Where the time goes in a slow scene: every guest and emulator thread is
  // sampled for a few seconds, and the log gets, per thread, the share spent in
  // generated guest code, in the emulator and in system libraries, with the
-@@ -2622,7 +2757,13 @@ int main(int argc, char** argv) {
+@@ -2278,11 +2432,17 @@ int main(int argc, char** argv) {
+       // the working folder) and this restarts the title, which carries on from it.
+       auto xam = emulator.kernel_state()->GetKernelModule<xe::kernel::xam::XamModule>("xam.xex");
+       xe::kernel::xam::XamModule::restart_hook = [exit_cache] {
++        // Fix 47: each step straight to hang-watch.txt as well; the restart replaces the process.
++        xbox360ps5::hang_watch::Raw("Title switch: the game ends or relaunches the title; Vulkan cache checkpoint");
++        const auto checkpoint_start = std::chrono::steady_clock::now();
+         CheckpointExitCache(exit_cache);
++        xbox360ps5::hang_watch::Raw(fmt::format("Title switch: checkpoint done after {} ms; restarting the title",
++            std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - checkpoint_start).count()));
+         XELOGW("Title switch: restarting the title");
+         xe::FlushLog();
+         xbox360ps5::DrainNetLog();
+         const int refused = sceSystemServiceLoadExec("/app0/eboot.bin", nullptr);
++        xbox360ps5::hang_watch::Raw(fmt::format("Title switch: restart refused {:08X}", unsigned(refused)));
+         XELOGE("Title switch: restart refused {:08X}", unsigned(refused));
+       };
+       xam->LoadLoaderData();
+@@ -2622,7 +2782,13 @@ int main(int argc, char** argv) {
          float fps_sum = 0.0f, fps_low = 1e9f, swaps_sum = 0.0f;
          const auto game_started = std::chrono::steady_clock::now();
          double next_shot = 5;
@@ -865,7 +1002,7 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
  #if 0  // The old OpenGL renderer's "refused operation" latch; the layer has no such state.
            if (started.renderer == int(xbox360ps5::Renderer::kOpenGL) &&
                static_cast<xbox360ps5::gl::OpenGLGraphicsSystem*>(
-@@ -2922,11 +3063,16 @@ int main(int argc, char** argv) {
+@@ -2922,11 +3088,16 @@ int main(int argc, char** argv) {
            xbox360ps5::motion::SetEnabled(settings.motion_phone != 0);
            input->Submit(sample);
            window.SubmitUiPad(sample);
@@ -882,7 +1019,7 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
            }
            if (std::chrono::steady_clock::now() - sample_at >= std::chrono::seconds(1)) {
              const auto at = std::chrono::steady_clock::now();
-@@ -3051,6 +3197,7 @@ int main(int argc, char** argv) {
+@@ -3051,6 +3222,7 @@ int main(int argc, char** argv) {
              }
            }
          }

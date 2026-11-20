@@ -20,12 +20,16 @@
 //      game loop only (stopped before the exit's waits) with the UI loop's beats, and
 //      crash_report.cpp reports the signals that end a process without a fault (SIGPIPE then
 //      ignored).
-//  (d) candidate 4 (candidate 1 left no line at all with Ninja Gaiden II): the heartbeat line
-//      (loops, frames, GPU ring, last submission, the log writer's progress, calls in progress);
-//      the watch thread sleeps with usleep (no condition variable), writes to hang-watch.txt opened
-//      at the start with write() and fsync(), to the kernel log, and to the stream only through
-//      NetLogTry (its lock taken only if free); the log counts lines handed to its writer and
-//      lines written.
+//  (d) candidate 4 (candidate 1 left no line at all with Ninja Gaiden II, which closed by itself
+//      after loading): the heartbeat line (loops, frames, GPU ring, last submission, the log
+//      writer's progress, calls in progress) every second; the watch thread sleeps with usleep (no
+//      condition variable); its lines and the raw sink (hang_watch::Raw) go to hang-watch.txt
+//      opened at the start, with write() and fsync(), to the kernel log, and to the stream only
+//      through NetLogTry (its lock taken only if free); the log counts lines handed to its writer
+//      and lines written; the raw sink is null unless set and calls the sink when set; the game's
+//      own DbgPrint messages (the first 64), its XamLoaderTerminateTitle / XamLoaderLaunchTitle
+//      (thread, caller, r3, r30) and each step of the title-switch restart go through it, and
+//      exit() / quick_exit() leave a line.
 // Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh).
 #undef NDEBUG
 #include "../include/xbox360ps5/gpu_diagnostics.hpp"  // includes hang_watch.hpp (fix 47)
@@ -290,6 +294,17 @@ void CheckHeartbeat() {
   Expect(hw::HeartbeatLine(in).find("calls: none") != std::string::npos, "beat: no call in progress");
 }
 
+void CheckRawSink() {
+  static std::string got;
+  hw::raw_sink.store(nullptr);
+  hw::Raw("nobody listens");
+  Expect(got.empty(), "no sink: nothing");
+  hw::raw_sink.store(+[](const char* text, size_t size) { got.assign(text, size); });
+  hw::Raw("GUEST DbgPrint: [XAPI RETURN VALUE] 1");
+  Expect(got == "GUEST DbgPrint: [XAPI RETURN VALUE] 1", "the sink gets the line");
+  hw::raw_sink.store(nullptr);
+}
+
 void CheckTree() {
   const char* core = ".deps/xenia-canary/src/xenia/";
   ExpectIn("include/xbox360ps5/gpu_diagnostics.hpp",
@@ -325,10 +340,40 @@ void CheckTree() {
   const size_t klass_end = main_text.find("std::thread thread_;", klass);
   Expect(klass != std::string::npos && klass_end != std::string::npos, "the watch class");
   const std::string watch = main_text.substr(klass, klass_end - klass);
-  for (const char* part : {"\"hang-watch.txt\"", "O_WRONLY | O_CREAT | O_TRUNC", "::fsync(fd_);", "::usleep(250000);",
-                           "xbox360ps5::NetLogTry(line, size);", "sceKernelDebugOutText(0, line);", "hw::HeartbeatLine(in)"})
+  for (const char* part : {"\"hang-watch.txt\"", "O_WRONLY | O_CREAT | O_TRUNC", "::usleep(250000);",
+                           "hw::HeartbeatLine(in)", "next_beat = now + 1000;", "hang_watch_fd.store(fd_);",
+                           "xbox360ps5::hang_watch::raw_sink.store(&HangWatchRaw, std::memory_order_release);",
+                           "xbox360ps5::hang_watch::raw_sink.store(nullptr, std::memory_order_release);",
+                           "std::atexit(HangWatchAtExit);", "std::at_quick_exit(HangWatchAtQuickExit);",
+                           "void Emit(const std::string& text) { HangWatchRaw(text.data(), text.size()); }"})
     Expect(watch.find(part) != std::string::npos, std::string("the watch has: ") + part);
-  for (const char* part : {"condition_variable", "Stage(", "XELOG", "std::fopen"})
+  const size_t raw = main_text.find("void HangWatchRaw(const char* text, size_t size) {");
+  Expect(raw != std::string::npos && raw < klass, "the raw writer before the watch");
+  const std::string raw_body = main_text.substr(raw, main_text.find("\n}", raw) - raw);
+  for (const char* part : {"(void)!::write(fd, line, bytes);", "::fsync(fd);", "sceKernelDebugOutText(0, line);",
+                           "xbox360ps5::NetLogTry(line, bytes);"})
+    Expect(raw_body.find(part) != std::string::npos, std::string("the raw writer has: ") + part);
+  for (const char* part : {"XELOG", "Stage(", "NetLog(", "std::fopen", "lock"})
+    Expect(raw_body.find(part) == std::string::npos, std::string("the raw writer never uses: ") + part);
+  const size_t hook = main_text.find("xe::kernel::xam::XamModule::restart_hook = [exit_cache] {");
+  Expect(hook != std::string::npos, "the restart hook");
+  const std::string hook_body = main_text.substr(hook, main_text.find("};", hook) - hook);
+  const size_t step1 = hook_body.find("hang_watch::Raw(\"Title switch: the game ends or relaunches the title");
+  const size_t step2 = hook_body.find("CheckpointExitCache(exit_cache);");
+  const size_t step3 = hook_body.find("Title switch: checkpoint done after");
+  const size_t step4 = hook_body.find("sceSystemServiceLoadExec(");
+  Expect(step1 < step2 && step2 < step3 && step3 < step4 && step4 != std::string::npos,
+         "the restart's steps logged raw, around the checkpoint and before the restart");
+  ExpectIn(".deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_strings.cc",
+           {"\"GUEST DbgPrint: \" + std::string(string_util::rtrim(data.str()));",
+            "if (ps5_dbgprints.fetch_add(1, std::memory_order_relaxed) < 64) {", "xbox360ps5::hang_watch::Raw(text);"});
+  const std::string xam = Read(".deps/xenia-canary/src/xenia/kernel/xam/xam_info.cc");
+  Expect(xam.find("Ps5TitleEnd(\"XamLoaderTerminateTitle\", std::string(), 0);") != std::string::npos &&
+             xam.find("Ps5TitleEnd(\"XamLoaderTerminateTitle\"") > xam.find("void XamLoaderTerminateTitle_entry() {"),
+         "XamLoaderTerminateTitle logged first");
+  Expect(xam.find("Ps5TitleEnd(\"XamLoaderLaunchTitle\",") > xam.find("void XamLoaderLaunchTitle_entry("),
+         "XamLoaderLaunchTitle logged first");
+  for (const char* part : {"condition_variable", "Stage(", "XELOG", "std::fopen", "::sleep(", "wait_for("})
     Expect(watch.find(part) == std::string::npos, std::string("the watch never uses: ") + part);
   ExpectIn(".deps/xenia-canary/src/xenia/base/logging.cc",
            {"xbox360ps5::hang_watch::log_written.fetch_add(", "xbox360ps5::hang_watch::log_appended.fetch_add("});
@@ -347,6 +392,7 @@ int main() {
   CheckSlots();
   CheckWork();
   CheckHeartbeat();
+  CheckRawSink();
   CheckWatcher();
   CheckTree();
   if (failures) {
