@@ -62,6 +62,7 @@ on:
       - 'tools/check-kinect-page.mjs'
       - 'tools/check-gpu-wait-lines.cpp'
       - 'tools/check-nui-image-scan.cpp'
+      - 'tools/check-phone-qr-panel.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

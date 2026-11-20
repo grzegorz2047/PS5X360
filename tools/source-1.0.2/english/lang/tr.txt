@@ -255,6 +255,7 @@ Marks\son\sfloors\sand\swalls\s(blood,\sroad\slines,\sshadows)\sthat\sflicker\si
 Measure\sperformance\s(10\ss) = Performansı\sölç\s(10\ssn)
 Memory\supdate\swindow = Bellek\sgüncelleme\spenceresi
 Menu\snavigation\ssound\svolume,\sindependent\sof\sgame\saudio. = Menü\sgezinme\sseslerinin\sses\sdüzeyi,\soyun\ssesinden\sbağımsız.
+Motion:\sno\sphone\sconnected = Hareket:\sbağlı\stelefon\syok
 Mute\sgame\saudio. = Oyun\ssesini\skapat.
 Muted = Sessiz
 Name = Ad
@@ -374,6 +375,7 @@ Resume\sgame = Oyuna\sdevam\set
 Return\sto\sgame = Oyuna\sdön
 Right\sstick\sdead\szone = Sağ\sçubuk\sölü\sbölgesi
 Running:\sthe\sgame\sresumes\swhere\sit\sstopped = Çalışıyor:\soyun\skaldığı\syerden\sdevam\seder
+Same\sWi-Fi,\sstand\s2-3\sm\sback,\sfull\sbody\svisible. = Aynı\sWi-Fi,\s2-3\sm\sgeride\sdurun,\stüm\svücut\sgörünsün.
 Save\sdrive = Kayıt\ssürücüsü
 Saved = Kaydedildi
 Saved\sdata = Kayıtlı\sveriler
@@ -381,6 +383,7 @@ Saves\sand\ssettings\swere\scopied\sfrom\sPS5X360.\sIts\sown\sfiles\swere\snot\s
 Saves\sand\ssettings\swere\snot\scopied\sfrom\sPS5X360:\sa\sfolder\scould\snot\sbe\schecked\s(the\slog\ssays\swhy).\sThe\snext\sstart\stries\sagain. = Kayıtlar\sve\sayarlar\sPS5X360'tan\skopyalanmadı:\sbir\sklasör\sdenetlenemedi\s(nedeni\sgünlükte\syazıyor).\sBir\ssonraki\sbaşlatmada\syeniden\sdenenecek.
 Saves\sand\ssettings\swere\snot\scopied\sfrom\sPS5X360:\snot\senough\sfree\sspace. = Kayıtlar\sve\sayarlar\sPS5X360'tan\skopyalanmadı:\syeterli\sboş\salan\syok.
 Saves\swere\snot\scopied\sfrom\sPS5X360:\sthis\sapp\salready\shas\ssaves\sof\sits\sown. = Kayıtlar\sPS5X360'tan\skopyalanmadı:\sbu\suygulamanın\szaten\skendi\skayıtları\svar.
+Scan\swith\syour\sphone\sto\suse\sit\sas\sKinect. = Kinect\solarak\skullanmak\siçin\stelefonunuzla\starayın.
 Scroll = Kaydır
 Search = Ara
 Search\sgames = Oyun\sara

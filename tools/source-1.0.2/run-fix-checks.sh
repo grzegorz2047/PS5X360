@@ -66,6 +66,7 @@ checks=(
   check-kinect-pairing.cpp         # fix 56
   check-gpu-wait-lines.cpp         # fix 58
   check-nui-image-scan.cpp         # fix 57
+  check-phone-qr-panel.cpp         # fix 63
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -74,6 +75,7 @@ declare -A arguments=(
   [check-ui-lang-overlay.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-game-info.cpp]="$repo/tools/source-1.0.2/fixtures/gameinfo-excerpt.txt"
   [check-guest-crash.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-phone-qr-panel.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-measure-10s.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-library-disc.cpp]="$repo/tools/source-1.0.2/english/lang"
 )
@@ -95,6 +97,7 @@ declare -A fix_of=(
   [check-kinect-pairing.cpp]=56
   [check-gpu-wait-lines.cpp]=58
   [check-nui-image-scan.cpp]=57
+  [check-phone-qr-panel.cpp]=63
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))

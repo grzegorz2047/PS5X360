@@ -255,6 +255,7 @@ Marks\son\sfloors\sand\swalls\s(blood,\sroad\slines,\sshadows)\sthat\sflicker\si
 Measure\sperformance\s(10\ss) = Medir\sdesempenho\s(10\ss)
 Memory\supdate\swindow = Atualização\sde\smemória
 Menu\snavigation\ssound\svolume,\sindependent\sof\sgame\saudio. = Volume\sdos\sefeitos\sde\snavegação\sdos\smenus,\sindependente\sdo\ssom\sdos\sjogos.
+Motion:\sno\sphone\sconnected = Movimento:\snenhum\stelemóvel\sligado
 Mute\sgame\saudio. = Silencia\sa\ssaída\sde\sáudio\sdos\sjogos.
 Muted = Mudo
 Name = Nome
@@ -374,6 +375,7 @@ Resume\sgame = Continuar\sjogo
 Return\sto\sgame = Voltar\sao\sjogo
 Right\sstick\sdead\szone = Zona\smorta\sdo\smanípulo\sanalógico\sdireito
 Running:\sthe\sgame\sresumes\swhere\sit\sstopped = Em\sexecução:\so\sjogo\svolta\sonde\sparou
+Same\sWi-Fi,\sstand\s2-3\sm\sback,\sfull\sbody\svisible. = Mesma\srede\sWi-Fi,\sfique\sa\s2-3\sm,\scom\so\scorpo\sinteiro\svisível.
 Save\sdrive = Unidade\sdos\sjogos\sguardados
 Saved = Guardado
 Saved\sdata = Dados\sguardados
@@ -381,6 +383,7 @@ Saves\sand\ssettings\swere\scopied\sfrom\sPS5X360.\sIts\sown\sfiles\swere\snot\s
 Saves\sand\ssettings\swere\snot\scopied\sfrom\sPS5X360:\sa\sfolder\scould\snot\sbe\schecked\s(the\slog\ssays\swhy).\sThe\snext\sstart\stries\sagain. = Os\sjogos\sguardados\se\sas\sdefinições\snão\sforam\scopiados\sdo\sPS5X360:\snão\sfoi\spossível\sverificar\suma\spasta\s(o\sregisto\sindica\so\smotivo).\sO\spróximo\sarranque\stenta\snovamente.
 Saves\sand\ssettings\swere\snot\scopied\sfrom\sPS5X360:\snot\senough\sfree\sspace. = Os\sjogos\sguardados\se\sas\sdefinições\snão\sforam\scopiados\sdo\sPS5X360:\snão\shá\sespaço\slivre\ssuficiente.
 Saves\swere\snot\scopied\sfrom\sPS5X360:\sthis\sapp\salready\shas\ssaves\sof\sits\sown. = Os\sjogos\sguardados\snão\sforam\scopiados\sdo\sPS5X360:\sesta\saplicação\sjá\stem\sjogos\sguardados\spróprios.
+Scan\swith\syour\sphone\sto\suse\sit\sas\sKinect. = Leia\so\scódigo\scom\so\stelemóvel\spara\so\susar\scomo\sKinect.
 Scroll = Deslocar
 Search = Pesquisar
 Search\sgames = Pesquisar\sjogo

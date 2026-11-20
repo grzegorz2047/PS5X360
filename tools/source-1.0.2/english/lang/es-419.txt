@@ -255,6 +255,7 @@ Marks\son\sfloors\sand\swalls\s(blood,\sroad\slines,\sshadows)\sthat\sflicker\si
 Measure\sperformance\s(10\ss) = Medir\srendimiento\s(10\ss)
 Memory\supdate\swindow = Ventana\sde\sactualización\sde\smemoria
 Menu\snavigation\ssound\svolume,\sindependent\sof\sgame\saudio. = Volumen\sde\slos\sefectos\sde\snavegación,\sindependiente\sdel\saudio\sde\slos\sjuegos.
+Motion:\sno\sphone\sconnected = Movimiento:\sningún\scelular\sconectado
 Mute\sgame\saudio. = Silencia\sel\saudio\sde\slos\sjuegos.
 Muted = Silenciado
 Name = Nombre
@@ -374,6 +375,7 @@ Resume\sgame = Continuar\sjuego
 Return\sto\sgame = Volver\sal\sjuego
 Right\sstick\sdead\szone = Zona\smuerta\sdel\sstick\sderecho
 Running:\sthe\sgame\sresumes\swhere\sit\sstopped = En\sejecución:\sel\sjuego\ssigue\sdonde\sse\squedó
+Same\sWi-Fi,\sstand\s2-3\sm\sback,\sfull\sbody\svisible. = Misma\sred\sWi-Fi,\scolócate\sa\s2-3\sm,\scon\stodo\sel\scuerpo\svisible.
 Save\sdrive = Unidad\sde\sguardado
 Saved = Guardado
 Saved\sdata = Partidas\sguardadas
@@ -381,6 +383,7 @@ Saves\sand\ssettings\swere\scopied\sfrom\sPS5X360.\sIts\sown\sfiles\swere\snot\s
 Saves\sand\ssettings\swere\snot\scopied\sfrom\sPS5X360:\sa\sfolder\scould\snot\sbe\schecked\s(the\slog\ssays\swhy).\sThe\snext\sstart\stries\sagain. = Las\spartidas\sguardadas\sy\sla\sconfiguración\sno\sse\scopiaron\sde\sPS5X360:\sno\sse\spudo\scomprobar\suna\scarpeta\s(el\sregistro\sindica\sel\smotivo).\sEl\spróximo\sinicio\slo\sintentará\sde\snuevo.
 Saves\sand\ssettings\swere\snot\scopied\sfrom\sPS5X360:\snot\senough\sfree\sspace. = Las\spartidas\sguardadas\sy\sla\sconfiguración\sno\sse\scopiaron\sde\sPS5X360:\sno\shay\ssuficiente\sespacio\slibre.
 Saves\swere\snot\scopied\sfrom\sPS5X360:\sthis\sapp\salready\shas\ssaves\sof\sits\sown. = Las\spartidas\sguardadas\sno\sse\scopiaron\sde\sPS5X360:\sesta\saplicación\sya\stiene\ssus\spropias\spartidas\sguardadas.
+Scan\swith\syour\sphone\sto\suse\sit\sas\sKinect. = Escanéalo\scon\sel\scelular\spara\susarlo\scomo\sKinect.
 Scroll = Desplazar
 Search = Buscar
 Search\sgames = Buscar\sjuego

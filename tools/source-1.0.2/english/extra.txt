@@ -229,6 +229,9 @@ A phone paired on the settings page then works as its camera. You can change it 
 Turn on and play = Ativar e jogar
 Play without it = Jogar sem
 This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again. = Este jogo exige o Kinect. Ative o Camera motion no guia (Configurações, Controles) e inicie o jogo novamente.
+Motion: no phone connected = Movimento: nenhum celular conectado
+Scan with your phone to use it as Kinect. = Escaneie com o celular para usá-lo como Kinect.
+Same Wi-Fi, stand 2-3 m back, full body visible. = Mesma rede Wi-Fi, fique a 2-3 m, com o corpo inteiro visível.
 
 [added pt]
 Console storage = Armazenamento da consola
@@ -271,6 +274,9 @@ A phone paired on the settings page then works as its camera. You can change it 
 Turn on and play = Ativar e jogar
 Play without it = Jogar sem
 This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again. = Este jogo requer o Kinect. Ative o Camera motion no guia (Definições, Comandos) e inicie o jogo novamente.
+Motion: no phone connected = Movimento: nenhum telemóvel ligado
+Scan with your phone to use it as Kinect. = Leia o código com o telemóvel para o usar como Kinect.
+Same Wi-Fi, stand 2-3 m back, full body visible. = Mesma rede Wi-Fi, fique a 2-3 m, com o corpo inteiro visível.
 
 [added es]
 Console storage = Almacenamiento de la consola
@@ -313,6 +319,9 @@ A phone paired on the settings page then works as its camera. You can change it 
 Turn on and play = Activar y jugar
 Play without it = Jugar sin él
 This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again. = Este juego requiere Kinect. Activa Camera motion en la guía (Configuración, Controles) y vuelve a iniciar el juego.
+Motion: no phone connected = Movimiento: ningún móvil conectado
+Scan with your phone to use it as Kinect. = Escanéalo con el móvil para usarlo como Kinect.
+Same Wi-Fi, stand 2-3 m back, full body visible. = Misma red Wi-Fi, colócate a 2-3 m, con todo el cuerpo visible.
 
 [added es-419]
 Console storage = Almacenamiento de la consola
@@ -355,6 +364,9 @@ A phone paired on the settings page then works as its camera. You can change it 
 Turn on and play = Activar y jugar
 Play without it = Jugar sin él
 This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again. = Este juego requiere Kinect. Activa Camera motion en la guía (Configuración, Controles) y vuelve a iniciar el juego.
+Motion: no phone connected = Movimiento: ningún celular conectado
+Scan with your phone to use it as Kinect. = Escanéalo con el celular para usarlo como Kinect.
+Same Wi-Fi, stand 2-3 m back, full body visible. = Misma red Wi-Fi, colócate a 2-3 m, con todo el cuerpo visible.
 
 [added de]
 Console storage = Konsolenspeicher
@@ -397,6 +409,9 @@ A phone paired on the settings page then works as its camera. You can change it 
 Turn on and play = Einschalten und spielen
 Play without it = Ohne spielen
 This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again. = Dieses Spiel benötigt Kinect. Schalte Camera motion im Guide ein (Einstellungen, Steuerung) und starte das Spiel neu.
+Motion: no phone connected = Bewegung: kein Handy verbunden
+Scan with your phone to use it as Kinect. = Mit dem Handy scannen, um es als Kinect zu nutzen.
+Same Wi-Fi, stand 2-3 m back, full body visible. = Gleiches WLAN, 2-3 m Abstand, ganzer Körper sichtbar.
 
 [added fr]
 Console storage = Stockage de la console
@@ -439,6 +454,9 @@ A phone paired on the settings page then works as its camera. You can change it 
 Turn on and play = Activer et jouer
 Play without it = Jouer sans
 This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again. = Ce jeu nécessite Kinect. Activez Camera motion dans le guide (Paramètres, Commandes), puis relancez le jeu.
+Motion: no phone connected = Mouvement : aucun téléphone connecté
+Scan with your phone to use it as Kinect. = Scannez avec votre téléphone pour l'utiliser comme Kinect.
+Same Wi-Fi, stand 2-3 m back, full body visible. = Même Wi-Fi, placez-vous à 2-3 m, corps entier visible.
 
 [added it]
 Console storage = Memoria della console
@@ -481,6 +499,9 @@ A phone paired on the settings page then works as its camera. You can change it 
 Turn on and play = Attiva e gioca
 Play without it = Gioca senza
 This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again. = Questo gioco richiede Kinect. Attiva Camera motion nella guida (Impostazioni, Controlli), poi riavvia il gioco.
+Motion: no phone connected = Movimento: nessun telefono connesso
+Scan with your phone to use it as Kinect. = Scansiona con il telefono per usarlo come Kinect.
+Same Wi-Fi, stand 2-3 m back, full body visible. = Stessa rete Wi-Fi, stai a 2-3 m, corpo intero visibile.
 
 [added ja]
 Console storage = 本体ストレージ
@@ -523,6 +544,9 @@ A phone paired on the settings page then works as its camera. You can change it 
 Turn on and play = オンにしてプレイ
 Play without it = オフのままプレイ
 This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again. = このゲームには Kinect が必要です。ガイド（設定、コントロール）で Camera motion をオンにしてから、ゲームを再起動してください。
+Motion: no phone connected = モーション: スマートフォン未接続
+Scan with your phone to use it as Kinect. = スマートフォンでスキャンして Kinect として使用します。
+Same Wi-Fi, stand 2-3 m back, full body visible. = 同じ Wi-Fi で、2-3 m 離れて全身が映るように立ってください。
 
 [added ko]
 Console storage = 본체 저장 공간
@@ -565,6 +589,9 @@ A phone paired on the settings page then works as its camera. You can change it 
 Turn on and play = 켜고 플레이
 Play without it = 끈 채로 플레이
 This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again. = 이 게임에는 Kinect가 필요합니다. 가이드(설정, 컨트롤)에서 Camera motion을 켠 다음 게임을 다시 시작하세요.
+Motion: no phone connected = 모션: 연결된 휴대폰 없음
+Scan with your phone to use it as Kinect. = 휴대폰으로 스캔하여 Kinect로 사용하세요.
+Same Wi-Fi, stand 2-3 m back, full body visible. = 같은 Wi-Fi에서 2-3 m 떨어져 전신이 보이게 서세요.
 
 [added nl]
 Console storage = Consoleopslag
@@ -607,6 +634,9 @@ A phone paired on the settings page then works as its camera. You can change it 
 Turn on and play = Inschakelen en spelen
 Play without it = Spelen zonder
 This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again. = Deze game vereist Kinect. Schakel Camera motion in via de gids (Instellingen, Besturing) en start de game opnieuw.
+Motion: no phone connected = Beweging: geen telefoon verbonden
+Scan with your phone to use it as Kinect. = Scan met je telefoon om hem als Kinect te gebruiken.
+Same Wi-Fi, stand 2-3 m back, full body visible. = Zelfde wifi, sta 2-3 m achteruit, hele lichaam zichtbaar.
 
 [added pl]
 Console storage = Pamięć konsoli
@@ -649,6 +679,9 @@ A phone paired on the settings page then works as its camera. You can change it 
 Turn on and play = Włącz i graj
 Play without it = Graj bez tego
 This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again. = Ta gra wymaga Kinecta. Włącz Camera motion w przewodniku (Ustawienia, Sterowanie), a potem uruchom grę ponownie.
+Motion: no phone connected = Ruch: brak połączonego telefonu
+Scan with your phone to use it as Kinect. = Zeskanuj telefonem, aby użyć go jako Kinecta.
+Same Wi-Fi, stand 2-3 m back, full body visible. = Ta sama sieć Wi-Fi, stań 2-3 m dalej, całe ciało widoczne.
 
 [added ru]
 Console storage = Память консоли
@@ -691,6 +724,9 @@ A phone paired on the settings page then works as its camera. You can change it 
 Turn on and play = Включить и играть
 Play without it = Играть без него
 This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again. = Этой игре нужен Kinect. Включите Camera motion в меню (Настройки, Управление) и перезапустите игру.
+Motion: no phone connected = Движение: телефон не подключён
+Scan with your phone to use it as Kinect. = Отсканируйте телефоном, чтобы использовать его как Kinect.
+Same Wi-Fi, stand 2-3 m back, full body visible. = Та же сеть Wi-Fi, встаньте в 2-3 м, всё тело в кадре.
 
 [added tr]
 Console storage = Konsol depolama alanı
@@ -733,6 +769,9 @@ A phone paired on the settings page then works as its camera. You can change it 
 Turn on and play = Aç ve oyna
 Play without it = Olmadan oyna
 This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again. = Bu oyun Kinect gerektirir. Rehberde (Ayarlar, Kontroller) Camera motion'ı açın ve oyunu yeniden başlatın.
+Motion: no phone connected = Hareket: bağlı telefon yok
+Scan with your phone to use it as Kinect. = Kinect olarak kullanmak için telefonunuzla tarayın.
+Same Wi-Fi, stand 2-3 m back, full body visible. = Aynı Wi-Fi, 2-3 m geride durun, tüm vücut görünsün.
 
 [added zh-Hans]
 Console storage = 主机存储空间
@@ -775,6 +814,9 @@ A phone paired on the settings page then works as its camera. You can change it 
 Turn on and play = 开启并游玩
 Play without it = 不开启直接游玩
 This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again. = 此游戏需要 Kinect。请在指南（设置、控制）中开启 Camera motion，然后重新启动游戏。
+Motion: no phone connected = 动作：未连接手机
+Scan with your phone to use it as Kinect. = 用手机扫描，即可将其用作 Kinect。
+Same Wi-Fi, stand 2-3 m back, full body visible. = 连接同一 Wi-Fi，站在 2-3 米外，全身入镜。
 
 [added zh-Hant]
 Console storage = 主機儲存空間
@@ -817,3 +859,6 @@ A phone paired on the settings page then works as its camera. You can change it 
 Turn on and play = 開啟並遊玩
 Play without it = 不開啟直接遊玩
 This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again. = 此遊戲需要 Kinect。請在指南（設定、控制）中開啟 Camera motion，然後重新啟動遊戲。
+Motion: no phone connected = 動作：未連接手機
+Scan with your phone to use it as Kinect. = 用手機掃描，即可將其當作 Kinect 使用。
+Same Wi-Fi, stand 2-3 m back, full body visible. = 連接同一 Wi-Fi，站在 2-3 公尺外，全身入鏡。

@@ -255,6 +255,7 @@ Marks\son\sfloors\sand\swalls\s(blood,\sroad\slines,\sshadows)\sthat\sflicker\si
 Measure\sperformance\s(10\ss) = Leistung\smessen\s(10\ss)
 Memory\supdate\swindow = Speicher-Aktualisierungsfenster
 Menu\snavigation\ssound\svolume,\sindependent\sof\sgame\saudio. = Lautstärke\sder\sNavigationstöne\sim\sMenü,\sunabhängig\svom\sSpielton.
+Motion:\sno\sphone\sconnected = Bewegung:\skein\sHandy\sverbunden
 Mute\sgame\saudio. = Spielton\sstummschalten.
 Muted = Stumm
 Name = Name
@@ -374,6 +375,7 @@ Resume\sgame = Spiel\sfortsetzen
 Return\sto\sgame = Zurück\szum\sSpiel
 Right\sstick\sdead\szone = Totzone\srechter\sStick
 Running:\sthe\sgame\sresumes\swhere\sit\sstopped = Läuft:\sdas\sSpiel\sgeht\sdort\sweiter,\swo\ses\saufgehört\shat
+Same\sWi-Fi,\sstand\s2-3\sm\sback,\sfull\sbody\svisible. = Gleiches\sWLAN,\s2-3\sm\sAbstand,\sganzer\sKörper\ssichtbar.
 Save\sdrive = Speicherlaufwerk
 Saved = Gespeichert
 Saved\sdata = Gespeicherte\sDaten
@@ -381,6 +383,7 @@ Saves\sand\ssettings\swere\scopied\sfrom\sPS5X360.\sIts\sown\sfiles\swere\snot\s
 Saves\sand\ssettings\swere\snot\scopied\sfrom\sPS5X360:\sa\sfolder\scould\snot\sbe\schecked\s(the\slog\ssays\swhy).\sThe\snext\sstart\stries\sagain. = Spielstände\sund\sEinstellungen\swurden\snicht\saus\sPS5X360\skopiert:\sEin\sOrdner\skonnte\snicht\sgeprüft\swerden\s(das\sProtokoll\snennt\sden\sGrund).\sDer\snächste\sStart\sversucht\ses\serneut.
 Saves\sand\ssettings\swere\snot\scopied\sfrom\sPS5X360:\snot\senough\sfree\sspace. = Spielstände\sund\sEinstellungen\swurden\snicht\saus\sPS5X360\skopiert:\snicht\sgenügend\sfreier\sSpeicherplatz.
 Saves\swere\snot\scopied\sfrom\sPS5X360:\sthis\sapp\salready\shas\ssaves\sof\sits\sown. = Spielstände\swurden\snicht\saus\sPS5X360\skopiert:\sDiese\sApp\shat\sbereits\seigene\sSpielstände.
+Scan\swith\syour\sphone\sto\suse\sit\sas\sKinect. = Mit\sdem\sHandy\sscannen,\sum\ses\sals\sKinect\szu\snutzen.
 Scroll = Blättern
 Search = Suchen
 Search\sgames = Spiel\ssuchen

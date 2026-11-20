@@ -255,6 +255,7 @@ Marks\son\sfloors\sand\swalls\s(blood,\sroad\slines,\sshadows)\sthat\sflicker\si
 Measure\sperformance\s(10\ss) = 测量性能（10\s秒）
 Memory\supdate\swindow = 内存更新窗口
 Menu\snavigation\ssound\svolume,\sindependent\sof\sgame\saudio. = 菜单导航音效的音量，与游戏音频无关。
+Motion:\sno\sphone\sconnected = 动作：未连接手机
 Mute\sgame\saudio. = 将游戏声音静音。
 Muted = 静音
 Name = 名称
@@ -374,6 +375,7 @@ Resume\sgame = 继续游戏
 Return\sto\sgame = 返回游戏
 Right\sstick\sdead\szone = 右摇杆死区
 Running:\sthe\sgame\sresumes\swhere\sit\sstopped = 运行中：游戏从停止处继续
+Same\sWi-Fi,\sstand\s2-3\sm\sback,\sfull\sbody\svisible. = 连接同一\sWi-Fi，站在\s2-3\s米外，全身入镜。
 Save\sdrive = 存档驱动器
 Saved = 已保存
 Saved\sdata = 存档数据
@@ -381,6 +383,7 @@ Saves\sand\ssettings\swere\scopied\sfrom\sPS5X360.\sIts\sown\sfiles\swere\snot\s
 Saves\sand\ssettings\swere\snot\scopied\sfrom\sPS5X360:\sa\sfolder\scould\snot\sbe\schecked\s(the\slog\ssays\swhy).\sThe\snext\sstart\stries\sagain. = 未从\sPS5X360\s复制存档和设置：无法检查某个文件夹（原因见日志）。下次启动时将重试。
 Saves\sand\ssettings\swere\snot\scopied\sfrom\sPS5X360:\snot\senough\sfree\sspace. = 未从\sPS5X360\s复制存档和设置：可用空间不足。
 Saves\swere\snot\scopied\sfrom\sPS5X360:\sthis\sapp\salready\shas\ssaves\sof\sits\sown. = 未从\sPS5X360\s复制存档：此应用已有自己的存档。
+Scan\swith\syour\sphone\sto\suse\sit\sas\sKinect. = 用手机扫描，即可将其用作\sKinect。
 Scroll = 滚动
 Search = 搜索
 Search\sgames = 搜索游戏

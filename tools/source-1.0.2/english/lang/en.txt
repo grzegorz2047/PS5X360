@@ -257,6 +257,7 @@ Marks\son\sfloors\sand\swalls\s(blood,\sroad\slines,\sshadows)\sthat\sflicker\si
 Measure\sperformance\s(10\ss) = Measure\sperformance\s(10\ss)
 Memory\supdate\swindow = Memory\supdate\swindow
 Menu\snavigation\ssound\svolume,\sindependent\sof\sgame\saudio. = Menu\snavigation\ssound\svolume,\sindependent\sof\sgame\saudio.
+Motion:\sno\sphone\sconnected = Motion:\sno\sphone\sconnected
 Mute\sgame\saudio. = Mute\sgame\saudio.
 Muted = Muted
 Name = Name
@@ -376,6 +377,7 @@ Resume\sgame = Resume\sgame
 Return\sto\sgame = Return\sto\sgame
 Right\sstick\sdead\szone = Right\sstick\sdead\szone
 Running:\sthe\sgame\sresumes\swhere\sit\sstopped = Running:\sthe\sgame\sresumes\swhere\sit\sstopped
+Same\sWi-Fi,\sstand\s2-3\sm\sback,\sfull\sbody\svisible. = Same\sWi-Fi,\sstand\s2-3\sm\sback,\sfull\sbody\svisible.
 Save\sdrive = Save\sdrive
 Saved = Saved
 Saved\sdata = Saved\sdata
@@ -383,6 +385,7 @@ Saves\sand\ssettings\swere\scopied\sfrom\sPS5X360.\sIts\sown\sfiles\swere\snot\s
 Saves\sand\ssettings\swere\snot\scopied\sfrom\sPS5X360:\sa\sfolder\scould\snot\sbe\schecked\s(the\slog\ssays\swhy).\sThe\snext\sstart\stries\sagain. = Saves\sand\ssettings\swere\snot\scopied\sfrom\sPS5X360:\sa\sfolder\scould\snot\sbe\schecked\s(the\slog\ssays\swhy).\sThe\snext\sstart\stries\sagain.
 Saves\sand\ssettings\swere\snot\scopied\sfrom\sPS5X360:\snot\senough\sfree\sspace. = Saves\sand\ssettings\swere\snot\scopied\sfrom\sPS5X360:\snot\senough\sfree\sspace.
 Saves\swere\snot\scopied\sfrom\sPS5X360:\sthis\sapp\salready\shas\ssaves\sof\sits\sown. = Saves\swere\snot\scopied\sfrom\sPS5X360:\sthis\sapp\salready\shas\ssaves\sof\sits\sown.
+Scan\swith\syour\sphone\sto\suse\sit\sas\sKinect. = Scan\swith\syour\sphone\sto\suse\sit\sas\sKinect.
 Scroll = Scroll
 Search = Search
 Search\sgames = Search\sgames

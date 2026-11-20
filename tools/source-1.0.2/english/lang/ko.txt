@@ -255,6 +255,7 @@ Marks\son\sfloors\sand\swalls\s(blood,\sroad\slines,\sshadows)\sthat\sflicker\si
 Measure\sperformance\s(10\ss) = 성능\s측정(10초)
 Memory\supdate\swindow = 메모리\s업데이트\s창
 Menu\snavigation\ssound\svolume,\sindependent\sof\sgame\saudio. = 메뉴\s이동\s소리의\s음량,\s게임\s소리와는\s별개입니다.
+Motion:\sno\sphone\sconnected = 모션:\s연결된\s휴대폰\s없음
 Mute\sgame\saudio. = 게임\s소리를\s음소거합니다.
 Muted = 음소거
 Name = 이름
@@ -374,6 +375,7 @@ Resume\sgame = 게임\s계속하기
 Return\sto\sgame = 게임으로\s돌아가기
 Right\sstick\sdead\szone = 오른쪽\s스틱\s데드존
 Running:\sthe\sgame\sresumes\swhere\sit\sstopped = 실행\s중:\s멈춘\s곳부터\s게임이\s계속됩니다
+Same\sWi-Fi,\sstand\s2-3\sm\sback,\sfull\sbody\svisible. = 같은\sWi-Fi에서\s2-3\sm\s떨어져\s전신이\s보이게\s서세요.
 Save\sdrive = 저장\s드라이브
 Saved = 저장됨
 Saved\sdata = 저장된\s데이터
@@ -381,6 +383,7 @@ Saves\sand\ssettings\swere\scopied\sfrom\sPS5X360.\sIts\sown\sfiles\swere\snot\s
 Saves\sand\ssettings\swere\snot\scopied\sfrom\sPS5X360:\sa\sfolder\scould\snot\sbe\schecked\s(the\slog\ssays\swhy).\sThe\snext\sstart\stries\sagain. = PS5X360에서\s저장\s데이터와\s설정을\s복사하지\s못했습니다:\s폴더를\s확인할\s수\s없었습니다(로그에\s이유가\s기록됨).\s다음\s시작\s시\s다시\s시도합니다.
 Saves\sand\ssettings\swere\snot\scopied\sfrom\sPS5X360:\snot\senough\sfree\sspace. = PS5X360에서\s저장\s데이터와\s설정을\s복사하지\s못했습니다:\s여유\s공간이\s부족합니다.
 Saves\swere\snot\scopied\sfrom\sPS5X360:\sthis\sapp\salready\shas\ssaves\sof\sits\sown. = PS5X360에서\s저장\s데이터를\s복사하지\s않았습니다:\s이\s앱에\s이미\s자체\s저장\s데이터가\s있습니다.
+Scan\swith\syour\sphone\sto\suse\sit\sas\sKinect. = 휴대폰으로\s스캔하여\sKinect로\s사용하세요.
 Scroll = 스크롤
 Search = 검색
 Search\sgames = 게임\s검색
