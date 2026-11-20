@@ -1,0 +1,94 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io_info.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io_info.cc
+index 4bea73e..7da029f 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io_info.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io_info.cc
+@@ -16,6 +16,7 @@
+ #include "xenia/kernel/kernel_state.h"
+ #include "xenia/kernel/util/shim_utils.h"
+ #include "xenia/kernel/xboxkrnl/xboxkrnl_private.h"
++#include "xbox360ps5/xctd.hpp"  // fix 90
+ #include "xenia/kernel/xfile.h"
+ #include "xenia/vfs/device.h"
+ #include "xenia/xbox.h"
+@@ -119,14 +120,34 @@ dword_result_t NtQueryInformationFile_entry(
+           xbox360ps5::Stage(text);
+         }
+       }
+-      XELOGE(
+-          "NtQueryInformationFile(XFileXctdCompressionInformation) "
+-          "unimplemented");
+-      // Files that are XCTD compressed begin with the magic 0x0FF512ED but we
+-      // shouldn't detect this that way. There's probably a flag somewhere
+-      // (attributes?) that defines if it's compressed or not.
+-      status = X_STATUS_INVALID_PARAMETER;
+-      out_length = 0;
++      // Xbox360PS5 fix 90: the title's XCTD runtime asks whether the file is compressed and
++      // decompresses it itself; XCTD files begin with 0x0FF512ED (xbox360ps5/xctd.hpp).
++      uint8_t head[4] = {};
++      size_t head_read = 0;
++      const bool readable =
++          file->file() && file->file()->ReadSync(std::span<uint8_t>(head, sizeof(head)), 0, &head_read) ==
++                              X_STATUS_SUCCESS;
++      if (!readable) {
++        XELOGE("NtQueryInformationFile(XFileXctdCompressionInformation): {} cannot be read",
++               path);
++        status = X_STATUS_INVALID_PARAMETER;
++        out_length = 0;
++        break;
++      }
++      const uint32_t answer = xbox360ps5::xctd::Answer(head, head_read);
++      xe::store_and_swap<uint32_t>(info_ptr.as<uint8_t*>(), answer);
++      out_length = sizeof(uint32_t);
++      {
++        // Which titles use XCTD, and their first compressed file (fix 90).
++        static std::atomic<uint32_t> said_title{0};
++        static std::atomic<bool> said_compressed{false};
++        const uint32_t title = kernel_state()->title_id();
++        if (said_title.exchange(title) != title)
++          XELOGW("XCTD: title {:08X} asks whether its files are compressed (first: {}, {})", title,
++                 path, answer ? "compressed" : "not compressed");
++        if (answer && !said_compressed.exchange(true))
++          XELOGW("XCTD: first compressed file {}; the title decompresses it", path);
++      }
+       break;
+     };
+     case XFileNetworkOpenInformation: {
+diff --git a/include/xbox360ps5/xctd.hpp b/include/xbox360ps5/xctd.hpp
+new file mode 100644
+index 0000000..efc88c6
+--- /dev/null
++++ b/include/xbox360ps5/xctd.hpp
+@@ -0,0 +1,33 @@
++// SPDX-License-Identifier: MIT
++// Fix 90 (1.0.5): NtQueryInformationFile(XFileXctdCompressionInformation), class 0x1B.
++//
++// Titles built with the XDK's XCTD file compression ask the kernel, for every file they open,
++// whether it is compressed; their own runtime then decompresses it (Kinect Sports, 4D5308C9:
++// 82A38740 reads the 4-byte answer's bit 0 as "compressed", and a failed query as "unknown").
++// The core answered every query with STATUS_INVALID_PARAMETER, so the runtime took its
++// fallback: it reads the file's first word itself, through the stream it then decompresses from,
++// and Kinect Sports crashed right after loading its first compressed bundle on
++// 1.0.5_candidate_5 (\AM\AMBundle\bundle\4F45161E; thread F8000078 at 827D6808, then five more).
++// XCTD files begin with the big-endian magic 0x0FF512ED (17 of Kinect Sports' bundles do); the
++// answer is now 1 for those and 0 for every other file, read at offset 0 without moving the
++// file's position. A file that cannot be read keeps the old answer.
++#pragma once
++#include <cstddef>
++#include <cstdint>
++
++namespace xbox360ps5::xctd {
++
++constexpr uint32_t kMagic = 0x0FF512ED;
++constexpr uint32_t kCompressed = 1, kNotCompressed = 0;
++
++inline bool IsCompressedHeader(const uint8_t* bytes, size_t size) {
++  if (!bytes || size < 4) return false;
++  const uint32_t word = uint32_t(bytes[0]) << 24 | uint32_t(bytes[1]) << 16 | uint32_t(bytes[2]) << 8 | bytes[3];
++  return word == kMagic;
++}
++// The 4-byte answer (big-endian in guest memory, written by the caller).
++inline uint32_t Answer(const uint8_t* bytes, size_t size) {
++  return IsCompressedHeader(bytes, size) ? kCompressed : kNotCompressed;
++}
++
++}  // namespace xbox360ps5::xctd
