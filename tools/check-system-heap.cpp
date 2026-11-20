@@ -48,7 +48,7 @@ void CheckHolders() {
   for (int t = 0; t < 2; ++t) {
     threads.emplace_back([t] {
       for (uint32_t n = 0; n < 500; ++n) {
-        const uint32_t address = 0x31000000 + (uint32_t(t) << 20) + (n << 12);
+        const uint32_t address = 0x31000000 + (uint32_t(t) << 24) + (n << 12);  // apart: 2 MiB each
         sh::NoteAlloc(address, 64, kTidy);
         sh::NoteFree(address);
       }
