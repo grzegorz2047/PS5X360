@@ -1,0 +1,1364 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+index 2e252f2..faa161c 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+@@ -10,6 +10,7 @@
+ #include "xenia/gpu/vulkan/vulkan_command_processor.h"
+ #if XE_PLATFORM_PS5
+ #include "xbox360ps5/gpu_diagnostics.hpp"
++#include "xbox360ps5/app_identity.hpp"  // fix 46: the title's folder
+ #endif
+ 
+ #include <utility>
+@@ -3691,7 +3692,7 @@ bool AutoReadbackAllowed() {
+     bool off = false;
+ #if XE_PLATFORM_PS5
+     for (const char* path : {"/app0/readback-auto.off",
+-                             "/data/homebrew/PPSA50011/readback-auto.off"}) {
++                             XBOX360PS5_DATA_ROOT "/readback-auto.off"}) {
+       if (FILE* marker = std::fopen(path, "rb")) {
+         std::fclose(marker);
+         off = true;
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_pipeline_cache.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_pipeline_cache.cc
+index 7db1b24..4feddce 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_pipeline_cache.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_pipeline_cache.cc
+@@ -10,6 +10,7 @@
+ #include "xenia/gpu/vulkan/vulkan_pipeline_cache.h"
+ #include "xbox360ps5/pipeline_cache_header.hpp"
+ #include "xbox360ps5/cache_io.hpp"
++#include "xbox360ps5/app_identity.hpp"  // fix 46: the title's folder
+ 
+ #include "shader_stutter_trace.hpp"
+ 
+@@ -78,7 +79,7 @@ bool ShaderTraceEnabled() {
+   // Explicit, process-local opt-in. Never enable verbose per-call logging.
+   static const bool file_enabled = [] {
+     std::FILE* f = std::fopen("/app0/shader-trace.conf", "rb");
+-    if (!f) f = std::fopen("/data/homebrew/PPSA50011/shader-trace.conf", "rb");
++    if (!f) f = std::fopen(XBOX360PS5_DATA_ROOT "/shader-trace.conf", "rb");
+     if (!f) return false;
+     char line[32]{};
+     const bool read = std::fgets(line, sizeof(line), f) != nullptr;
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_shared_memory.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_shared_memory.cc
+index a04073d..3ecf0e2 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_shared_memory.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_shared_memory.cc
+@@ -21,6 +21,7 @@
+ #include "xenia/ui/vulkan/vulkan_util.h"
+ #if XE_PLATFORM_PS5
+ #include "xbox360ps5/gpu_diagnostics.hpp"
++#include "xbox360ps5/app_identity.hpp"  // fix 46: the title's folder
+ // Xbox360PS5: platform/ps5/crash_report.cpp.
+ namespace xbox360ps5 {
+ bool HostReadable(const void* address, size_t bytes);
+@@ -38,7 +39,7 @@ bool ReleasedPagesReadable() {
+   static const bool by_default = [] {
+     bool off = false;
+     for (const char* path : {"/app0/released-memory.off",
+-                             "/data/homebrew/PPSA50011/released-memory.off"}) {
++                             XBOX360PS5_DATA_ROOT "/released-memory.off"}) {
+       if (FILE* marker = std::fopen(path, "rb")) {
+         std::fclose(marker);
+         off = true;
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_texture_cache.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_texture_cache.cc
+index 0f5cfab..87f93b5 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_texture_cache.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_texture_cache.cc
+@@ -28,6 +28,7 @@
+ #include "xenia/gpu/vulkan/deferred_command_buffer.h"
+ #include "xenia/gpu/vulkan/vulkan_command_processor.h"
+ #include "xenia/ui/vulkan/ui_samplers.h"
++#include "xbox360ps5/app_identity.hpp"  // fix 46: the title's folder
+ #include "xenia/ui/vulkan/vulkan_mem_alloc.h"
+ #include "xenia/ui/vulkan/vulkan_util.h"
+ 
+@@ -3433,7 +3434,7 @@ bool VulkanTextureCache::Initialize() {
+     std::string folder;
+     if (ok) {
+       char name[96];
+-      std::snprintf(name, sizeof(name), "/data/homebrew/PPSA50011/logs/texture-capture-%lld", (long long)std::time(nullptr));
++      std::snprintf(name, sizeof(name), XBOX360PS5_DATA_ROOT "/logs/texture-capture-%lld", (long long)std::time(nullptr));
+       folder = name;
+       std::error_code error;
+       std::filesystem::create_directories(folder, error);
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/storage_devices.h b/.deps/xenia-canary/src/xenia/kernel/xam/storage_devices.h
+index b2afa61..3b7a7b8 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/storage_devices.h
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/storage_devices.h
+@@ -9,7 +9,7 @@
+ // Xbox360PS5 (fix 27): the storage devices a game can keep its saves on.
+ //
+ // The internal folder (the content root the title gives the emulator,
+-// /data/homebrew/PPSA50011/saves) is the hard drive, device 1, as before.
++// /data/homebrew/PPSA83600/saves) is the hard drive, device 1, as before.
+ // Each writable drive mounted at one of the console's mount points
+ // (/mnt/ext0.., /mnt/usb0..) is a device of its own, with an ID fixed by
+ // its mount point, and keeps its saves in <drive>/PS5X360/saves (or below a
+diff --git a/include/xbox360ps5/app_identity.hpp b/include/xbox360ps5/app_identity.hpp
+new file mode 100644
+index 0000000..cf97080
+--- /dev/null
++++ b/include/xbox360ps5/app_identity.hpp
+@@ -0,0 +1,30 @@
++// SPDX-License-Identifier: MIT
++// Fix 46 (tools/source-1.0.2/fixes/46-ps5x360reloaded-identity.patch): who this title is.
++// PS5X360Reloaded, the fork of BrinooTk's PS5X360 rebuilt from its published sources, has a title
++// ID of its own, PPSA83600, so it installs beside the official PS5X360 instead of
++// replacing it, and keeps its data in a folder of its own: everything the title and the core
++// read or write under /data/homebrew goes through XBOX360PS5_DATA_ROOT. The official app's
++// folder is named once, here (kOfficialDataRoot), for the two places that only read it: the
++// first start's copy of its saves and settings (official_import.hpp) and the official Kinect
++// tracker's key (web_settings.cpp). Nothing writes there.
++// Macros, so that paths are string literals ("..." XBOX360PS5_DATA_ROOT "/x" "..."), also in the
++// core's C++ (the core sees include/, canary/CMakeLists.txt).
++#pragma once
++
++#define XBOX360PS5_PRODUCT_NAME "PS5X360Reloaded"
++#define XBOX360PS5_TITLE_ID "PPSA83600"
++#define XBOX360PS5_DATA_ROOT "/data/homebrew/" XBOX360PS5_TITLE_ID
++// The official PS5X360's title ID: the only place the title and the core name it.
++#define XBOX360PS5_OFFICIAL_TITLE_ID "PPSA50011"
++
++namespace xbox360ps5::app_identity {
++// The name the title shows (window, version label, guide, notifications, web pages).
++inline constexpr char kProductName[] = XBOX360PS5_PRODUCT_NAME;
++inline constexpr char kTitleId[] = XBOX360PS5_TITLE_ID;
++// The title's own folder on the internal disk: saves, logs, caches, network.conf and the rest.
++inline constexpr char kDataRoot[] = XBOX360PS5_DATA_ROOT;
++// The official PS5X360 (BrinooTk/PS5X360 v1.0.2) and its folder: read, never written.
++inline constexpr char kOfficialProductName[] = "PS5X360";
++inline constexpr char kOfficialTitleId[] = XBOX360PS5_OFFICIAL_TITLE_ID;
++inline constexpr char kOfficialDataRoot[] = "/data/homebrew/" XBOX360PS5_OFFICIAL_TITLE_ID;
++}  // namespace xbox360ps5::app_identity
+diff --git a/include/xbox360ps5/build_version.hpp b/include/xbox360ps5/build_version.hpp
+index a3f2dd1..4f2f04a 100644
+--- a/include/xbox360ps5/build_version.hpp
++++ b/include/xbox360ps5/build_version.hpp
+@@ -1,9 +1,10 @@
+ // SPDX-License-Identifier: MIT
+ #pragma once
++#include "xbox360ps5/app_identity.hpp"  // fix 46: the product name
+ namespace xbox360ps5 {
+ #ifdef XBOX360PS5_VERSION
+-inline constexpr char kBuildVersionLabel[] = "PS5X360 v" XBOX360PS5_VERSION;
++inline constexpr char kBuildVersionLabel[] = XBOX360PS5_PRODUCT_NAME " v" XBOX360PS5_VERSION;
+ #else
+-inline constexpr char kBuildVersionLabel[] = "PS5X360 development build";
++inline constexpr char kBuildVersionLabel[] = XBOX360PS5_PRODUCT_NAME " development build";
+ #endif
+ }
+diff --git a/include/xbox360ps5/forward.hpp b/include/xbox360ps5/forward.hpp
+index 5c091ab..a17468a 100644
+--- a/include/xbox360ps5/forward.hpp
++++ b/include/xbox360ps5/forward.hpp
+@@ -4,7 +4,7 @@
+ // build (tools/source-1.0.2/fixes/21-launch-argument.patch).
+ //
+ // A forwarder is a small app with its own home screen tile. Opened, it asks a
+-// resident launcher to start PPSA50011 through sceSystemServiceLaunchApp with
++// resident launcher to start the title through sceSystemServiceLaunchApp with
+ // the arguments in its forwarder.json (PS5 Forwarder Format,
+ // heydemoura/ps5-forwarder-format). PS5X360 takes:
+ //
+diff --git a/include/xbox360ps5/official_import.hpp b/include/xbox360ps5/official_import.hpp
+new file mode 100644
+index 0000000..3787576
+--- /dev/null
++++ b/include/xbox360ps5/official_import.hpp
+@@ -0,0 +1,400 @@
++// SPDX-License-Identifier: MIT
++// Fix 46 (tools/source-1.0.2/fixes/46-ps5x360reloaded-identity.patch): the first start of
++// PS5X360Reloaded copies the official PS5X360's saves and small settings files from its folder
++// (app_identity::kOfficialDataRoot) into its own (kDataRoot), once.
++//
++//   * saves/ (profiles, achievements, game saves, installed DLC and title updates): copied into
++//     <target>/.saves-import, then renamed to <target>/saves, only when the title has no saves
++//     folder of its own (never merged into saves it has); a start interrupted while copying
++//     leaves the staging folder, which the next start removes and copies again;
++//   * kFiles and the files of kFolders: each copied only when the title has no file of that name
++//     (never overwritten);
++//   * only when the folder holding <target> has room for all of it plus kMargin; otherwise
++//     nothing is copied;
++//   * each entry that cannot be read, a link, or anything else than a file or folder is left out
++//     and counted (the log names the first ones); copies are copies, never links, since saves
++//     are rewritten in place.
++// The marker <target>/.official-import records the outcome, so this runs once: after an import,
++// when the official folder is absent, and when the room is short (the start then makes empty
++// saves, and the notice says so; the files can still be copied by FTP).
++// Nothing is ever written, created, renamed or removed in the official folder: it is only
++// opened for reading and listed, and every path written to is checked to be inside <target>
++// and outside <source> first. Not copied: cache/ (shaders and modules, made again), logs/ (with
++// web-settings.key and phone-camera/: this title makes its own key and its own camera
++// certificate) and the official app's own files.
++// Header only and free of the rest of the title, so that tools/check-official-import.cpp
++// drives the same code on a temporary folder.
++#pragma once
++#include <algorithm>
++#include <cstdint>
++#include <filesystem>
++#include <fstream>
++#include <functional>
++#include <string>
++#include <system_error>
++#include <vector>
++
++namespace xbox360ps5::official_import {
++namespace fs = std::filesystem;
++
++inline constexpr char kMarker[] = ".official-import";
++inline constexpr char kStaging[] = ".saves-import";
++inline constexpr char kSaves[] = "saves";
++// Settings files of the folder's top (network.conf: the network mode and server; the others are
++// switches the home or a test reads).
++inline constexpr const char* kFiles[] = {"network.conf", "vibration.conf", "framegen.conf",
++                                         "ui-dark.on",   "ui-classic.on",  "dashboard.off"};
++// Small folders: the user's home pictures, downloaded game art, the original dashboard the user
++// copied (dash.xex), the achievement icons the notifications show.
++inline constexpr const char* kFolders[] = {"skin", "game-art", "dashboard", "cache/achievements"};
++// Room kept free beyond what is copied.
++inline constexpr uint64_t kMargin = 64ull << 20;
++// At most this many folder levels are walked (saves are a few levels deep).
++inline constexpr int kMaxDepth = 32;
++// Lines naming left-out entries, at most.
++inline constexpr size_t kMaxNamed = 32;
++
++// What the decision needs to know, gathered by Gather (or made up by the check).
++struct Facts {
++  bool marker = false;        // <target>/.official-import exists: decided at an earlier start
++  bool unsafe = false;        // the two folders are one, or inside each other, or <target> is a link
++  bool source = false;        // the official folder is a folder (not a link)
++  bool source_saves = false;  // <source>/saves is a folder (not a link)
++  bool target_saves = false;  // <target>/saves exists, whatever it is
++  uint64_t saves_bytes = 0;   // the files of <source>/saves
++  uint64_t small_bytes = 0;   // kFiles and kFolders' files the title does not have yet
++  bool space_known = false;
++  uint64_t free = 0;          // room where <target> is
++};
++
++enum class Decision {
++  kAlreadyDone,      // the marker: nothing at all
++  kUnsafe,           // nothing at all, no marker
++  kNothingToImport,  // no official folder: the marker only
++  kNoSpace,          // not enough room (or not known): the marker only
++  kImport,           // copy (saves when copy_saves), then the marker
++};
++
++struct Plan {
++  Decision decision = Decision::kAlreadyDone;
++  bool copy_saves = false;
++  bool copy_small = false;
++  bool write_marker = false;
++  uint64_t needed = 0;  // bytes copied plus kMargin (kImport and kNoSpace)
++};
++
++// The decision, from the facts alone.
++inline Plan Decide(const Facts& facts) {
++  Plan plan;
++  if (facts.marker) return plan;
++  if (facts.unsafe) {
++    plan.decision = Decision::kUnsafe;
++    return plan;
++  }
++  plan.write_marker = true;
++  if (!facts.source) {
++    plan.decision = Decision::kNothingToImport;
++    return plan;
++  }
++  const bool saves = facts.source_saves && !facts.target_saves;
++  plan.needed = (saves ? facts.saves_bytes : 0) + facts.small_bytes + kMargin;
++  if (!facts.space_known || facts.free < plan.needed) {
++    plan.decision = Decision::kNoSpace;
++    return plan;
++  }
++  plan.decision = Decision::kImport;
++  plan.copy_saves = saves;
++  plan.copy_small = true;
++  return plan;
++}
++
++inline const char* DecisionName(Decision decision) {
++  switch (decision) {
++    case Decision::kAlreadyDone: return "already done";
++    case Decision::kUnsafe: return "refused (the folders overlap or the title's folder is a link)";
++    case Decision::kNothingToImport: return "nothing to import (no official folder)";
++    case Decision::kNoSpace: return "not enough free space";
++    case Decision::kImport: return "imported";
++  }
++  return "?";
++}
++
++struct Result {
++  Plan plan;
++  bool saves_copied = false;
++  uint64_t files = 0;    // files copied
++  uint64_t bytes = 0;    // their bytes
++  uint64_t kept = 0;     // small files the title already had (left as they are)
++  uint64_t skipped = 0;  // entries left out: unreadable, links, other types, failed copies
++  uint64_t free = 0;
++  bool marker_written = false;
++  std::string error;               // why the saves were not put in place, when they were not
++  std::vector<std::string> lines;  // what was left out (kMaxNamed at most), for the log
++};
++
++// The room in the folder holding `path` (test hook: the check gives its own).
++using FreeSpace = std::function<bool(const fs::path& path, uint64_t* free)>;
++inline bool RealFreeSpace(const fs::path& path, uint64_t* free) {
++  std::error_code error;
++  const auto info = fs::space(path, error);
++  if (error) return false;
++  *free = info.available;
++  return true;
++}
++
++namespace detail {
++inline bool IsFolder(const fs::path& path) {
++  std::error_code error;
++  return fs::symlink_status(path, error).type() == fs::file_type::directory;
++}
++inline bool IsFile(const fs::path& path) {
++  std::error_code error;
++  return fs::symlink_status(path, error).type() == fs::file_type::regular;
++}
++inline bool Exists(const fs::path& path) {
++  std::error_code error;
++  const auto type = fs::symlink_status(path, error).type();
++  return type != fs::file_type::not_found && type != fs::file_type::none;
++}
++// Whether `inner` is `outer` or inside it, by path components (both made absolute and normal).
++inline bool Within(const fs::path& inner, const fs::path& outer) {
++  std::vector<fs::path> a, b;
++  for (const auto& part : inner)
++    if (!part.empty()) a.push_back(part);  // empty: a trailing separator
++  for (const auto& part : outer)
++    if (!part.empty()) b.push_back(part);
++  return !b.empty() && b.size() <= a.size() && std::equal(b.begin(), b.end(), a.begin());
++}
++inline fs::path Normal(const fs::path& path) {
++  std::error_code error;
++  fs::path full = fs::weakly_canonical(path, error);
++  if (error) full = fs::absolute(path, error).lexically_normal();
++  return full;
++}
++
++class Copier {
++ public:
++  Copier(const fs::path& source, const fs::path& target, Result& result)
++      : source_(Normal(source)), target_(Normal(target)), result_(result) {}
++
++  // The only gate to writing: inside the title's folder, never inside the official one.
++  bool MayWrite(const fs::path& path) const {
++    const fs::path full = Normal(path);
++    return Within(full, target_) && !Within(full, source_);
++  }
++  void LeaveOut(const fs::path& path, const std::string& why) {
++    ++result_.skipped;
++    if (result_.lines.size() < kMaxNamed) result_.lines.push_back(path.string() + ": " + why);
++  }
++  // One file, never over an existing one (copy_options::none fails when `to` exists).
++  bool CopyFile(const fs::path& from, const fs::path& to) {
++    if (!MayWrite(to)) {
++      LeaveOut(from, "not copied (destination outside the title's folder)");
++      return false;
++    }
++    std::error_code error;
++    const uint64_t size = fs::file_size(from, error);
++    if (error) {
++      LeaveOut(from, error.message());
++      return false;
++    }
++    if (!fs::copy_file(from, to, fs::copy_options::none, error) || error) {
++      LeaveOut(from, error ? error.message() : "not copied");
++      std::error_code remove_error;
++      if (error && error != std::errc::file_exists) fs::remove(to, remove_error);  // a partial copy
++      return false;
++    }
++    ++result_.files;
++    result_.bytes += size;
++    return true;
++  }
++  bool MakeFolder(const fs::path& path) {
++    if (!MayWrite(path)) return false;
++    std::error_code error;
++    fs::create_directories(path, error);
++    return !error && IsFolder(path);
++  }
++  // Every file under `from` into `to`. only_missing: kept when `to` has one of that name
++  // (small folders); otherwise `to` is a fresh staging folder.
++  void Tree(const fs::path& from, const fs::path& to, bool only_missing, int depth = 0) {
++    if (depth > kMaxDepth) {
++      LeaveOut(from, "too deep");
++      return;
++    }
++    std::error_code error;
++    fs::directory_iterator it(from, error), end;
++    if (error) {
++      LeaveOut(from, error.message());
++      return;
++    }
++    for (; !error && it != end; it.increment(error)) {
++      const fs::path entry = it->path();
++      const fs::path dest = to / entry.filename();
++      std::error_code type_error;
++      const auto type = fs::symlink_status(entry, type_error).type();
++      if (type == fs::file_type::directory) {
++        if (!MakeFolder(dest)) {
++          LeaveOut(entry, "folder not made");
++          continue;
++        }
++        Tree(entry, dest, only_missing, depth + 1);
++      } else if (type == fs::file_type::regular) {
++        if (only_missing && Exists(dest)) {
++          ++result_.kept;
++          continue;
++        }
++        CopyFile(entry, dest);
++      } else {
++        LeaveOut(entry, type == fs::file_type::symlink ? "a link (not followed)" : "not a file or folder");
++      }
++    }
++    if (error) LeaveOut(from, "listing stopped: " + error.message());
++  }
++
++ private:
++  fs::path source_, target_;
++  Result& result_;
++};
++
++// Whether the title's folder is the official one, inside it or holds it, or is a link.
++inline bool Overlap(const fs::path& source, const fs::path& target) {
++  std::error_code error;
++  if (fs::symlink_status(target, error).type() == fs::file_type::symlink) return true;
++  const fs::path s = Normal(source), t = Normal(target);
++  return Within(s, t) || Within(t, s);
++}
++// Bytes of the files under a folder (links not followed; what cannot be read counts nothing).
++inline uint64_t Bytes(const fs::path& folder, int depth = 0) {
++  uint64_t total = 0;
++  if (depth > kMaxDepth) return total;
++  std::error_code error;
++  fs::directory_iterator it(folder, error), end;
++  for (; !error && it != end; it.increment(error)) {
++    std::error_code entry_error;
++    const auto type = it->symlink_status(entry_error).type();
++    if (type == fs::file_type::directory) {
++      total += Bytes(it->path(), depth + 1);
++    } else if (type == fs::file_type::regular) {
++      const uint64_t size = it->file_size(entry_error);
++      if (!entry_error) total += size;
++    }
++  }
++  return total;
++}
++// Bytes of the files under `from` that `to` lacks.
++inline uint64_t MissingBytes(const fs::path& from, const fs::path& to, int depth = 0) {
++  uint64_t total = 0;
++  if (depth > kMaxDepth) return total;
++  std::error_code error;
++  fs::directory_iterator it(from, error), end;
++  for (; !error && it != end; it.increment(error)) {
++    std::error_code entry_error;
++    const auto type = it->symlink_status(entry_error).type();
++    const fs::path dest = to / it->path().filename();
++    if (type == fs::file_type::directory) {
++      total += MissingBytes(it->path(), dest, depth + 1);
++    } else if (type == fs::file_type::regular && !Exists(dest)) {
++      const uint64_t size = it->file_size(entry_error);
++      if (!entry_error) total += size;
++    }
++  }
++  return total;
++}
++}  // namespace detail
++
++// The facts, read from the two folders (the official one is only listed and its sizes read).
++inline Facts Gather(const fs::path& source, const fs::path& target, const FreeSpace& free_space) {
++  Facts facts;
++  facts.marker = detail::Exists(target / kMarker);
++  facts.unsafe = detail::Overlap(source, target);
++  facts.source = detail::IsFolder(source);
++  facts.source_saves = facts.source && detail::IsFolder(source / kSaves);
++  facts.target_saves = detail::Exists(target / kSaves);
++  if (facts.source && !facts.marker && !facts.unsafe) {
++    if (facts.source_saves && !facts.target_saves) facts.saves_bytes = detail::Bytes(source / kSaves);
++    for (const char* name : kFiles) {
++      std::error_code error;
++      if (detail::IsFile(source / name) && !detail::Exists(target / name)) {
++        const uint64_t size = fs::file_size(source / name, error);
++        if (!error) facts.small_bytes += size;
++      }
++    }
++    for (const char* name : kFolders)
++      if (detail::IsFolder(source / name)) facts.small_bytes += detail::MissingBytes(source / name, target / name);
++    facts.space_known = free_space && free_space(target, &facts.free);
++  }
++  return facts;
++}
++
++// Decides and, when the plan says so, copies and writes the marker. `target` is made when it is
++// missing (it is the title's own folder), unless the two folders overlap: then nothing is done.
++inline Result Run(const fs::path& source, const fs::path& target, const FreeSpace& free_space = RealFreeSpace) {
++  Result result;
++  if (detail::Overlap(source, target)) {
++    result.plan.decision = Decision::kUnsafe;
++    return result;
++  }
++  {
++    std::error_code error;
++    if (!detail::Exists(target)) fs::create_directories(target, error);
++  }
++  const Facts facts = Gather(source, target, free_space);
++  result.plan = Decide(facts);
++  result.free = facts.free;
++  if (result.plan.decision == Decision::kAlreadyDone || result.plan.decision == Decision::kUnsafe) return result;
++  detail::Copier copier(source, target, result);
++  if (result.plan.copy_saves) {
++    const fs::path staging = target / kStaging, saves = target / kSaves;
++    std::error_code error;
++    if (copier.MayWrite(staging)) fs::remove_all(staging, error);  // an interrupted start's
++    error.clear();
++    if (!copier.MakeFolder(staging)) {
++      result.error = "the staging folder could not be made";
++    } else {
++      copier.Tree(source / kSaves, staging, false);
++      if (detail::Exists(saves)) {
++        result.error = "the title has saves now";
++      } else if (copier.MayWrite(saves)) {
++        fs::rename(staging, saves, error);
++        if (error) result.error = error.message();
++        else result.saves_copied = true;
++      }
++      if (!result.saves_copied) fs::remove_all(staging, error);
++    }
++  }
++  if (result.plan.copy_small) {
++    for (const char* name : kFiles) {
++      const fs::path from = source / name, to = target / name;
++      if (!detail::Exists(from)) continue;
++      if (!detail::IsFile(from)) {
++        copier.LeaveOut(from, "not a file");
++      } else if (detail::Exists(to)) {
++        ++result.kept;
++      } else {
++        copier.CopyFile(from, to);
++      }
++    }
++    for (const char* name : kFolders) {
++      const fs::path from = source / name;
++      if (!detail::Exists(from)) continue;
++      if (!detail::IsFolder(from)) {
++        copier.LeaveOut(from, "not a folder");
++      } else if (copier.MakeFolder(target / name)) {
++        copier.Tree(from, target / name, true);
++      } else {
++        copier.LeaveOut(from, "folder not made");
++      }
++    }
++  }
++  if (result.plan.write_marker && copier.MayWrite(target / kMarker)) {
++    std::ofstream marker(target / kMarker, std::ios::trunc);
++    marker << "from " << source.string() << "\n" << DecisionName(result.plan.decision) << "\n"
++           << "saves " << (result.saves_copied ? "copied" : result.plan.copy_saves ? "not copied: " + result.error : "not copied")
++           << "\nfiles " << result.files << " (" << result.bytes << " bytes), kept " << result.kept << ", left out "
++           << result.skipped << "\nneeded " << result.plan.needed << " bytes, free " << result.free << "\n";
++    marker.flush();
++    result.marker_written = bool(marker);
++  }
++  return result;
++}
++}  // namespace xbox360ps5::official_import
+diff --git a/include/xbox360ps5/web_key.hpp b/include/xbox360ps5/web_key.hpp
+new file mode 100644
+index 0000000..09e5cea
+--- /dev/null
++++ b/include/xbox360ps5/web_key.hpp
+@@ -0,0 +1,47 @@
++// SPDX-License-Identifier: MIT
++// Fix 46 (tools/source-1.0.2/fixes/46-ps5x360reloaded-identity.patch): which key the web
++// settings server (platform/ps5/web_settings.cpp) lets in.
++//
++// The page and its API need the title's own key (web-settings.key in its folder, shown on the
++// television), as before; an empty key while the server starts lets an empty key in, as before.
++// The official PS5X360's Kinect tracker (kinect-tracker.elf, started by the Kinect helper) posts
++// its motion frames to this server with the key it reads from the official app's folder
++// (app_identity::kOfficialDataRoot + "/web-settings.key", its motion_sender.h), which is not
++// PS5X360Reloaded's key now that the two have folders of their own. That key is accepted too,
++// only for POST /api/motion/frame and only from this console itself (127.0.0.0/8), and only
++// when the official folder holds one (the official app, or an earlier build, ran once). The
++// file is read, never written.
++// Header only, checked on the host by tools/check-app-identity.cpp.
++#pragma once
++#include <algorithm>
++#include <cstdint>
++#include <filesystem>
++#include <fstream>
++#include <string>
++
++namespace xbox360ps5::web_key {
++// A key as web-settings.key holds it: six lower-case hexadecimal digits.
++inline bool Valid(const std::string& key) {
++  return key.size() == 6 && std::all_of(key.begin(), key.end(), [](unsigned char c) {
++           return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
++         });
++}
++// The key of a web-settings.key file, or empty (no file, or not a key). Only reads the file.
++inline std::string Read(const std::filesystem::path& file) {
++  std::ifstream saved(file);
++  std::string line;
++  if (!saved || !std::getline(saved, line)) return {};
++  if (!line.empty() && line.back() == '\r') line.pop_back();
++  return Valid(line) ? line : std::string();
++}
++// An IPv4 address (host byte order) of this console itself.
++inline bool Loopback(uint32_t address) { return (address >> 24) == 127u; }
++// Whether a request may go on. given: the request's key (X-Key, else ?k=); own: the title's key;
++// official: the official app's key (empty when it has none).
++inline bool Accept(const std::string& given, const std::string& own, const std::string& official,
++                   const std::string& method, const std::string& target, bool loopback) {
++  if (given == own) return true;
++  return loopback && method == "POST" && target == "/api/motion/frame" && Valid(official) &&
++         given == official;
++}
++}  // namespace xbox360ps5::web_key
+diff --git a/platform/ps5/notify.cpp b/platform/ps5/notify.cpp
+index 9ad66a0..bf668f1 100644
+--- a/platform/ps5/notify.cpp
++++ b/platform/ps5/notify.cpp
+@@ -1,5 +1,6 @@
+ // SPDX-License-Identifier: MIT
+ #include "xbox360ps5/notify.hpp"
++#include "xbox360ps5/app_identity.hpp"  // fix 46
+ #include "xenia/base/logging.h"
+ #include <atomic>
+ #include <chrono>
+@@ -110,7 +111,7 @@ void Notify(Toast toast) {
+ std::string SaveAchievementIcon(uint32_t title_id, uint32_t achievement_id, std::span<const uint8_t> png) {
+   if (png.size() < 8 || std::memcmp(png.data(), "\x89PNG", 4)) return {};
+   // The installation folder by the path the whole console knows it by.
+-  const std::filesystem::path folder = "/data/homebrew/PPSA50011/cache/achievements";
++  const std::filesystem::path folder = XBOX360PS5_DATA_ROOT "/cache/achievements";
+   std::error_code error;
+   std::filesystem::create_directories(folder, error);
+   char name[40];
+diff --git a/platform/ps5/web_settings.cpp b/platform/ps5/web_settings.cpp
+index f8e6f14..13d2f11 100644
+--- a/platform/ps5/web_settings.cpp
++++ b/platform/ps5/web_settings.cpp
+@@ -1,5 +1,7 @@
+ // SPDX-License-Identifier: MIT
+ #include "xbox360ps5/web_settings.hpp"
++#include "xbox360ps5/app_identity.hpp"  // fix 46
++#include "xbox360ps5/web_key.hpp"  // fix 46
+ #include "phone_camera.hpp"
+ #include "phone_camera_console.hpp"
+ #include "phone_camera_tls.hpp"
+@@ -29,6 +31,8 @@ std::string state = "{}";
+ std::vector<WebChange> changes;
+ fs::path log_folder;
+ std::string key, address;
++// Fix 46: the official PS5X360's key, which its Kinect tracker sends (web_key.hpp); read once.
++std::string official_key;
+ int listener = -1;
+ unsigned short port = 0;
+ 
+@@ -36,7 +40,7 @@ unsigned short port = 0;
+ // title in the interface's language.
+ const char kPage[] = R"HTML(<!doctype html>
+ <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+-<title>PS5X360</title>
++<title>PS5X360Reloaded</title>
+ <style>
+ :root{color-scheme:dark}
+ body{margin:0;background:#0a0c11;color:#d5dae2;font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+@@ -64,7 +68,7 @@ h3{font-size:14px;color:#9aa3b2;margin:16px 0 8px;font-weight:600}
+ #saved{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);background:#35d07f;color:#06130c;padding:8px 16px;border-radius:20px;font-weight:600;opacity:0;transition:opacity .2s}
+ #saved.on{opacity:1}
+ </style></head><body>
+-<header><h1>PS5X360<small id="version"></small></h1><div id="running"></div></header>
++<header><h1>PS5X360Reloaded<small id="version"></small></h1><div id="running"></div></header>
+ <main><div id="gate" hidden><div id="gatetext">Code shown on the TV</div><input id="code" maxlength="6" autocapitalize="off" autocomplete="off"><br><button id="enter">OK</button></div>
+ <div id="app" hidden><select id="scope"></select><nav id="tabs"></nav><div id="list"></div></div></main>
+ <div id="saved"></div>
+@@ -304,7 +308,7 @@ void SendLogsZip(int client, const std::string& game) {
+   tm utc{};
+   gmtime_r(&now, &utc);
+   std::strftime(stamp, sizeof(stamp), "%Y%m%d-%H%M%S", &utc);
+-  const std::string head = "HTTP/1.1 200 OK\r\nContent-Type: application/zip\r\nContent-Disposition: attachment; filename=\"PS5X360-logs-" +
++  const std::string head = "HTTP/1.1 200 OK\r\nContent-Type: application/zip\r\nContent-Disposition: attachment; filename=\"" XBOX360PS5_PRODUCT_NAME "-logs-" +
+       game + "-" + stamp + ".zip\"\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n";
+   if (!SendAll(client, head)) return;
+   const auto le = [](std::string& out, uint32_t value, int bytes) { for (int n = 0; n < bytes; ++n) out += char(value >> (8 * n)); };
+@@ -381,14 +385,22 @@ void Answer(int client) {
+     if (certificate.empty()) certificate = phone_camera::ReadPublicCA();
+     if (certificate.empty()) { Send(client, "404 Not Found", "text/plain", "certificate unavailable"); return; }
+     Send(client, "200 OK", "application/x-x509-ca-cert", certificate,
+-         "Content-Disposition: attachment; filename=\"ps5x360-camera.crt\"\r\nReferrer-Policy: no-referrer\r\n");
++         "Content-Disposition: attachment; filename=\"ps5x360reloaded-camera.crt\"\r\nReferrer-Policy: no-referrer\r\n");
+     return;
+   }
+   if (target == "/favicon.ico") { Send(client, "404 Not Found", "text/plain", ""); return; }
+   // Everything else needs the key shown on the television.
+   std::string given = Header(request, "X-Key");
+   if (given.empty()) given = Parameter(query, "k");
+-  if (given != key) { Send(client, "403 Forbidden", "application/json", "{\"error\":\"key\"}"); return; }
++  // Fix 46: the official app's Kinect tracker on this console may send its own key (web_key.hpp).
++  sockaddr_in peer{};
++  socklen_t peer_size = sizeof(peer);
++  const bool loopback = !getpeername(client, reinterpret_cast<sockaddr*>(&peer), &peer_size) &&
++                        peer.sin_family == AF_INET && web_key::Loopback(ntohl(peer.sin_addr.s_addr));
++  if (!web_key::Accept(given, key, official_key, method, target, loopback)) {
++    Send(client, "403 Forbidden", "application/json", "{\"error\":\"key\"}");
++    return;
++  }
+   if (target == "/camera" && method == "GET") {
+     // Never serve pairing data during the baseline startup's empty-key window.
+     if (key.empty()) { Send(client, "403 Forbidden", "application/json", "{\"error\":\"key\"}"); return; }
+@@ -558,6 +570,7 @@ bool StartWebSettings(const fs::path& logs) {
+     key = text;
+     std::ofstream(key_file, std::ios::trunc) << key << "\n";
+   }
++  official_key = web_key::Read(fs::path(app_identity::kOfficialDataRoot) / "web-settings.key");
+   address = LocalAddress();
+   pthread_t thread;
+   if (!bound || listen(listener, 4) || pthread_create(&thread, nullptr, Serve, nullptr)) {
+diff --git a/port/dlc_manager.hpp b/port/dlc_manager.hpp
+index 00a17dd..ccc8791 100644
+--- a/port/dlc_manager.hpp
++++ b/port/dlc_manager.hpp
+@@ -4,7 +4,7 @@
+ // instead of dropping it silently.
+ //   active:    <saves>/0000000000000000/<TITLE>/00000002/<file>      (the folder the game lists)
+ //   disabled:  <saves>/0000000000000000/<TITLE>/00000002-off/<file>  (kept, not listed)
+-//   available: a dlc folder (PPSA50011/dlc, the game's dlc folder, each library root's dlc)
++//   available: a dlc folder (PPSA83600/dlc, the game's dlc folder, each library root's dlc)
+ // Enabling and disabling move the file between the first two; installing copies an available
+ // package into the first (staged in 00000002-installing, checked, then renamed).
+ #pragma once
+diff --git a/port/game_art.cpp b/port/game_art.cpp
+index 5feb3d0..55998d2 100644
+--- a/port/game_art.cpp
++++ b/port/game_art.cpp
+@@ -1,5 +1,6 @@
+ // SPDX-License-Identifier: MIT
+ #include "game_art.hpp"
++#include "xbox360ps5/app_identity.hpp"  // fix 46
+ #include "cover_fallback.hpp"  // fix 41: the image server's paths and picture check
+ #include "xenia/base/logging.h"
+ 
+@@ -22,7 +23,7 @@
+ namespace game_art {
+ namespace {
+ namespace fs = std::filesystem;
+-constexpr const char* kFolder = "/data/homebrew/PPSA50011/game-art";
++constexpr const char* kFolder = XBOX360PS5_DATA_ROOT "/game-art";
+ constexpr const char* kHost = "download.xbox.com";
+ 
+ std::mutex mutex;
+@@ -44,7 +45,7 @@ std::vector<uint8_t> Get(const std::string& path) {
+     setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+     if (connect(sock, found->ai_addr, found->ai_addrlen) == 0) {
+       const std::string request = "GET " + path + " HTTP/1.0\r\nHost: " + kHost +
+-                                  "\r\nUser-Agent: PS5X360\r\nConnection: close\r\n\r\n";
++                                  "\r\nUser-Agent: " XBOX360PS5_PRODUCT_NAME "\r\nConnection: close\r\n\r\n";
+       if (send(sock, request.data(), request.size(), 0) == ssize_t(request.size())) {
+         std::vector<uint8_t> answer;
+         uint8_t buffer[16384];
+diff --git a/port/game_art.hpp b/port/game_art.hpp
+index 8a4389e..32f3b0f 100644
+--- a/port/game_art.hpp
++++ b/port/game_art.hpp
+@@ -1,7 +1,7 @@
+ // SPDX-License-Identifier: MIT
+ // A game's Marketplace art for the home's "Play ..." slot: its background (1280x720) and its
+ // tile icon (64x64), fetched once by title ID from Microsoft's image server over plain HTTP
+-// (as covers.cpp fetches box art) and kept in /data/homebrew/PPSA50011/game-art, where the PC can
++// (as covers.cpp fetches box art) and kept in /data/homebrew/PPSA83600/game-art, where the PC can
+ // also put them (FTP).
+ #pragma once
+ #include <filesystem>
+diff --git a/port/guide_network.hpp b/port/guide_network.hpp
+index 026d11f..51e8f2d 100644
+--- a/port/guide_network.hpp
++++ b/port/guide_network.hpp
+@@ -17,6 +17,7 @@
+ //   - network.conf's mode, so the home's Online channel and the next start agree.
+ // UPnP stays as the emulator started (the router's ports are opened only at start).
+ #pragma once
++#include "xbox360ps5/app_identity.hpp"  // fix 46
+ #include <algorithm>
+ #include <atomic>
+ #include <chrono>
+@@ -81,7 +82,7 @@ inline const char* RowKey() {
+ // Link heartbeat waited for the system's connection time-out (more than a minute on the PS5).
+ inline std::string ConfiguredServer() {
+   std::string server;
+-  std::ifstream conf("/data/homebrew/PPSA50011/network.conf");
++  std::ifstream conf(XBOX360PS5_DATA_ROOT "/network.conf");
+   for (std::string line; std::getline(conf, line);) {
+     while (!line.empty() && (line.back() == '\r' || line.back() == ' ')) line.pop_back();
+     if (line.rfind("server=", 0) == 0) server = line.substr(7);
+diff --git a/port/kinect_home.inc b/port/kinect_home.inc
+index ceaef44..638a441 100644
+--- a/port/kinect_home.inc
++++ b/port/kinect_home.inc
+@@ -34,7 +34,7 @@ KinectSkinTextures& KinectSkin(const KinectMakeTexture& make, const char* dash =
+   skin.tried = true;
+   kinect_skin::SkinAssets assets;
+   // PS5X360's own art (assets/skin in the package), each picture replaceable by the user's copy
+-  // in /data/homebrew/PPSA50011/skin; the dashboard's pictures only when there is none.
++  // in /data/homebrew/PPSA83600/skin; the dashboard's pictures only when there is none.
+   if (assets.LoadOwn(dark_theme::SkinFolders(kKinectUserSkin, kKinectOwnSkin))) {
+     skin.own = true;
+     XELOGW("Home: PS5X360's own pictures ({} and {})", kKinectUserSkin, kKinectOwnSkin);
+diff --git a/port/kinect_press.inc b/port/kinect_press.inc
+index 4cbe5ad..102032d 100644
+--- a/port/kinect_press.inc
++++ b/port/kinect_press.inc
+@@ -50,7 +50,7 @@
+           break;
+         case KinectAction::dashboard:
+           if (!own_dashboard) {
+-            message_ = Tr("Copy your dash.xex to /data/homebrew/PPSA50011/dashboard.");
++            message_ = Tr("Copy your dash.xex to /data/homebrew/PPSA83600/dashboard.");
+           } else {
+             std::error_code error;
+             fs::create_directories(kStorage, error);
+diff --git a/port/kinect_state.inc b/port/kinect_state.inc
+index 0cc23cf..fbe259d 100644
+--- a/port/kinect_state.inc
++++ b/port/kinect_state.inc
+@@ -1,9 +1,9 @@
+ // ---- State of the Kinect-era home (kinect_home.inc draws it) ----
+ using kinect_skin::Asset;
+-constexpr const char* kKinectDash = "/data/homebrew/PPSA50011/dashboard/dash.xex";
++constexpr const char* kKinectDash = XBOX360PS5_DATA_ROOT "/dashboard/dash.xex";
+ constexpr const char* kKinectCache = "/download0/xbox360ps5/dash-skin";
+ constexpr const char* kKinectOwnSkin = "/app0/assets/skin";
+-constexpr const char* kKinectUserSkin = "/data/homebrew/PPSA50011/skin";
++constexpr const char* kKinectUserSkin = XBOX360PS5_DATA_ROOT "/skin";
+ // One slot of the row. kind: 0 an icon, 1 text with the avatar, 2 a game's cover, 3 a picture with a green band,
+ // 4 the game in the tray (its art over the whole slot, the disc mark, "Play ..."), as the dashboard shows a disc.
+ // action says what Cross does on it; game is an index into the launcher's games.
+@@ -44,7 +44,7 @@ const char* const kKinectChannels[] = {"Home", "Settings", "Online"};
+ // whatever other lines the file has (server=, upnp=).
+ int& KinectNetRevisionRef() { static int revision = 0; return revision; }
+ int KinectNetRevision() { return KinectNetRevisionRef(); }
+-constexpr const char* kKinectNetConf = "/data/homebrew/PPSA50011/network.conf";
++constexpr const char* kKinectNetConf = XBOX360PS5_DATA_ROOT "/network.conf";
+ std::string KinectNetMode() {
+   std::ifstream conf(kKinectNetConf);
+   for (std::string line; std::getline(conf, line);) {
+diff --git a/port/net_conf.hpp b/port/net_conf.hpp
+index 29b6f6e..5868965 100644
+--- a/port/net_conf.hpp
++++ b/port/net_conf.hpp
+@@ -1,7 +1,7 @@
+ // Fix 29: network.conf's mode, written by the home's Online / System Link channel and by the
+ // guide's network row (fix 22), both through KinectSetNetMode (kinect_state.inc).
+ //
+-// 1.0.2 opened /data/homebrew/PPSA50011/network.conf with a bare std::ofstream. When that folder
++// 1.0.2 opened network.conf in its /data/homebrew folder with a bare std::ofstream. When that folder
+ // does not exist (the title installed as a .ffpkg / fpkg and never run from the homebrew folder,
+ // or a fresh console), the write always failed and the home showed "Could not write
+ // network.conf." (BrinooTk/PS5X360 issue 111), so Online and System Link could not be turned on.
+diff --git a/port/phone_camera.hpp b/port/phone_camera.hpp
+index 7b66dcb..df4ec94 100644
+--- a/port/phone_camera.hpp
++++ b/port/phone_camera.hpp
+@@ -86,7 +86,7 @@ inline std::string ReadPublicCA() {
+ 
+ inline constexpr char kLanding[] = R"CAMERA(<!doctype html>
+ <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+-<meta name="referrer" content="no-referrer"><title>PS5X360 · Phone camera</title>
++<meta name="referrer" content="no-referrer"><title>PS5X360Reloaded · Phone camera</title>
+ <style>
+ :root{color-scheme:dark}body{margin:0;background:#0a0c11;color:#d5dae2;font:16px/1.5 system-ui,sans-serif}
+ main{max-width:640px;margin:auto;padding:24px 18px}h1{font-size:24px;color:#f3f5f8}
+@@ -124,7 +124,7 @@ const text=pt?{
+  ios:'Download the certificate and allow the profile. In Settings → General → VPN & Device Management, install the profile. Then in General → About → Certificate Trust Settings, enable full trust for this CA. Reopen the HTTPS service in Safari.',
+  limitations:'This HTTP settings page does not access the camera. The local HTTPS service is required; camera availability and pairing depend on that service.'
+ };
+-document.documentElement.lang=pt?'pt-BR':'en';document.title='PS5X360 · '+text.title;
++document.documentElement.lang=pt?'pt-BR':'en';document.title='PS5X360Reloaded · '+text.title;
+ for(const [id,value] of Object.entries(text))document.getElementById(id).textContent=value;
+ document.getElementById('pairing').textContent=boot.key;
+ document.getElementById('console').textContent=location.origin+'/';
+diff --git a/port/phone_camera_console.hpp b/port/phone_camera_console.hpp
+index e6467cf..15e70a1 100644
+--- a/port/phone_camera_console.hpp
++++ b/port/phone_camera_console.hpp
+@@ -9,12 +9,12 @@
+ namespace xbox360ps5::phone_camera {
+ inline constexpr char kConsoleLanding[] = R"CAMERA(<!doctype html>
+ <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+-<title>PS5X360 Kinect</title>
++<title>PS5X360Reloaded Kinect</title>
+ <style>body{background:#0a0c11;color:#eef3f6;font:17px/1.5 system-ui,sans-serif;max-width:640px;margin:0 auto;padding:18px}
+ h1{font-size:24px}h2{color:#35d07f;font-size:17px;margin-top:22px}li{margin:6px 0}small{color:#7f8a96}
+ a.button,button{display:block;width:100%;text-align:center;background:#35d07f;color:#06210f;font:600 17px system-ui,sans-serif;padding:14px;border:0;border-radius:12px;text-decoration:none;margin:14px 0}
+ .secondary{background:#232a35!important;color:#eef3f6!important}#steps{display:none}</style></head>
+-<body><h1>PS5X360 Kinect</h1><p id="status"></p>
++<body><h1>PS5X360Reloaded Kinect</h1><p id="status"></p>
+ <div id="steps"><p data-t="why"></p>
+ <a class="button" href="/phone-camera-ca.crt" data-t="download"></a>
+ <h2>Android</h2><ol><li data-t="a1"></li><li data-t="a2"></li><li data-t="a3"></li></ol>
+@@ -25,15 +25,15 @@ a.button,button{display:block;width:100%;text-align:center;background:#35d07f;co
+ const boot=__CAMERA_BOOT__;
+ const W={en:{checking:'Opening the camera...',why:'First time on this phone: install the PS5 camera certificate once. Phone browsers only open the camera on a secure page; this certificate was made by your PS5 for its own address and cannot sign anything else.',
+ download:'1. Download the certificate',a1:'Tap Download. If Android says it cannot install it from here, that is normal.',a2:'Open Settings > Security (or Security and privacy) > More security settings > Encryption and credentials > Install a certificate > CA certificate.',a3:'Confirm, choose the downloaded file and enter the phone PIN.',
+-i1:'Tap Download, then Allow.',i2:'Settings > General > VPN and Device Management > the PS5X360 profile > Install.',i3:'Settings > General > About > Certificate Trust Settings > turn on "PS5X360 Kinect camera".',
++i1:'Tap Download, then Allow.',i2:'Settings > General > VPN and Device Management > the PS5X360Reloaded profile > Install.',i3:'Settings > General > About > Certificate Trust Settings > turn on "PS5X360Reloaded Kinect camera".',
+ again:'2. Installed: open the camera',anyway:'Open without installing',anyway_note:'The browser will warn that the connection is not private; choosing to continue also works, but the warning returns.'},
+ pt:{checking:'Abrindo a câmera...',why:'Primeira vez neste celular: instale uma vez o certificado da câmera do PS5. Os navegadores do celular só abrem a câmera numa página segura; este certificado foi feito pelo seu PS5 para o endereço dele e não consegue assinar mais nada.',
+ download:'1. Baixar o certificado',a1:'Toque em Baixar. Se o Android disser que não pode instalar por aqui, é normal.',a2:'Abra Configurações > Segurança (ou Segurança e privacidade) > Mais configurações de segurança > Criptografia e credenciais > Instalar um certificado > Certificado de CA.',a3:'Confirme, escolha o arquivo baixado e digite o PIN do celular.',
+-i1:'Toque em Baixar e depois em Permitir.',i2:'Ajustes > Geral > VPN e Gerenciamento de Dispositivos > perfil PS5X360 > Instalar.',i3:'Ajustes > Geral > Sobre > Ajustes de Confiança de Certificados > ligue "PS5X360 Kinect camera".',
++i1:'Toque em Baixar e depois em Permitir.',i2:'Ajustes > Geral > VPN e Gerenciamento de Dispositivos > perfil PS5X360Reloaded > Instalar.',i3:'Ajustes > Geral > Sobre > Ajustes de Confiança de Certificados > ligue "PS5X360Reloaded Kinect camera".',
+ again:'2. Já instalei: abrir a câmera',anyway:'Abrir sem instalar',anyway_note:'O navegador vai avisar que a conexão não é particular; escolher continuar também funciona, mas o aviso volta.'},
+ es:{checking:'Abriendo la cámara...',why:'Primera vez en este móvil: instala una vez el certificado de la cámara de la PS5. Los navegadores del móvil solo abren la cámara en una página segura; este certificado lo creó tu PS5 para su propia dirección y no puede firmar nada más.',
+ download:'1. Descargar el certificado',a1:'Toca Descargar. Si Android dice que no puede instalarlo desde aquí, es normal.',a2:'Abre Ajustes > Seguridad (o Seguridad y privacidad) > Más ajustes de seguridad > Cifrado y credenciales > Instalar un certificado > Certificado de CA.',a3:'Confirma, elige el archivo descargado e introduce el PIN del móvil.',
+-i1:'Toca Descargar y después Permitir.',i2:'Ajustes > General > VPN y gestión de dispositivos > perfil PS5X360 > Instalar.',i3:'Ajustes > General > Información > Ajustes de confianza de certificados > activa "PS5X360 Kinect camera".',
++i1:'Toca Descargar y después Permitir.',i2:'Ajustes > General > VPN y gestión de dispositivos > perfil PS5X360Reloaded > Instalar.',i3:'Ajustes > General > Información > Ajustes de confianza de certificados > activa "PS5X360Reloaded Kinect camera".',
+ again:'2. Ya lo instalé: abrir la cámara',anyway:'Abrir sin instalar',anyway_note:'El navegador avisará de que la conexión no es privada; continuar también funciona, pero el aviso vuelve.'}};
+ const w=W[(navigator.language||'en').slice(0,2).toLowerCase()]||W.en;
+ document.querySelectorAll('[data-t]').forEach(e=>e.textContent=w[e.dataset.t]);
+diff --git a/port/phone_camera_tls.cpp b/port/phone_camera_tls.cpp
+index d14f2ab..fba3461 100644
+--- a/port/phone_camera_tls.cpp
++++ b/port/phone_camera_tls.cpp
+@@ -6,6 +6,7 @@
+ #include "phone_camera_tls.hpp"
+ 
+ #include "xbox360ps5/motion_input.hpp"
++#include "xbox360ps5/app_identity.hpp"  // fix 46: the certificates' names
+ 
+ #include "mbedtls/ctr_drbg.h"
+ #include "mbedtls/entropy.h"
+@@ -54,7 +55,7 @@ namespace xbox360ps5::phone_tls {
+ namespace {
+ constexpr int kAuthorityDays = 398, kCertificateDays = 397, kMaxConnections = 6;
+ constexpr const char* kAssets = "/app0/assets/kinect/";
+-constexpr const char* kAuthorityName = "CN=PS5X360 Kinect camera (this console),O=PS5X360";
++constexpr const char* kAuthorityName = "CN=" XBOX360PS5_PRODUCT_NAME " Kinect camera (this console),O=" XBOX360PS5_PRODUCT_NAME;
+ 
+ std::mutex state_mutex;           // authority_pem, url, folder, the certificate objects
+ std::string authority_pem, url, folder, key;
+@@ -103,7 +104,7 @@ bool WriteFile(const std::string& path, const std::string& data, bool secret = f
+ }
+ 
+ // Earlier versions made the folder 0700 and the key 0600: FTP and file managers then got
+-// "Permission denied" and the PPSA50011 folder could not be deleted. Only the title, its
++// "Permission denied" and the title's /data/homebrew folder could not be deleted. Only the title, its
+ // owner, can open them up again.
+ void OpenUpFolder(const std::string& path) {
+   chmod(path.c_str(), 0777);
+@@ -173,7 +174,7 @@ bool MakeCertificate(const std::string& address, std::string* authority, std::st
+   *authority = Pem(ca);
+ 
+   Writer leaf;
+-  const std::string subject = "CN=" + address + ",O=PS5X360";
++  const std::string subject = "CN=" + address + ",O=" XBOX360PS5_PRODUCT_NAME;
+   mbedtls_asn1_sequence server_auth{};
+   server_auth.buf.tag = MBEDTLS_ASN1_OID;
+   server_auth.buf.p = reinterpret_cast<unsigned char*>(const_cast<char*>(MBEDTLS_OID_SERVER_AUTH));
+diff --git a/port/presenter_sidecar.hpp b/port/presenter_sidecar.hpp
+index 538da95..f610b75 100644
+--- a/port/presenter_sidecar.hpp
++++ b/port/presenter_sidecar.hpp
+@@ -10,6 +10,7 @@
+ #include <thread>
+ #include <unordered_map>
+ #include "adaptive_pacing.hpp"
++#include "xbox360ps5/app_identity.hpp"  // fix 46
+ #include "framegen_config.hpp"
+ #include "pacing_adapter.hpp"
+ #include "vendor/ps5_framegen.h"
+@@ -51,7 +52,7 @@ void LoadFramegenPrivateConfig() {
+   std::FILE* file = nullptr;
+   const char* path = nullptr;
+   for (const char* candidate : {"/download0/xbox360ps5/framegen.conf", "/app0/framegen.conf",
+-                                "/data/homebrew/PPSA50011/framegen.conf"}) {
++                                XBOX360PS5_DATA_ROOT "/framegen.conf"}) {
+     path = candidate;
+     if ((file = std::fopen(path, "rb"))) break;
+   }
+diff --git a/port/update_manager.hpp b/port/update_manager.hpp
+index d28c6be..85b99a2 100644
+--- a/port/update_manager.hpp
++++ b/port/update_manager.hpp
+@@ -2,7 +2,7 @@
+ // The game sheet's Updates page: title updates, Xbox 360 content type 000B0000.
+ //   active:    <saves>/0000000000000000/<TITLE>/000B0000/<file>      (the emulator applies it at launch)
+ //   disabled:  <saves>/0000000000000000/<TITLE>/000B0000-off/<file>  (kept, not applied)
+-//   available: an updates or dlc folder (PPSA50011/updates, the game's own, each library root's)
++//   available: an updates or dlc folder (PPSA83600/updates, the game's own, each library root's)
+ // The emulator applies the first package it lists in the active folder, whichever that is, so
+ // one update is active at a time: activating one moves the others to the disabled folder.
+ // An update is made for one edition of a game (its media ID, kept in both headers); one made
+diff --git a/reconstructed/dark_theme.hpp b/reconstructed/dark_theme.hpp
+index 1004f30..917bbf4 100644
+--- a/reconstructed/dark_theme.hpp
++++ b/reconstructed/dark_theme.hpp
+@@ -1,7 +1,7 @@
+ // RECONSTRUCTED for the 1.0.2 source rebuild (tools/source-1.0.2): 1.0.2's dark home theme. Its
+ // source is not published; this follows the official executable (b1d1b3cb):
+-//  * the theme is read once, at start: /data/homebrew/PPSA50011/ui-dark.on exists (any content);
+-//  * with it on, the home's pictures come from /data/homebrew/PPSA50011/skin, then
++//  * the theme is read once, at start: /data/homebrew/<title ID>/ui-dark.on exists (any content);
++//  * with it on, the home's pictures come from /data/homebrew/<title ID>/skin, then
+ //    /app0/assets/skin-dark, then /app0/assets/skin (each picture from the first folder that has
+ //    it; the official inserts skin-dark at position 1 of kinect_home.inc's folder list);
+ //  * the toggle removes the marker, or writes "1\n" to it, and the emulator restarts. The home's
+@@ -11,6 +11,7 @@
+ //    settings and restarts without a message.
+ // The texts are the official ones, keyed by English (fix 25) and translated by the language files.
+ #pragma once
++#include "xbox360ps5/app_identity.hpp"  // fix 46: the title's folder
+ #include <filesystem>
+ #include <fstream>
+ #include <string>
+@@ -18,7 +19,7 @@
+ #include <vector>
+ 
+ namespace xbox360ps5::dark_theme {
+-inline constexpr const char* kMarker = "/data/homebrew/PPSA50011/ui-dark.on";
++inline constexpr const char* kMarker = XBOX360PS5_DATA_ROOT "/ui-dark.on";
+ inline constexpr const char* kSkin = "/app0/assets/skin-dark";
+ 
+ inline bool Present() {
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+index 66005a0..c956c02 100644
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -13,6 +13,8 @@
+ #include "xenia/ui/windowed_app_context.h"
+ #include "xbox360ps5/i18n.hpp"
+ #include "xbox360ps5/build_version.hpp"
++#include "xbox360ps5/app_identity.hpp"  // fix 46
++#include "xbox360ps5/official_import.hpp"  // fix 46: the first start's copy from PS5X360
+ #include "xbox360ps5/renderer.hpp"
+ namespace xbox360ps5 {
+ void SelectOpenGLDriver(bool opengl);  // radv_dispatch.cpp
+@@ -243,7 +245,7 @@ void NetworkSelfTest(const std::string& server) {
+       nst::ProbeTcp(nst::kTcpProbeAddress, nst::kTcpProbePort, nst::kTcpProbeTimeoutMs);
+   XELOGW("Network test: TCP 166.117.125.185:443 {} (errno {})", nst::TcpProbeText(tcp), tcp.error);
+ }
+-// Network play, from /data/homebrew/PPSA50011/network.conf (written by the home's Online
++// Network play, from /data/homebrew/PPSA83600/network.conf (written by the home's Online
+ // channel), one "key=value" a line:
+ //   mode=offline | systemlink | online   (offline when the file is missing)
+ //   server=https://...                   (online: the Xenia Web Services server; the public
+@@ -252,7 +254,7 @@ void NetworkSelfTest(const std::string& server) {
+ // Read once, before the emulator is made: its network objects read these when they start.
+ void ApplyNetworkConf() {
+   std::string mode = "offline", server, upnp = "1";
+-  std::ifstream conf("/data/homebrew/PPSA50011/network.conf");
++  std::ifstream conf(XBOX360PS5_DATA_ROOT "/network.conf");
+   for (std::string line; std::getline(conf, line);) {
+     while (!line.empty() && (line.back() == '\r' || line.back() == ' ')) line.pop_back();
+     const auto equal = line.find('=');
+@@ -581,7 +583,7 @@ class Guide final : public xe::ui::ImGuiDialog {
+     const auto at = [&](float x, float y) { return ImVec2(x * scale, y * scale); };
+     const float left = 412, right = 1508, top = 304, bottom = 778, blade = 66;
+     // Header: the guide's name, who is signed in, what is running.
+-    list->AddText(large, 36 * scale, at(left + 136, 238), fade(245, 247, 250), Tr("PS5X360 Guide"));
++    list->AddText(large, 36 * scale, at(left + 136, 238), fade(245, 247, 250), Tr("PS5X360Reloaded Guide"));
+     char speed[32];
+     std::snprintf(speed, sizeof(speed), "%.0f FPS", fps_);
+     const std::string who = profile_.empty() ? std::string(speed) : profile_ + "   ·   " + speed;
+@@ -1291,7 +1293,7 @@ class NativeContext final : public xe::ui::WindowedAppContext {
+ };
+ class NativeWindow final : public xe::ui::Window {
+  public:
+-  explicit NativeWindow(NativeContext& context) : Window(context, "PS5X360", 1920, 1080) {}
++  explicit NativeWindow(NativeContext& context) : Window(context, XBOX360PS5_PRODUCT_NAME, 1920, 1080) {}
+   ~NativeWindow() override { EnterDestructor(); }
+   void Paint() { OnPaint(); }
+   std::vector<uint8_t> TakeIcon() { return std::move(icon_); }
+@@ -1405,11 +1407,11 @@ class NativePad {
+     return answer >= 0;
+   }
+   struct VibrationSettings { int mode = 2; int strength = 100; };
+-  // /data/homebrew/PPSA50011/vibration.conf, read once: mode=0..3|off, strength=0..100.
++  // /data/homebrew/PPSA83600/vibration.conf, read once: mode=0..3|off, strength=0..100.
+   static const VibrationSettings& Vibration() {
+     static const VibrationSettings settings = [] {
+       VibrationSettings v;
+-      if (std::FILE* file = std::fopen("/data/homebrew/PPSA50011/vibration.conf", "r")) {
++      if (std::FILE* file = std::fopen(XBOX360PS5_DATA_ROOT "/vibration.conf", "r")) {
+         char line[64];
+         while (std::fgets(line, sizeof(line), file)) {
+           if (!std::strncmp(line, "mode=off", 8)) v.mode = -1;
+@@ -1488,7 +1490,7 @@ class ConsoleLogSink final : public xe::LogSink {
+ // launch-once.txt like one the library starts, and when that game ends the
+ // title opens the dashboard again.
+ namespace {
+-const std::filesystem::path kDashboardXex = "/data/homebrew/PPSA50011/dashboard/dash.xex";
++const std::filesystem::path kDashboardXex = XBOX360PS5_DATA_ROOT "/dashboard/dash.xex";
+ // The recreated Home is the default. The user's own dashboard is a one-shot
+ // option selected by the launcher; it is never included in the PS5X360 image.
+ bool DashboardWanted(const std::filesystem::path& storage) {
+@@ -1503,7 +1505,7 @@ bool DashboardWanted(const std::filesystem::path& storage) {
+     XELOGW("Dashboard: selected, but dash.xex is missing; opening Home");
+     return false;
+   }
+-  if (std::filesystem::exists("/data/homebrew/PPSA50011/dashboard.off", error)) {
++  if (std::filesystem::exists(XBOX360PS5_DATA_ROOT "/dashboard.off", error)) {
+     XELOGW("Dashboard: dashboard.off is there; opening Home");
+     return false;
+   }
+@@ -1657,6 +1659,13 @@ int main(int argc, char** argv) {
+   if (chdir("/download0/xbox360ps5")) Stage("BOOT chdir refused");
+   xbox360ps5::ReportPlatformMemory();
+   Stage(xbox360ps5::StartNetLog(9100) ? "BOOT log stream on TCP 9100" : "BOOT log stream unavailable");
++  // Fix 46: the first start copies the official PS5X360's saves and small settings files into
++  // this title's folder, once (official_import.hpp); its own folder is only read.
++  const auto imported = xbox360ps5::official_import::Run(xbox360ps5::app_identity::kOfficialDataRoot,
++                                                         xbox360ps5::app_identity::kDataRoot);
++  if (imported.plan.decision != xbox360ps5::official_import::Decision::kAlreadyDone)
++    Stage((std::string("BOOT import from PS5X360: ") +
++           xbox360ps5::official_import::DecisionName(imported.plan.decision)).c_str());
+   // The general options: what the launcher shows, changes and saves.
+   xbox360ps5::Settings global;
+   global.Load();
+@@ -1775,7 +1784,7 @@ int main(int argc, char** argv) {
+   bool log_ready = false;
+   // Prefer the visible installation folder. Some title mounts deny writes
+   // outside download0, so preserve logging even in those environments.
+-  for (const auto& candidate : {std::filesystem::path("/data/homebrew/PPSA50011/logs"),
++  for (const auto& candidate : {std::filesystem::path(XBOX360PS5_DATA_ROOT "/logs"),
+                                 std::filesystem::path("/app0/logs"), storage / "LOGS"}) {
+     if (game_log->session.Begin(candidate, "Launcher", "", "library", XBOX360PS5_VERSION)) {
+       log_root = candidate;
+@@ -1790,10 +1799,20 @@ int main(int argc, char** argv) {
+   // for a profile (Bayonetta: "No active profile" -> Sign in) asked again forever and its title
+   // screen never took Start.
+   cvars::headless = false;
+-  xe::InitializeLogging("PS5X360");
++  xe::InitializeLogging(XBOX360PS5_PRODUCT_NAME);
+   xe::AddLogSink(std::move(owned_game_log));
+   xe::AddLogSink(std::make_unique<ConsoleLogSink>());
+   if (log_ready) XELOGW("Logs: {}", game_log->session.Path().string());
++  if (imported.plan.decision != xbox360ps5::official_import::Decision::kAlreadyDone) {
++    XELOGW("Import from PS5X360 ({} to {}): {}; saves {}{}; {} files ({} bytes) copied, {} kept, {} left out; "
++           "{} bytes needed, {} free; marker {}",
++           xbox360ps5::app_identity::kOfficialDataRoot, xbox360ps5::app_identity::kDataRoot,
++           xbox360ps5::official_import::DecisionName(imported.plan.decision),
++           imported.saves_copied ? "copied" : "not copied", imported.error.empty() ? "" : " (" + imported.error + ")",
++           imported.files, imported.bytes, imported.kept, imported.skipped, imported.plan.needed, imported.free,
++           imported.marker_written ? "written" : "not written");
++    for (const auto& line : imported.lines) XELOGW("Import from PS5X360: left out {}", line);
++  }
+   XELOGW("Graphics renderer requested: {}", xbox360ps5::RendererName(started.renderer));
+   if (!xbox360ps5::RendererAvailable(started.renderer)) {
+     XELOGE("Requested OpenGL game backend is not linked in this executable; launch cancelled");
+@@ -1808,7 +1827,7 @@ int main(int argc, char** argv) {
+   if (global.web_page && log_ready)
+     XELOGW("Web settings: {}", xbox360ps5::StartWebSettings(log_root) ? "page server started" : "the page server could not start");
+   if (log_ready && log_root == storage / "LOGS")
+-    XELOGW("Installation folder is not writable; desktop log downloader exports sessions to /data/homebrew/PPSA50011/logs");
++    XELOGW("Installation folder is not writable; desktop log downloader exports sessions to " XBOX360PS5_DATA_ROOT "/logs");
+   std::filesystem::path game;
+   // A home screen forwarder's game (fix 21, forward.hpp, docs/FORWARDER.md):
+   // --rom <game> [--exit-after-game], or a bare full path. It is looked for
+@@ -1865,6 +1884,11 @@ int main(int argc, char** argv) {
+     web_hint = plain.empty() ? std::string() : std::string(Tr("Phone: ")) + plain + "    " + Tr("Code: ") + key;
+   };
+   show_web_address();
++  // Fix 46: what the first start's import did (a launch failure's note below wins).
++  if (imported.plan.decision == xbox360ps5::official_import::Decision::kImport && imported.files)
++    launcher.SetMessage(Tr("Saves and settings were copied from PS5X360. Its own files were not changed."));
++  else if (imported.plan.decision == xbox360ps5::official_import::Decision::kNoSpace)
++    launcher.SetMessage(Tr("Saves and settings were not copied from PS5X360: not enough free space."));
+   if (driver_test_withdrawn)
+     launcher.SetMessage(Tr("The second-thread video driver test was switched off: the emulator did not start with it."));
+   // Why the previous run could not start a game, when it left a note.
+@@ -1910,7 +1934,7 @@ int main(int argc, char** argv) {
+       // /app0 is read-only on a .ffpkg installation, so the caches stayed in
+       // the save storage and filled it (Halo: Reach's utility cache alone).
+       bool writable = false;
+-      for (const char* path : {"/data/homebrew/PPSA50011/cache", "/app0/cache"}) {
++      for (const char* path : {XBOX360PS5_DATA_ROOT "/cache", "/app0/cache"}) {
+         const std::filesystem::path candidate = path;
+         bulk_error.clear();
+         std::filesystem::create_directories(candidate, bulk_error);
+@@ -1940,7 +1964,7 @@ int main(int argc, char** argv) {
+     }
+     Stage("BOOT emulator constructor");
+     Stage("BOOT preparing homebrew saves (original content retained)");
+-    auto saves = xbox360ps5::PrepareSaveStorage(storage / "content", "/data/homebrew/PPSA50011/saves");
++    auto saves = xbox360ps5::PrepareSaveStorage(storage / "content", XBOX360PS5_DATA_ROOT "/saves");
+     if (saves.root == storage / "content") {
+       XELOGW("Saves: {}; trying installation mount /app0/saves", saves.notice);
+       saves = xbox360ps5::PrepareSaveStorage(storage / "content", "/app0/saves");
+@@ -2047,7 +2071,7 @@ int main(int argc, char** argv) {
+         // A notification without earning anything: a file put in the title's folder asks for one.
+         std::error_code test_error;
+         if (std::filesystem::remove("/app0/notify-test.txt", test_error))
+-          xbox360ps5::Notify({"PS5X360", Tr("Achievement notifications are working"), "", true});
++          xbox360ps5::Notify({XBOX360PS5_PRODUCT_NAME, Tr("Achievement notifications are working"), "", true});
+       }
+       int toasts_were = global.achievement_toasts;
+       // The settings page: what it shows, and the changes it asked for. A change
+@@ -2199,7 +2223,7 @@ int main(int argc, char** argv) {
+             const auto* profile = profiles->GetProfile(uint8_t(slot));
+             const std::string name = profile ? profile->name() : "Player " + std::to_string(slot + 1);
+             XELOGW("Local player {}: {} ({})", slot + 1, sample.connected ? "connected" : "disconnected", name);
+-            xbox360ps5::Notify({"PS5X360", name + " — " + Tr(sample.connected ? "Controller connected" : "Controller disconnected"), "", false});
++            xbox360ps5::Notify({XBOX360PS5_PRODUCT_NAME, name + " — " + Tr(sample.connected ? "Controller connected" : "Controller disconnected"), "", false});
+           }
+         }
+       };
+@@ -2419,7 +2443,7 @@ int main(int argc, char** argv) {
+             else if (pressed & 0xCF0) xbox360ps5::PlayUiSound(xbox360ps5::UiSound::move);
+             // Switching the achievement notifications on shows what one looks like.
+             if (global.achievement_toasts && !toasts_were)
+-              xbox360ps5::Notify({"PS5X360", Tr("Achievement notifications are on"), "", true});
++              xbox360ps5::Notify({XBOX360PS5_PRODUCT_NAME, Tr("Achievement notifications are on"), "", true});
+             toasts_were = global.achievement_toasts;
+             if (apply_web(false) || ++web_tick % 90 == 0) { show_web_address(); publish_web("", ""); }
+             context.Tick(); window.Paint();
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+index d8446d1..c21b8ab 100644
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -1,6 +1,7 @@
+ // SPDX-License-Identifier: MIT
+ #include "xbox360ps5/i18n.hpp"
+ #include "xbox360ps5/build_version.hpp"
++#include "xbox360ps5/app_identity.hpp"  // fix 46
+ #include "xbox360ps5/cover_geometry.hpp"
+ #include "xbox360ps5/launcher.hpp"
+ #include "home_navigation.hpp"
+@@ -875,7 +876,7 @@ static void ImportContentFolder() {
+       }
+     }
+   }
+-  if (moved || kept || failed) XELOGW("LAUNCHER content folder: {} moved in, {} already there, {} failed (PPSA50011/assets/content)", moved, kept, failed);
++  if (moved || kept || failed) XELOGW("LAUNCHER content folder: {} moved in, {} already there, {} failed (" XBOX360PS5_TITLE_ID "/assets/content)", moved, kept, failed);
+ }
+ 
+ void Launcher::Scan() {
+@@ -2070,7 +2071,7 @@ namespace {
+ bool NxeUi() {
+   static const bool on = [] {
+     std::error_code error;
+-    return !fs::exists("/app0/ui-classic.on", error) && !fs::exists("/data/homebrew/PPSA50011/ui-classic.on", error);
++    return !fs::exists("/app0/ui-classic.on", error) && !fs::exists(XBOX360PS5_DATA_ROOT "/ui-classic.on", error);
+   }();
+   return on;
+ }
+@@ -2677,10 +2678,10 @@ void Launcher::DrawShelf(Canvas& c) {
+     std::string who;
+     for (const auto& profile : profiles_) if (profile.active) who = profile.name;
+     if (who.empty() && !profiles_.empty()) who = profiles_.front().name;
+-    if (who.empty()) who = "PS5X360";
++    if (who.empty()) who = XBOX360PS5_PRODUCT_NAME;
+     char games[48];
+     std::snprintf(games, sizeof(games), "%d %s", int(games_.size()), games_.size() == 1 ? Tr("game") : Tr("games"));
+-    DrawNxeProfile(c, who, pad_connected_ ? std::string("PS5X360  \xC2\xB7  ") + games : std::string(Tr("No controller")),
++    DrawNxeProfile(c, who, pad_connected_ ? std::string(XBOX360PS5_PRODUCT_NAME "  \xC2\xB7  ") + games : std::string(Tr("No controller")),
+                    !pad_connected_);
+     if (!g_search.empty())
+       c.Chip(Tr("Search: ") + g_search + "  (" + std::to_string(count) + ")", 1770, 182, kAccent, true);
+@@ -2691,7 +2692,7 @@ void Launcher::DrawShelf(Canvas& c) {
+     if (games_.empty()) {
+       NxeText(c, Tr("Your library is empty"), 960, 380, 48, 1.0f, 1);
+       NxeText(c, Tr("Copy each game by FTP into its own folder in"), 960, 470, 24, 0.9f, 1);
+-      NxeText(c, "/data/homebrew/PPSA50011/assets/roms/", 960, 510, 28, 1.0f, 1, 0, 0xe6ffcf);
++      NxeText(c, XBOX360PS5_DATA_ROOT "/assets/roms/", 960, 510, 28, 1.0f, 1, 0, 0xe6ffcf);
+       NxeText(c, Tr("Use an extracted folder (with default.xex), an .iso image or a GOD/STFS package."), 960, 570, 24, 0.9f, 1);
+       NxeText(c, Tr("The game shows up here by itself a few seconds after the copy ends."), 960, 610, 24, 0.9f, 1);
+       NxeText(c, Tr("Or a burned disc in the USB DVD drive (a burned game, or a DVD with .iso files)."), 960, 650, 24, 0.9f, 1);
+@@ -2775,7 +2776,7 @@ void Launcher::DrawShelf(Canvas& c) {
+   c.alpha = header;
+   c.offset_y = -10.0f * (1.0f - header);
+   // Top bar: the name, the filters and what is connected.
+-  c.Text("PS5X360", 96, 54, 28, kText);
++  c.Text(XBOX360PS5_PRODUCT_NAME, 96, 54, 28, kText);
+   c.Fill(96, 96, 44, 4, kAccent, 1.0f, 2);
+   float tab = 420;
+   for (int n = 0; n < int(std::size(kFilters)); ++n) {
+@@ -2800,7 +2801,7 @@ void Launcher::DrawShelf(Canvas& c) {
+   if (games_.empty()) {
+     c.Text(Tr("Your library is empty"), 960, 380, 48, kText, 1.0f, 1);
+     c.Text(Tr("Copy each game by FTP into its own folder in"), 960, 470, 24, kMuted, 1.0f, 1);
+-    c.Text("/data/homebrew/PPSA50011/assets/roms/", 960, 510, 28, kAccent, 1.0f, 1);
++    c.Text(XBOX360PS5_DATA_ROOT "/assets/roms/", 960, 510, 28, kAccent, 1.0f, 1);
+     c.Text(Tr("Use an extracted folder (with default.xex), an .iso image or a GOD/STFS package."), 960, 570, 24, kMuted, 1.0f, 1);
+     c.Text(Tr("Or a burned disc in the USB DVD drive (a burned game, or a DVD with .iso files)."), 960, 650, 24, kMuted, 1.0f, 1);
+     c.Text(Tr("The game shows up here by itself a few seconds after the copy ends."), 960, 610, 24, kMuted, 1.0f, 1);
+@@ -3010,7 +3011,7 @@ void Launcher::DrawGameSheet(Canvas& c) {
+         : other_version_ ? Tr("Available patches target a different executable version and will not be applied.")
+                          : Tr("No patches for this game in the patches folder.");
+     c.Wrapped(reason, x + 56, 340, 24, kMuted, 740);
+-    c.Wrapped(Tr("Place .patch.toml files (Xenia Canary format) in /data/homebrew/PPSA50011/assets/patches/."),
++    c.Wrapped(Tr("Place .patch.toml files (Xenia Canary format) in /data/homebrew/PPSA83600/assets/patches/."),
+               x + 56, 440, 20, kFaint, 740);
+   } else {
+     const int shown = 6;
+@@ -3147,7 +3148,7 @@ void Launcher::DrawDlcs(Canvas& c, float x) {
+       dlc_result_ = result > 0 ? "installed" : "copy-failed:" + std::to_string(-result);
+     }
+   }
+-  c.Wrapped(Tr("On: the game finds the DLC. Off: kept, but the game does not see it. Copy new packages to PPSA50011/assets/dlc or to the game's dlc folder: they install by themselves when you press Play (or here, with X)."),
++  c.Wrapped(Tr("On: the game finds the DLC. Off: kept, but the game does not see it. Copy new packages to PPSA83600/assets/dlc or to the game's dlc folder: they install by themselves when you press Play (or here, with X)."),
+     x + 56, 330, 21, kMuted, 740);
+   const auto& page = DlcPage();
+   const int rows = int(page.items.size());
+@@ -3189,7 +3190,7 @@ void Launcher::DrawDlcs(Canvas& c, float x) {
+               x + 56, 840, 22, kBody, 740);
+   }
+   c.Text(std::string(Tr("This game's folder: ")) +
+-             "PPSA50011/assets/dlc/" + (Selected() ? GameFolderName(Selected()->name) : std::string()),
++             XBOX360PS5_TITLE_ID "/assets/dlc/" + (Selected() ? GameFolderName(Selected()->name) : std::string()),
+          x + 56, 928, 20, kFaint, 1, 0, 740);
+   float hint = x + 56;
+   if (!busy && rows) {
+@@ -3213,7 +3214,7 @@ void DrawUpdates(Surface& c, float x) {
+       sheet.result = result > 0 ? "installed" : "copy-failed:" + std::to_string(-result);
+     }
+   }
+-  c.Wrapped(Tr("One update is active at a time. Copy the file to PPSA50011/assets/updates or to the game's updates folder: the newest installs by itself when you press Play (or here, with X). Patches made for the game without an update do not apply while one is active."),
++  c.Wrapped(Tr("One update is active at a time. Copy the file to PPSA83600/assets/updates or to the game's updates folder: the newest installs by itself when you press Play (or here, with X). Patches made for the game without an update do not apply while one is active."),
+     x + 56, 330, 21, kMuted, 740);
+   const auto& page = sheet.page;
+   const int rows = int(page.items.size());
+@@ -3264,7 +3265,7 @@ void DrawUpdates(Surface& c, float x) {
+     c.Wrapped(std::string(message) + (r.rfind("copy-failed", 0) == 0 ? " (" + r.substr(12) + ")" : ""), x + 56, 840, 22, kBody, 740);
+   }
+   c.Text(std::string(Tr("This game's folder: ")) +
+-             "PPSA50011/assets/updates/" + sheet.folder, x + 56, 928, 20, kFaint, 1, 0, 740);
++             XBOX360PS5_TITLE_ID "/assets/updates/" + sheet.folder, x + 56, 928, 20, kFaint, 1, 0, 740);
+   float hint = x + 56;
+   if (!busy && rows) {
+     const auto state = page.items[size_t(std::clamp(sheet.row, 0, rows - 1))].state;
+@@ -3609,7 +3610,7 @@ void Launcher::DrawSettingsSheet(Canvas& c) {
+               x + 244, 922, 18, kMuted, 570);
+   } else {
+     c.Text(Tr("About"), x + 56, 820, 28, kText);
+-    c.Wrapped(std::string(Tr("PS5X360: experimental Xbox 360 emulator for PlayStation 5.")) +
++    c.Wrapped(std::string(Tr("PS5X360Reloaded: experimental Xbox 360 emulator for PlayStation 5.")) +
+               " Xenia. " + Tr("RADV graphics (PS5_Vulkan), XMA audio (FFmpeg) and Xenia Canary patches. No games, BIOS or keys are included."),
+               x + 56, 860, 20, kMuted, 750);
+   }
+diff --git a/src/title_switch.cpp b/src/title_switch.cpp
+index f4d9f11..5e2799d 100644
+--- a/src/title_switch.cpp
++++ b/src/title_switch.cpp
+@@ -1,6 +1,7 @@
+ // SPDX-License-Identifier: MIT
+ #include "xbox360ps5/title_switch.hpp"
+ #include "xbox360ps5/multi_disc.hpp"
++#include "xbox360ps5/app_identity.hpp"  // fix 46
+ #include "xenia/base/logging.h"
+ #include "xenia/base/platform.h"
+ #include <cstdio>
+@@ -82,7 +83,7 @@ void LoadGameConfigs(const std::string& title_id) {
+ #if XE_PLATFORM_PS5
+   const fs::path folders[] = {"/app0/assets/game-configs", "/download0/xbox360ps5/game-configs"};
+ #else
+-  const fs::path folders[] = {"dist/PPSA50011/assets/game-configs"};
++  const fs::path folders[] = {"dist/" XBOX360PS5_TITLE_ID "/assets/game-configs"};
+ #endif
+   for (const auto& folder : folders) {
+     const fs::path file = folder / (title_id + ".config.toml");

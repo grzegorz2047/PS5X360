@@ -213,6 +213,9 @@ USB drive usb7 = Unidade USB usb7
 # Fix 45: the overlay's notice after a guest crash (the same two keys in every section).
 The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = O jogo travou e o emulador o pausou. Touchpad: guia, depois Fechar o jogo e voltar ao menu
 The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = O jogo travou e o emulador o pausou. OPTIONS + touchpad: guia, depois Fechar o jogo e voltar ao menu
+# Fix 46: the notice after the first start's copy from the official PS5X360 (the same two keys in every section).
+Saves and settings were copied from PS5X360. Its own files were not changed. = Os salvamentos e as configurações foram copiados do PS5X360. Os arquivos dele não foram alterados.
+Saves and settings were not copied from PS5X360: not enough free space. = Os salvamentos e as configurações não foram copiados do PS5X360: falta espaço livre.
 
 [added pt]
 Console storage = Armazenamento da consola
@@ -242,6 +245,8 @@ USB drive usb7 = Unidade USB usb7
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \ssem\scapa\sno\sXboxUnity\snem\sna\sMicrosoft
 The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = O jogo bloqueou e o emulador colocou-o em pausa. Touchpad: guia, depois Fechar o jogo e voltar ao menu
 The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = O jogo bloqueou e o emulador colocou-o em pausa. OPTIONS + touchpad: guia, depois Fechar o jogo e voltar ao menu
+Saves and settings were copied from PS5X360. Its own files were not changed. = Os jogos guardados e as definições foram copiados do PS5X360. Os ficheiros dele não foram alterados.
+Saves and settings were not copied from PS5X360: not enough free space. = Os jogos guardados e as definições não foram copiados do PS5X360: não há espaço livre suficiente.
 
 [added es]
 Console storage = Almacenamiento de la consola
@@ -271,6 +276,8 @@ USB drive usb7 = Unidad USB usb7
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \ssin\sportada\sen\sXboxUnity\sni\sen\sMicrosoft
 The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = El juego se ha bloqueado y el emulador lo ha pausado. Touchpad: guía, luego Close the game and return to the menu
 The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = El juego se ha bloqueado y el emulador lo ha pausado. OPTIONS + touchpad: guía, luego Close the game and return to the menu
+Saves and settings were copied from PS5X360. Its own files were not changed. = Las partidas guardadas y los ajustes se han copiado de PS5X360. Sus propios archivos no se han modificado.
+Saves and settings were not copied from PS5X360: not enough free space. = Las partidas guardadas y los ajustes no se han copiado de PS5X360: no hay suficiente espacio libre.
 
 [added es-419]
 Console storage = Almacenamiento de la consola
@@ -300,6 +307,8 @@ USB drive usb7 = Unidad USB usb7
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \ssin\sportada\sen\sXboxUnity\sni\sen\sMicrosoft
 The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = El juego falló y el emulador lo pausó. Touchpad: guía, luego Cerrar el juego y volver al menú
 The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = El juego falló y el emulador lo pausó. OPTIONS + touchpad: guía, luego Cerrar el juego y volver al menú
+Saves and settings were copied from PS5X360. Its own files were not changed. = Las partidas guardadas y la configuración se copiaron de PS5X360. Sus propios archivos no se modificaron.
+Saves and settings were not copied from PS5X360: not enough free space. = Las partidas guardadas y la configuración no se copiaron de PS5X360: no hay suficiente espacio libre.
 
 [added de]
 Console storage = Konsolenspeicher
@@ -329,6 +338,8 @@ USB drive usb7 = USB-Laufwerk usb7
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \sohne\sCover\sbei\sXboxUnity\soder\sauf\sdem\sServer\svon\sMicrosoft
 The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = Das Spiel ist abgestürzt und der Emulator hat es angehalten. Touchpad: Guide, dann Spiel schließen und zum Menü zurückkehren
 The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = Das Spiel ist abgestürzt und der Emulator hat es angehalten. OPTIONS + Touchpad: Guide, dann Spiel schließen und zum Menü zurückkehren
+Saves and settings were copied from PS5X360. Its own files were not changed. = Spielstände und Einstellungen wurden aus PS5X360 kopiert. Dessen eigene Dateien wurden nicht geändert.
+Saves and settings were not copied from PS5X360: not enough free space. = Spielstände und Einstellungen wurden nicht aus PS5X360 kopiert: nicht genügend freier Speicherplatz.
 
 [added fr]
 Console storage = Stockage de la console
@@ -358,6 +369,8 @@ USB drive usb7 = Périphérique USB usb7
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \ssans\sjaquette\ssur\sXboxUnity\sni\ssur\sle\sserveur\sde\sMicrosoft
 The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = Le jeu a planté et l'émulateur l'a mis en pause. Pavé tactile : guide, puis Fermer le jeu et revenir au menu
 The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = Le jeu a planté et l'émulateur l'a mis en pause. OPTIONS + pavé tactile : guide, puis Fermer le jeu et revenir au menu
+Saves and settings were copied from PS5X360. Its own files were not changed. = Les sauvegardes et les réglages ont été copiés depuis PS5X360. Ses propres fichiers n'ont pas été modifiés.
+Saves and settings were not copied from PS5X360: not enough free space. = Les sauvegardes et les réglages n'ont pas été copiés depuis PS5X360 : espace libre insuffisant.
 
 [added it]
 Console storage = Memoria della console
@@ -387,6 +400,8 @@ USB drive usb7 = Unità USB usb7
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \ssenza\scopertina\ssu\sXboxUnity\sné\ssul\sserver\sdi\sMicrosoft
 The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = Il gioco si è bloccato e l'emulatore lo ha messo in pausa. Touchpad: guida, poi Chiudi il gioco e torna al menu
 The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = Il gioco si è bloccato e l'emulatore lo ha messo in pausa. OPTIONS + touchpad: guida, poi Chiudi il gioco e torna al menu
+Saves and settings were copied from PS5X360. Its own files were not changed. = Salvataggi e impostazioni sono stati copiati da PS5X360. I suoi file non sono stati modificati.
+Saves and settings were not copied from PS5X360: not enough free space. = Salvataggi e impostazioni non sono stati copiati da PS5X360: spazio libero insufficiente.
 
 [added ja]
 Console storage = 本体ストレージ
@@ -416,6 +431,8 @@ USB drive usb7 = USBドライブ usb7
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \sXboxUnity\sにも\sMicrosoft\sのサーバーにもカバーなし
 The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = ゲームがクラッシュし、エミュレーターが一時停止しました。タッチパッド：ガイド、次に「ゲームを閉じてメニューに戻る」
 The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = ゲームがクラッシュし、エミュレーターが一時停止しました。OPTIONS ＋ タッチパッド：ガイド、次に「ゲームを閉じてメニューに戻る」
+Saves and settings were copied from PS5X360. Its own files were not changed. = PS5X360 からセーブデータと設定をコピーしました。PS5X360 のファイルは変更されていません。
+Saves and settings were not copied from PS5X360: not enough free space. = PS5X360 からセーブデータと設定をコピーできませんでした：空き容量が足りません。
 
 [added ko]
 Console storage = 본체 저장 공간
@@ -445,6 +462,8 @@ USB drive usb7 = USB 드라이브 usb7
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \sXboxUnity와\sMicrosoft\s서버에\s표지\s없음
 The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = 게임이 충돌하여 에뮬레이터가 일시 중지했습니다. 터치패드: 가이드, 그다음 게임을 닫고 메뉴로 돌아가기
 The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = 게임이 충돌하여 에뮬레이터가 일시 중지했습니다. OPTIONS + 터치패드: 가이드, 그다음 게임을 닫고 메뉴로 돌아가기
+Saves and settings were copied from PS5X360. Its own files were not changed. = PS5X360에서 저장 데이터와 설정을 복사했습니다. PS5X360의 파일은 변경되지 않았습니다.
+Saves and settings were not copied from PS5X360: not enough free space. = PS5X360에서 저장 데이터와 설정을 복사하지 못했습니다: 여유 공간이 부족합니다.
 
 [added nl]
 Console storage = Consoleopslag
@@ -474,6 +493,8 @@ USB drive usb7 = USB-station usb7
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \szonder\shoes\sop\sXboxUnity\sof\sde\sserver\svan\sMicrosoft
 The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = De game is gecrasht en de emulator heeft hem gepauzeerd. Touchpad: gids, daarna Game sluiten en terug naar het menu
 The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = De game is gecrasht en de emulator heeft hem gepauzeerd. OPTIONS + touchpad: gids, daarna Game sluiten en terug naar het menu
+Saves and settings were copied from PS5X360. Its own files were not changed. = Opgeslagen spellen en instellingen zijn gekopieerd uit PS5X360. De eigen bestanden daarvan zijn niet gewijzigd.
+Saves and settings were not copied from PS5X360: not enough free space. = Opgeslagen spellen en instellingen zijn niet gekopieerd uit PS5X360: onvoldoende vrije ruimte.
 
 [added pl]
 Console storage = Pamięć konsoli
@@ -503,6 +524,8 @@ USB drive usb7 = Dysk USB usb7
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \sbez\sokładki\sw\sXboxUnity\sani\sna\sserwerze\sMicrosoftu
 The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = Gra uległa awarii i emulator ją wstrzymał. Touchpad: przewodnik, potem Zamknij grę i wróć do menu
 The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = Gra uległa awarii i emulator ją wstrzymał. OPTIONS + touchpad: przewodnik, potem Zamknij grę i wróć do menu
+Saves and settings were copied from PS5X360. Its own files were not changed. = Zapisy i ustawienia zostały skopiowane z PS5X360. Jego własne pliki nie zostały zmienione.
+Saves and settings were not copied from PS5X360: not enough free space. = Zapisy i ustawienia nie zostały skopiowane z PS5X360: za mało wolnego miejsca.
 
 [added ru]
 Console storage = Память консоли
@@ -532,6 +555,8 @@ USB drive usb7 = USB-накопитель usb7
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \sбез\sобложки\sна\sXboxUnity\sи\sна\sсервере\sMicrosoft
 The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = Игра завершилась со сбоем, и эмулятор приостановил её. Сенсорная панель: меню, затем Закрыть игру и вернуться в меню
 The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = Игра завершилась со сбоем, и эмулятор приостановил её. OPTIONS + сенсорная панель: меню, затем Закрыть игру и вернуться в меню
+Saves and settings were copied from PS5X360. Its own files were not changed. = Сохранения и настройки скопированы из PS5X360. Его собственные файлы не изменены.
+Saves and settings were not copied from PS5X360: not enough free space. = Сохранения и настройки не скопированы из PS5X360: недостаточно свободного места.
 
 [added tr]
 Console storage = Konsol depolama alanı
@@ -561,6 +586,8 @@ USB drive usb7 = USB sürücü usb7
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \sXboxUnity'de\sve\sMicrosoft\ssunucusunda\skapak\syok
 The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = Oyun çöktü ve emülatör onu duraklattı. Dokunmatik yüzey: rehber, ardından Oyunu kapat ve menüye dön
 The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = Oyun çöktü ve emülatör onu duraklattı. OPTIONS + dokunmatik yüzey: rehber, ardından Oyunu kapat ve menüye dön
+Saves and settings were copied from PS5X360. Its own files were not changed. = Kayıtlar ve ayarlar PS5X360'tan kopyalandı. Onun kendi dosyaları değiştirilmedi.
+Saves and settings were not copied from PS5X360: not enough free space. = Kayıtlar ve ayarlar PS5X360'tan kopyalanmadı: yeterli boş alan yok.
 
 [added zh-Hans]
 Console storage = 主机存储空间
@@ -590,6 +617,8 @@ USB drive usb7 = USB 驱动器 usb7
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \sXboxUnity\s和微软服务器上都没有封面
 The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = 游戏崩溃，模拟器已将其暂停。触摸板：指南，然后选择关闭游戏并返回菜单
 The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = 游戏崩溃，模拟器已将其暂停。OPTIONS + 触摸板：指南，然后选择关闭游戏并返回菜单
+Saves and settings were copied from PS5X360. Its own files were not changed. = 已从 PS5X360 复制存档和设置。PS5X360 自身的文件未被更改。
+Saves and settings were not copied from PS5X360: not enough free space. = 未从 PS5X360 复制存档和设置：可用空间不足。
 
 [added zh-Hant]
 Console storage = 主機儲存空間
@@ -619,3 +648,5 @@ USB drive usb7 = USB 磁碟機 usb7
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \sXboxUnity\s和微軟伺服器上都沒有封面
 The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = 遊戲當機，模擬器已將其暫停。觸控板：指南，然後選擇關閉遊戲並返回選單
 The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = 遊戲當機，模擬器已將其暫停。OPTIONS + 觸控板：指南，然後選擇關閉遊戲並返回選單
+Saves and settings were copied from PS5X360. Its own files were not changed. = 已從 PS5X360 複製存檔和設定。PS5X360 本身的檔案未被變更。
+Saves and settings were not copied from PS5X360: not enough free space. = 未從 PS5X360 複製存檔和設定：可用空間不足。

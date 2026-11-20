@@ -24,7 +24,9 @@ Portuguese (Brazil) as an ordinary translation (pt-BR.txt):
     lookup rewritten for English keys (i18n.hpp, i18n_ui.hpp), CoreUiText keyed by English,
     comments that quote Portuguese interface text changed to the English (TEXT_EDITS).
   * english/lang/<code>.txt for every interface language: the language files keyed by English.
-    The eboot reads them from /app0/assets/lang/ (fixes/README.md).
+    The eboot reads them from /app0/assets/lang/ (fixes/README.md). Keys that a later fix renames
+    (RENAMES: fix 46, PS5X360Reloaded's own title ID and name) are written renamed, each
+    language's text with the same replacement; fix 25's code keeps the keys it was made with.
 
 Inputs: --tree, an assembled tree (assemble.py) with fixes up to 24; when fix 25 is already
 applied it is reversed in a copy first, after the fixes that follow it (those are written against
@@ -109,6 +111,44 @@ NATIVE_NAMES = {'English', 'Español (España)', 'Español (Latinoamérica)', 'F
                 '日本語', '한국어', '简体中文', '繁體中文'}
 # Portuguese key literals that are deliberately not translation keys (file, value, reason).
 NOT_KEYS = []
+# Keys of fix 25 that a later fix renames in the code, with the text replaced in the key and in every
+# language's translation: (English key of fix 25, old text, new text, the fix). Fix 25 keeps the keys
+# it was made with (the tree before the later fix); the language files carry the renamed keys only,
+# so the old ones show nothing but their English while that fix is left out of a build. Each old
+# text must be in the key and in each language's translation (a translation that dropped it stops
+# the script), and the renamed key must be no other key.
+# Fix 46 (fixes/46-ps5x360reloaded-identity.patch): PS5X360Reloaded has a title ID and a folder of
+# its own (PPSA83600) and its own name; "PS5X360/saves" on a drive (fix 27) stays as it is.
+RENAMES = [
+    ('Copy your dash.xex to /data/homebrew/PPSA50011/dashboard.', 'PPSA50011', 'PPSA83600', 46),
+    ('On: the game finds the DLC. Off: kept, but the game does not see it. Copy new packages to '
+     "PPSA50011/assets/dlc or to the game's dlc folder: they install by themselves when you press Play "
+     '(or here, with X).', 'PPSA50011', 'PPSA83600', 46),
+    ("One update is active at a time. Copy the file to PPSA50011/assets/updates or to the game's "
+     'updates folder: the newest installs by itself when you press Play (or here, with X). Patches made '
+     'for the game without an update do not apply while one is active.', 'PPSA50011', 'PPSA83600', 46),
+    ('Place .patch.toml files (Xenia Canary format) in /data/homebrew/PPSA50011/assets/patches/.',
+     'PPSA50011', 'PPSA83600', 46),
+    ('PS5X360 Guide', 'PS5X360', 'PS5X360Reloaded', 46),
+    ('PS5X360: experimental Xbox 360 emulator for PlayStation 5.', 'PS5X360', 'PS5X360Reloaded', 46),
+]
+RENAMED = {key: (old, new) for key, old, new, _ in RENAMES}
+
+
+def renamed_key(key):
+    """A key as the language files have it (RENAMES applied)."""
+    if key not in RENAMED:
+        return key
+    old, new = RENAMED[key]
+    return key.replace(old, new)
+
+
+def renamed_text(key, text):
+    """A translation of a key as the language files have it (RENAMES applied)."""
+    if key not in RENAMED or text is None:
+        return text
+    old, new = RENAMED[key]
+    return text.replace(old, new)
 
 I18N = 'include/xbox360ps5/i18n.hpp'
 I18N_UI = 'reconstructed/xbox360ps5/i18n_ui.hpp'
@@ -801,14 +841,17 @@ class Rekey:
                                      official['es'].get(row['pt'], row['es'])))
         self.collisions = self._collisions()
         self.tables = self._tables()
+        # (A key RENAMES renames: its renamed text under its renamed key.)
         for site in before.framegen:
-            shown = official['es'].get(site['pt'], site['es'])
-            if shown != self.tables['es'].get(self.key[site['pt']]):
+            key = self.key[site['pt']]
+            shown = renamed_text(key, official['es'].get(site['pt'], site['es']))
+            if shown != self.tables['es'].get(renamed_key(key)):
                 raise SystemExit(f'FramegenText {site["pt"]!r} shows {shown!r} in Spanish, its key '
-                                 f'{self.tables["es"].get(self.key[site["pt"]])!r}')
+                                 f'{self.tables["es"].get(renamed_key(key))!r}')
         for row in before.core:
-            shown = official['es'].get(row['pt'], row['es'])
-            if shown != self.tables['es'].get(self.core_key[row['core']]):
+            key = self.core_key[row['core']]
+            shown = renamed_text(key, official['es'].get(row['pt'], row['es']))
+            if shown != self.tables['es'].get(renamed_key(key)):
                 raise SystemExit(f'CoreUiText {row["core"]!r} shows {shown!r} in Spanish, its key '
                                  f'{self.tables["es"].get(self.core_key[row["core"]])!r}')
 
@@ -886,6 +929,22 @@ class Rekey:
                 text = self.official[code].get(pt, extra.get(code, {}).get(pt))
                 if text is not None:
                     tables[code][key] = text
+        # Keys a later fix renames (RENAMES): the key and every language's text.
+        keys = set(self.key.values()) | set(self.core_key.values())
+        for key, old, new, fix in RENAMES:
+            if key not in keys:
+                raise SystemExit(f'RENAMES: {key!r} (fix {fix}) is no key of fix 25')
+            if old not in key:
+                raise SystemExit(f'RENAMES: {key!r} does not contain {old!r}')
+            if renamed_key(key) in keys:
+                raise SystemExit(f'RENAMES: {renamed_key(key)!r} (fix {fix}) is a key of fix 25 already')
+            for code, table in tables.items():
+                if key not in table:
+                    continue
+                text = table.pop(key)
+                if old not in text:
+                    raise SystemExit(f'RENAMES: the {code} text of {key!r} lacks {old!r}: {text!r}')
+                table[renamed_key(key)] = renamed_text(key, text)
         for code, section in sorted(self.added.items()):
             if code not in tables or code == 'en':
                 raise SystemExit(f'extra.txt [added {code}]: no such language file (English is the key)')

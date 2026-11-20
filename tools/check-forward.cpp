@@ -66,7 +66,7 @@ int main() {
     CHECK(ParseOf(no_zero).rom == "/data/xbox360/Fable 2/default.xex");
     const char* own[] = {"/app0/eboot.bin"};
     CHECK(ParseOf(own).rom.empty());
-    const char* own_elsewhere[] = {"/mnt/sandbox/PPSA50011_000/app0/eboot.bin"};
+    const char* own_elsewhere[] = {"/mnt/sandbox/PPSA83600_000/app0/eboot.bin"};
     CHECK(ParseOf(own_elsewhere).rom.empty());
     const char* relative_zero[] = {"eboot.bin"};
     CHECK(ParseOf(relative_zero).rom.empty());
