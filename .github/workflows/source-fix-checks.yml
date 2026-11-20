@@ -65,6 +65,7 @@ on:
       - 'tools/check-library-folders.cpp'
       - 'tools/check-fault-stack.cpp'
       - 'tools/check-upload-cost.cpp'
+      - 'tools/check-fault-path.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

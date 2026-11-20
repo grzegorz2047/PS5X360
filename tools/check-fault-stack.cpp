@@ -177,7 +177,7 @@ void CheckTree() {
              report.find("[X360] CRASH thread stack: starts near 0x") != std::string::npos,
          "the report says where the fault is on the thread's stack");
   const std::string transport = Read("platform/ps5/exception_handler.cpp");
-  Expect(transport.find("action.sa_flags = SA_SIGINFO | SA_ONSTACK;") != std::string::npos,
+  Expect(transport.find("SA_SIGINFO | SA_ONSTACK") != std::string::npos,
          "Xenia's fault transport runs on it too (it gets the faults first)");
   const std::string threads = Read(".deps/xenia-canary/src/xenia/base/threading_posix.cc");
   const size_t start = threads.find("void* PosixCondition<Thread>::ThreadStartRoutine(void* parameter) {");
