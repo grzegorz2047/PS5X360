@@ -60,6 +60,7 @@ checks=(
   check-measure-10s.cpp            # fix 54
   check-global-lock-spin.cpp       # fix 55
   check-save-folder.cpp            # fix 50
+  check-multidisc-source.cpp       # fix 51
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -83,6 +84,7 @@ declare -A fix_of=(
   [check-measure-10s.cpp]=54
   [check-global-lock-spin.cpp]=55
   [check-save-folder.cpp]=50
+  [check-multidisc-source.cpp]=51
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
