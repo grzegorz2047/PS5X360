@@ -3,8 +3,8 @@
 // own time (IssueDrawInner, the largest cost of the GPU command thread in the 3D games:
 // Modern Warfare 2 448 ms/s on 1.0.4_candidate_31) into primitives, render targets, pipeline,
 // dynamic state and constants, bindings, vertex and memexport buffers, recording and after.
-//  (a) include/xbox360ps5/frame_cost.hpp: DrawTimer counts on the GPU thread only (every
-//      draw_sample_every-th draw timed, the parts scaled back to all); each mark
+//  (a) include/xbox360ps5/frame_cost.hpp: DrawTimer counts on the GPU thread only (one in
+//      draw_sample_every draws timed, at random since fix 77, the parts scaled back to all); each mark
 //      takes the time since the previous one less what nested sections (uploads, textures) took;
 //      what follows the last mark counts as "after"; DrawReporter gives each part in ms/s, the
 //      draws per second and the microseconds per draw, since its previous line;
@@ -87,26 +87,30 @@ void CheckTimer() {
   Expect(each > 10000 && each < 14000, "about 12 ms of own time per draw (" + std::to_string(each) + " us)");
   Expect(reporter.Line(1).find(": 0 draws/s") != std::string::npos, "only since the previous line");
 
-  // Sampling: every 4th draw timed, the parts scaled back to all draws.
+  // Sampling: one in 4 draws timed at random (fix 77), the parts scaled back to all draws.
   fc::draw_sample_every = 4;
   fc::DrawReporter sampled;
   (void)sampled.Line(1);
+  const uint64_t sampled_before = fc::draw_sampled;
   const uint64_t begin = fc::NowNs();
   std::thread([] {
     fc::MarkGpuThread();
     fc::SectionScope draw(fc::kDraw);
-    for (int n = 0; n < 16; ++n) {
+    for (int n = 0; n < 400; ++n) {
       fc::DrawTimer timer;
-      Spin(1000000);  // 1 ms primitives each
+      Spin(100000);  // 0.1 ms primitives each
       timer.Mark(fc::kDrawPrimitive);
     }
   }).join();
   const double span = double(fc::NowNs() - begin) / 1e9;
   const std::string scaled = sampled.Line(span);
-  std::printf("   %s\n", scaled.c_str());
-  const double primitives16 = After(scaled, "primitives ") * span;
-  Expect(primitives16 > 13 && primitives16 < 20, "4 of 16 draws timed, scaled to about 16 ms (" + std::to_string(primitives16) + ")");
-  Expect(fc::draw_sampled == 2 + 4, "every 4th draw sampled");
+  std::printf("   %s
+", scaled.c_str());
+  const double primitives400 = After(scaled, "primitives ") * span;
+  Expect(primitives400 > 28 && primitives400 < 52, "about 100 of 400 draws timed, scaled to about 40 ms (" +
+                                                       std::to_string(primitives400) + ")");
+  const uint64_t timed = fc::draw_sampled - sampled_before;
+  Expect(timed > 60 && timed < 140, "about one in 4 draws timed (" + std::to_string(timed) + ")");
 }
 
 void CheckTree() {

@@ -209,6 +209,7 @@ also listed here.
 | 73 (`73-draw-cost`) | a diagnostic for 1.0.5: the summary splits the GPU thread's draw time (Modern Warfare 2: 448 ms/s) into primitives, render targets, pipeline, state and constants, bindings, buffers and recording, to choose what to make faster | host-checked (`tools/check-draw-cost.cpp`); console: first 1.0.5 perf candidate |
 | 74 (`74-watch-arming`) | a diagnostic for 1.0.5: the summary says, for each of the four views of physical memory, how many write-watch protections the GPU thread makes and how long they and the lock take (Modern Warfare 2's "marking valid": 248 ms/s), to decide whether fewer views can be protected | host-checked (`tools/check-watch-arming.cpp`); console: first 1.0.5 perf candidate |
 | 75 (`75-packet-cost`) | a diagnostic for 1.0.5: the summary splits the GPU thread's "rest of executing" (Battlefield 3: 468 ms/s, Tekken: 316) by PM4 packet kind (register writes, constants, draw decoding, events, waits, indirect buffers, ...) | host-checked (`tools/check-packet-cost.cpp`); console: first 1.0.5 perf candidate |
+| 77 (`77-wait-reg-and-sampling`) | a diagnostic for 1.0.5: draws and packets sampled at random (a repeating ring fooled the every-n-th counter: Tekken's `WAIT_REG_MEM` over 1,000 ms/s, Battlefield 3's packets near 0); how long the GPU thread polls and sleeps in `WAIT_REG_MEM` | host-checked (`tools/check-wait-reg.cpp`); console: next 1.0.5 perf candidate |
 
 ## Comparison with the official executable
 
