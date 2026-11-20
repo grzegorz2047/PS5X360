@@ -75,6 +75,7 @@ on:
       - 'tools/check-deferred-watches.cpp'
       - 'tools/check-suspend-trace.cpp'
       - 'tools/check-deferred-checks.cpp'
+      - 'tools/check-pending-resume.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

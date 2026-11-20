@@ -78,6 +78,7 @@ checks=(
   check-deferred-watches.cpp       # fix 68
   check-suspend-trace.cpp          # fix 69
   check-deferred-checks.cpp        # fix 70
+  check-pending-resume.cpp         # fix 71
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -120,6 +121,7 @@ declare -A fix_of=(
   [check-deferred-watches.cpp]=68
   [check-suspend-trace.cpp]=69
   [check-deferred-checks.cpp]=70
+  [check-pending-resume.cpp]=71
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
