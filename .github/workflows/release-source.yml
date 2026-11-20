@@ -1,0 +1,306 @@
+name: Source release (draft)
+
+# Turns the source build (build-source-1.0.2.yml, release mode) into a DRAFT GitHub release
+# v<version> with the PPSA50011 package and its GPL-3.0 corresponding source.
+#
+# Start: push the release commit to a branch release/source-X.Y.Z (the version is the branch
+# name's suffix, e.g. release/source-1.0.3 -> 1.0.3); workflow_dispatch on such a branch does the
+# same once this file is on the default branch. Tags do not start it: the tag v<version> is made
+# by GitHub when the draft is published by hand, at the commit the draft targets.
+#
+# Jobs:
+# 1. prepare: host check of the release decisions, version from the branch, release notes
+#    docs/release-notes/v<version>.md must exist.
+# 2. build: build-source-1.0.2.yml with release: true (version label checked in the ELF, no fix
+#    left out); artifacts eboot-<version>-from-source and source-<version>
+#    (PS5X360-<version>-source.tar.xz, the assembled tree that was compiled).
+# 3. package: the official v1.0.2 PPSA50011.zip (SHA-256 pinned) with the source-built eboot.bin
+#    and English-keyed language files (tools/source-1.0.2/package.py), the .ffpkg and .ffpfsc
+#    images (tools/binary-release/make_images.sh), the source tarball, the toolchain source
+#    (PS5_Vulkan, PS5_Mesa, PS5_PayloadSDK at the build's pins: RADV, app_crt and the payload SDK
+#    runtime are linked into eboot.bin), a git archive of this repository at the commit (the
+#    build scripts), the game patches and SHA256SUMS.txt; artifact
+#    PS5X360-<version>-release.
+# 4. draft: creates the draft release (gh release create --draft --target <commit>) or, while
+#    the release is still a draft, updates its notes, target and assets (--clobber). A published
+#    release is never touched (tools/source-1.0.2/release_guard.py decides).
+on:
+  push:
+    branches: ['release/source-*']
+  workflow_dispatch:
+
+permissions: {}
+
+# One run per release branch at a time, so two runs never create two drafts of one tag.
+concurrency:
+  group: release-source-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Version and release notes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - name: Checkout PS5X360
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Host check of the release decisions
+        run: python3 -I tools/check-release-guard.py
+
+      - name: Version from the branch name
+        id: version
+        run: |
+          set -euo pipefail
+          version=$(python3 -I tools/source-1.0.2/release_guard.py version --ref "$GITHUB_REF")
+          notes=docs/release-notes/v$version.md
+          if [[ ! -s $notes ]]; then
+            echo "::error file=$notes::release notes $notes are missing or empty"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "Release v$version from $GITHUB_SHA ($GITHUB_REF_NAME)"
+
+  build:
+    name: Build
+    needs: prepare
+    permissions:
+      contents: read
+    uses: ./.github/workflows/build-source-1.0.2.yml
+    with:
+      version: ${{ needs.prepare.outputs.version }}
+      release: true
+
+  package:
+    name: Package PPSA50011 and the sources
+    needs: [prepare, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - name: Checkout PS5X360
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup .NET 8 for UFS2Tool (.ffpkg)
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Download the official v1.0.2 PPSA50011.zip
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 5 --retry-all-errors -o "$RUNNER_TEMP/PPSA50011-v1.0.2.zip" \
+            https://github.com/BrinooTk/PS5X360/releases/download/v1.0.2/PPSA50011.zip
+          echo "230359c2638f99add3972147e1690e62d8984a37c00181501680bdda7c1096c8  $RUNNER_TEMP/PPSA50011-v1.0.2.zip" | sha256sum --check --strict
+
+      - name: Download the source build
+        uses: actions/download-artifact@v4
+        with:
+          name: eboot-${{ needs.prepare.outputs.version }}-from-source
+          path: dist/build
+
+      - name: Download the source tarball
+        uses: actions/download-artifact@v4
+        with:
+          name: source-${{ needs.prepare.outputs.version }}
+          path: dist/source
+
+      - name: Check the build's version and fixes
+        env:
+          EBOOT_SHA256: ${{ needs.build.outputs.eboot_sha256 }}
+        run: |
+          set -euo pipefail
+          for f in dist/build/src102-out/eboot.bin dist/build/src102/SOURCES.json dist/build/src102-build.log; do
+            [[ -s $f ]] || { echo "::error::$f is missing from eboot-$VERSION-from-source"; exit 1; }
+          done
+          # The eboot.bin the build job checked and hashed is the one downloaded here.
+          echo "$EBOOT_SHA256  dist/build/src102-out/eboot.bin" | sha256sum --check --strict
+          python3 -I tools/source-1.0.2/release_guard.py check-sources \
+            --sources-json dist/build/src102/SOURCES.json --version "$VERSION"
+
+      - name: Build PPSA50011.zip from the official package and the source build
+        run: |
+          set -euo pipefail
+          # The notice's date is the commit's, so a rerun of the same commit gives the same zip.
+          SOURCE_DATE_EPOCH=$(git log -1 --format=%ct "$GITHUB_SHA")
+          export SOURCE_DATE_EPOCH
+          python3 -I tools/source-1.0.2/package.py \
+            --base-zip "$RUNNER_TEMP/PPSA50011-v1.0.2.zip" \
+            --eboot dist/build/src102-out/eboot.bin \
+            --lang-dir dist/build/src102-out/lang \
+            --sources-json dist/build/src102/SOURCES.json \
+            --version "$VERSION" \
+            --source-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/tree/$GITHUB_SHA" \
+            --out-dir dist/source-release
+
+      - name: Make PPSA50011.ffpkg and PPSA50011.ffpfsc
+        run: bash tools/binary-release/make_images.sh dist/source-release/stage/PPSA50011 dist/source-release
+
+      # RADV (PS5_Mesa), app_crt and the payload SDK runtime (PS5_Vulkan, PS5_PayloadSDK) are
+      # linked into eboot.bin, so their source at the build's pinned commits is corresponding
+      # source too: attached as one deterministic tarball (names sorted, mtime of the commit,
+      # owner and group 0, no .git), as the build does for the assembled tree.
+      - name: Toolchain source at the build's pinned commits
+        run: |
+          set -euo pipefail
+          workflow=.github/workflows/build-source-1.0.2.yml
+          name=PS5X360-$VERSION-toolchain-source
+          root=dist/toolchain/$name
+          mkdir -p "$root"
+          epoch=$(git log -1 --format=%ct "$GITHUB_SHA")
+          for pair in PS5_VULKAN_REV:PS5_Vulkan PS5_MESA_REV:PS5_Mesa PS5_PAYLOAD_SDK_REV:PS5_PayloadSDK; do
+            key=${pair%%:*} repo=${pair#*:}
+            rev=$(tr -d '\r' < "$workflow" | awk -v k="$key:" '$1 == k {print $2; exit}')
+            if [[ ! $rev =~ ^[0-9a-f]{40}$ ]]; then
+              echo "::error file=$workflow::no 40-hex $key pin in $workflow"
+              exit 1
+            fi
+            dir=$root/$repo
+            git init -q "$dir"
+            git -C "$dir" remote add origin "https://github.com/mihawk-99/$repo.git"
+            git -C "$dir" fetch -q --depth 1 origin "$rev"
+            git -C "$dir" checkout -q --detach FETCH_HEAD
+            test "$(git -C "$dir" rev-parse HEAD)" = "$rev"
+            rm -rf "$dir/.git"
+            echo "$repo  https://github.com/mihawk-99/$repo  commit $rev" >> "$root/PINS.txt"
+          done
+          tar --create --file=- --format=gnu --sort=name --mtime="@$epoch" \
+            --owner=0 --group=0 --numeric-owner --mode='u+rwX,go+rX,go-w' \
+            -C dist/toolchain "$name" | xz -T0 -6 > "dist/toolchain/$name.tar.xz"
+          xz --test "dist/toolchain/$name.tar.xz"
+          ls -l "dist/toolchain/$name.tar.xz"
+          cat "$root/PINS.txt"
+
+      - name: Collect release files
+        env:
+          SOURCE_SHA256: ${{ needs.build.outputs.source_sha256 }}
+        run: |
+          set -euo pipefail
+          rel=dist/release
+          mkdir -p "$rel"
+          out=dist/source-release
+          cp "$out/PPSA50011.zip" "$out/PPSA50011.zip.sha256" "$out/PPSA50011.ffpkg" "$out/PPSA50011.ffpfsc" "$rel/"
+          cp dist/build/src102/SOURCES.json "$rel/SOURCES.json"
+          cp dist/build/src102-build.log "$rel/PS5X360-$VERSION-build.log"
+          # GPL-3.0 corresponding source: the assembled tree that was compiled ...
+          mapfile -t tarballs < <(find dist/source -type f -name "PS5X360-$VERSION-source.tar.xz")
+          if [[ ${#tarballs[@]} -ne 1 ]]; then
+            echo "::error::expected one PS5X360-$VERSION-source.tar.xz in source-$VERSION, found ${#tarballs[@]}"
+            exit 1
+          fi
+          # The build hashed it before the upload: the same bytes, and the hash it reported.
+          (cd "$(dirname -- "${tarballs[0]}")" && sha256sum --check --strict "PS5X360-$VERSION-source.tar.xz.sha256")
+          echo "$SOURCE_SHA256  ${tarballs[0]}" | sha256sum --check --strict
+          xz --test "${tarballs[0]}"
+          cp "${tarballs[0]}" "$rel/"
+          # ... the toolchain parts linked into it, at the pinned commits ...
+          cp "dist/toolchain/PS5X360-$VERSION-toolchain-source.tar.xz" "$rel/"
+          # ... and the scripts that assembled and built it: this repository at the commit.
+          git archive --format=tar.gz --prefix="PS5X360Reloaded-$VERSION/" \
+            -o "$rel/PS5X360Reloaded-$VERSION-scripts.tar.gz" "$GITHUB_SHA"
+          # Game patches, named as GitHub stores them (spaces become dots, as on v1.0.2-opt-r2).
+          shopt -s nullglob
+          for f in assets/patches/*.patch.toml; do
+            name=$(basename -- "$f")
+            cp -- "$f" "$rel/${name// /.}"
+          done
+          python3 -I tools/source-1.0.2/release_guard.py sums "$rel"
+          ls -l "$rel"
+
+      - name: Upload the release files
+        uses: actions/upload-artifact@v4
+        with:
+          name: PS5X360-${{ needs.prepare.outputs.version }}-release
+          path: dist/release/
+          if-no-files-found: error
+
+  draft:
+    name: Create or update the draft release
+    needs: [prepare, package]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+      TAG: ${{ needs.prepare.outputs.tag }}
+    steps:
+      - name: Checkout PS5X360
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Download the release files
+        uses: actions/download-artifact@v4
+        with:
+          name: PS5X360-${{ needs.prepare.outputs.version }}-release
+          path: dist/release
+
+      - name: Check the release files against SHA256SUMS.txt
+        run: python3 -I tools/source-1.0.2/release_guard.py verify dist/release
+
+      - name: Create or update the draft
+        run: |
+          set -euo pipefail
+          # decide runs in $(...), which does not inherit set -e by default: without this a
+          # failed ls-remote would go unnoticed and an existing tag would not be checked.
+          shopt -s inherit_errexit
+          guard() { python3 -I tools/source-1.0.2/release_guard.py "$@"; }
+          view="$RUNNER_TEMP/release.json"
+          # Prints create or update; stops the job (exit 2) for a published release, a tag at
+          # another commit, or an answer from gh it cannot read.
+          decide() {
+            local code=0
+            gh release view "$TAG" --json tagName,isDraft,isImmutable,targetCommitish,assets \
+              > "$view" 2> "$RUNNER_TEMP/release.err" || code=$?
+            git -c credential.helper= -c credential.helper='!gh auth git-credential' \
+              ls-remote --tags "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" > "$RUNNER_TEMP/tags.txt" \
+              || { echo "::error::git ls-remote --tags failed" >&2; return 1; }
+            guard decide --tag "$TAG" --sha "$GITHUB_SHA" --view-exit "$code" \
+              --view-stdout "$view" --view-stderr "$RUNNER_TEMP/release.err" \
+              --remote-tag "$RUNNER_TEMP/tags.txt"
+          }
+          notes=docs/release-notes/v$VERSION.md
+          title="PS5X360 v$VERSION"
+          action=$(decide)
+          echo "Release $TAG: $action"
+          if [[ $action == create ]]; then
+            gh release create "$TAG" --draft --target "$GITHUB_SHA" --title "$title" \
+              --notes-file "$notes" dist/release/*
+          else
+            # No --draft here: a release published since the check must not be turned back
+            # into a draft; each step checks again that it is still one.
+            gh release edit "$TAG" --target "$GITHUB_SHA" --title "$title" --notes-file "$notes"
+            [[ $(decide) == update ]]
+            gh release upload "$TAG" dist/release/* --clobber
+            [[ $(decide) == update ]]
+            guard stale dist/release --view-stdout "$view" | while IFS= read -r name; do
+              echo "::warning::draft $TAG still has asset $name, which this run did not upload"
+            done
+          fi
+          gh release view "$TAG" --json isDraft,url,targetCommitish,assets \
+            -q '"draft: \(.isDraft)  target: \(.targetCommitish)  assets: \(.assets | length)\n\(.url)"'
+          {
+            echo "### Draft release $TAG ($action)"
+            echo
+            echo "Commit \`$GITHUB_SHA\`; publish it by hand after the console test."
+            echo
+            echo '```'
+            cat dist/release/SHA256SUMS.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

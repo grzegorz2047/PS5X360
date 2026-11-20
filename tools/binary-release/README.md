@@ -2,9 +2,10 @@
 
 The C++ in this repository stops at v0.5.7-fix.1: the official v1.0.2 executable
 was built from code its author publishes only as archives with the releases
-(`PS5X360-source-*-changes.zip`). An `eboot.bin` compiled from this repository
-lacks online play, per-game FSI, frame generation and Kinect, so it is **not**
-released. A release instead takes the official v1.0.2 package and changes it:
+(`PS5X360-source-*-changes.zip`). An `eboot.bin` compiled from this repository's
+own C++ lacks online play, per-game FSI, frame generation and Kinect, so it is
+**not** released. The `v1.0.2-opt*` releases instead take the official v1.0.2
+package and change it:
 
 | Step | Where |
 | --- | --- |
@@ -26,6 +27,20 @@ python3 tools/binary-release/build_package.py --base-zip PPSA50011.zip
 bash tools/binary-release/make_images.sh dist/binary-release/stage/PPSA50011 dist/binary-release
 ```
 
-A change to the C++ reaches a release only when it can be written as a binary
-patch in `patches.py`; `.github/workflows/build-ps5.yml` only checks that the
-repository's C++ still compiles.
+A change to the C++ of this repository reaches a binary release only when it
+can be written as a binary patch in `patches.py`;
+`.github/workflows/build-ps5.yml` only checks that the repository's C++ still
+compiles.
+
+## Releases built from source (1.0.3 and later)
+
+The 1.0.2 sources reassembled from the author's drops (`tools/source-1.0.2`,
+[docs/SOURCE-1.0.2.md](../../docs/SOURCE-1.0.2.md)) do build a complete
+`eboot.bin`, with these patch groups ported to source and later fixes on top.
+That executable **is** released, by `.github/workflows/release-source.yml`, as a
+draft GitHub release `vX.Y.Z` with its GPL-3.0 corresponding source: it is not
+patched here. Its package comes from the same official v1.0.2 `PPSA50011.zip`
+through `tools/source-1.0.2/package.py` (the source-built `eboot.bin` as signed,
+English-keyed language files, no `patches.py`, no `assets/lang-overrides`
+merge), and its images from `make_images.sh` unchanged. A source build's test
+artifact (`…-NOT-FOR-RELEASE`) is still not for distribution.

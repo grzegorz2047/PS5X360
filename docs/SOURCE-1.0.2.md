@@ -7,6 +7,8 @@ is missing, and how close a rebuild gets.
 - Assembly: [`tools/source-1.0.2/assemble.py`](../tools/source-1.0.2/assemble.py)
 - Build: [`tools/source-1.0.2/build.sh`](../tools/source-1.0.2/build.sh), workflow
   [`build-source-1.0.2.yml`](../.github/workflows/build-source-1.0.2.yml)
+- Release (draft, package and corresponding source):
+  [`release-source.yml`](../.github/workflows/release-source.yml) (see [Releases](#releases))
 - Comparison: [`tools/source-1.0.2/compare.py`](../tools/source-1.0.2/compare.py)
 - The shipped release's binary patches as source changes:
   [`tools/source-1.0.2/fixes`](../tools/source-1.0.2/fixes/README.md) (see
@@ -14,7 +16,7 @@ is missing, and how close a rebuild gets.
 
 ## Result
 
-**It builds.** [Run 44497867041](https://github.com/grzegorz2047/PS5X360/actions/runs/44497867041)
+**It builds.** [Run 44497867041](https://github.com/grzegorz2047/PS5X360Reloaded/actions/runs/44497867041)
 assembled the tree, compiled every core and title object and linked a signed `eboot.bin`
 (37,551,301 bytes, SHA-256 `65e6e9c0…`; `eboot.elf` `9ef24b10…`). It is a Vulkan-only
 reconstruction of 1.0.2, about 22 MiB smaller than the official executable, almost all of it
@@ -25,22 +27,25 @@ On the console (user's test of that build): the launcher, Modern Warfare 2, Blac
 Age II run like the official build; the visible difference was the missing dark home theme,
 reconstructed since.
 
-Latest build: [run 44507850129](https://github.com/grzegorz2047/PS5X360/actions/runs/44507850129),
-with the `gameinfo.txt` reader ([run 44502949131](https://github.com/grzegorz2047/PS5X360/actions/runs/44502949131))
+Latest build: [run 44507850129](https://github.com/grzegorz2047/PS5X360Reloaded/actions/runs/44507850129),
+with the `gameinfo.txt` reader ([run 44502949131](https://github.com/grzegorz2047/PS5X360Reloaded/actions/runs/44502949131))
 and the dark theme: `eboot.bin` 37,574,693 bytes, SHA-256 `b7525acb…` (`eboot.elf` `a251fd04…`).
 Its official-only strings drop to 18,074; the dark theme's and `gameinfo.txt`'s are now in both.
-Not yet tested on a console.
+That build was not run on a console by itself; the later test builds that contain it, labelled
+`1.0.3_candidate_N` on the home screen (`tools/source-1.0.2/BUILD_VERSION`), were (see
+[Release fixes](#release-fixes-ported-from-the-binary-patches)).
 
 The workflow keeps the built RADV driver and payload SDK in the Actions cache (keyed by the
 pinned reference commits) and uses ccache: with the cache, the RADV build and Mesa's packages are
-skipped (dependencies 36 s instead of up to 9 min). It runs on `workflow_dispatch` only, which
-GitHub offers once the workflow file is on the default branch.
+skipped (dependencies 36 s instead of up to 9 min). It runs by hand (`workflow_dispatch`, which
+GitHub offers once the workflow file is on the default branch) for a test build, and as a
+reusable workflow (`workflow_call`) from the source release (see [Releases](#releases)).
 
 Earlier runs, each fixing what the previous one found:
-[44482112072](https://github.com/grzegorz2047/PS5X360/actions/runs/44482112072) (stale core
+[44482112072](https://github.com/grzegorz2047/PS5X360Reloaded/actions/runs/44482112072) (stale core
 headers, missing 1.0.x language code),
-[44486101760](https://github.com/grzegorz2047/PS5X360/actions/runs/44486101760) (5 files),
-[44491870772](https://github.com/grzegorz2047/PS5X360/actions/runs/44491870772) (compiled; 4
+[44486101760](https://github.com/grzegorz2047/PS5X360Reloaded/actions/runs/44486101760) (5 files),
+[44491870772](https://github.com/grzegorz2047/PS5X360Reloaded/actions/runs/44491870772) (compiled; 4
 undefined symbols at the link).
 
 ## Short answer
@@ -145,12 +150,16 @@ The shipped release is the official 1.0.2 executable with binary patches
 source as one patch in [`tools/source-1.0.2/fixes`](../tools/source-1.0.2/fixes/README.md),
 which `assemble.py` applies last. The intent is ported, not the machine code: where the binary
 patch had to borrow room (repurposed strings, an unused settings field, a diagnostic counter),
-the source does it properly. [Run 44507690116](https://github.com/grzegorz2047/PS5X360/actions/runs/44507690116)
+the source does it properly. [Run 44507690116](https://github.com/grzegorz2047/PS5X360Reloaded/actions/runs/44507690116)
 applied all 14 patches and built `eboot.bin` (37,570,981 bytes, SHA-256 `ff26258c…`; `eboot.elf`
 `5bd5b0e8…`). With the dark theme merged in,
-[run 44511435853](https://github.com/grzegorz2047/PS5X360/actions/runs/44511435853) applied them
+[run 44511435853](https://github.com/grzegorz2047/PS5X360Reloaded/actions/runs/44511435853) applied them
 after its edits: `eboot.bin` 37,577,765 bytes, SHA-256 `e15468f2…` (`eboot.elf` `e22e1cfb…`).
-**Not yet tested on a console.**
+The groups were not tested one by one on the console. They are in the `1.0.3_candidate_N`
+test builds run there since (candidates 19 and 30 were built without `01`, on purpose), next to
+the source-only fixes 20 and up; the console results of those builds are in the
+[fixes list](../tools/source-1.0.2/fixes/README.md) (for example candidate 26 for Handball 16,
+29 for the save drives, 36 for Battlefield 3).
 
 | Group | What | Status | Differences from the binary patch |
 |---|---|---|---|
@@ -223,6 +232,38 @@ Feature markers (`compare.py`; a marker string present, not proof the feature wo
 A byte-identical rebuild is not possible: the official image was linked from objects compiled
 at different times with different trees and flags, and part of its sources is unpublished.
 
+## Releases
+
+A version built from this source is released by
+[`release-source.yml`](../.github/workflows/release-source.yml) as a **draft** GitHub release;
+publishing it stays a manual step, after the console test. It starts when the release commit is
+pushed to a branch `release/source-X.Y.Z` (the version is the branch name's suffix, so
+`release/source-1.0.3` gives `1.0.3` and the tag `v1.0.3`), or by hand on such a branch once the
+workflow is on the default branch. A tag push does not start it: GitHub makes the tag when the
+draft is published, at the commit the draft targets.
+
+1. `build-source-1.0.2.yml` in release mode: the version label is `X.Y.Z` instead of
+   `BUILD_VERSION`'s candidate label (`PS5X360 vX.Y.Z` on the home screen, `BOOT version X.Y.Z` in
+   `boot.log`), no fix may be left out, and the linked `eboot.elf` is checked for both strings and
+   for no candidate label. Artifacts: `eboot-X.Y.Z-from-source` and `source-X.Y.Z`.
+2. The package: the official v1.0.2 `PPSA50011.zip` (SHA-256 `230359c2…`) with the source-built
+   `eboot.bin` as it was signed, the English-keyed `assets/lang/*.txt` of fix 25 in place of the
+   official Portuguese-keyed ones, `VERSION`/`RELEASE.json`/`MANIFEST.json` for `X.Y.Z` and the
+   GPL notice (`tools/source-1.0.2/package.py`), then `PPSA50011.ffpkg` and `PPSA50011.ffpfsc`
+   (`tools/binary-release/make_images.sh`). Because the language files change with the
+   executable, the whole `PPSA50011` folder has to be installed, not `eboot.bin` alone.
+3. The draft `vX.Y.Z` (notes from `docs/release-notes/vX.Y.Z.md`) with `PPSA50011.zip` (and its
+   `.sha256`), `.ffpkg`, `.ffpfsc`, `SOURCES.json`, the build log, the corresponding source
+   (`PS5X360-X.Y.Z-source.tar.xz`, the assembled tree that was compiled;
+   `PS5X360-X.Y.Z-toolchain-source.tar.xz`, `PS5_Vulkan`, `PS5_Mesa` and `PS5_PayloadSDK` at the
+   commits the build pins, whose RADV, `app_crt` and payload SDK runtime are linked in; and
+   `PS5X360Reloaded-X.Y.Z-scripts.tar.gz`, this repository at the commit), the game patches
+   (`assets/patches/*.patch.toml`) and `SHA256SUMS.txt` over all of them. A later push to the
+   branch replaces the draft's notes, target and files while it is still a draft;
+   a published release is never changed (`tools/source-1.0.2/release_guard.py`).
+
+The released `eboot.bin` is a new build of the tested candidate's commit: only the version label
+differs in the source, but its bytes (and SHA-256) are not the candidate's.
 
 ## Licensing
 
@@ -235,4 +276,20 @@ licence and notice file of the drops under `licenses/` (`drop-0.5.9`, `drop-1.0.
 **Anyone who distributes an `eboot.bin` rebuilt this way must distribute it under the GPL-3.0,
 with its complete corresponding source** (this repository's `tools/source-1.0.2`, the drops and
 the pinned commits it names, and any change made on top), and keep the licence files with it.
-The CI artifact is a check, not a release, and is named `…-NOT-FOR-RELEASE`.
+
+The source release does this itself: the draft carries the assembled tree that was compiled
+(`PS5X360-X.Y.Z-source.tar.xz`: a deterministic tar of `build/src102` with the drops' files, the
+netplay core and its submodules, Mbed TLS, the applied fixes, `licenses/` and `SOURCES.json`)
+the toolchain parts linked into it (`PS5X360-X.Y.Z-toolchain-source.tar.xz`: `PS5_Vulkan`,
+`PS5_Mesa` and `PS5_PayloadSDK` at the commits `build-source-1.0.2.yml` pins) and this repository
+at the release commit (`PS5X360Reloaded-X.Y.Z-scripts.tar.gz`: the assembly, build and packaging
+scripts and workflows), next to the binaries, so the source is offered from the same place as
+the package. The package's notice names the source tarball, the repository commit and the
+toolchain pins. Archives the pinned toolchain scripts download themselves (zlib, checked by
+SHA-256) are not attached. CI artifacts expire after 90 days and are not the source offer.
+
+Artifact names tell the two kinds of build apart. A test build (dispatched by hand, or a release
+run that failed a check) uploads `eboot-1.0.2-from-source-NOT-FOR-RELEASE`, labelled with
+`BUILD_VERSION`'s candidate, and is for console tests only: do not distribute it. Only a release
+run that passed every check uploads `eboot-X.Y.Z-from-source` and `source-X.Y.Z`, and only the
+draft release made from them is meant for distribution once published.
