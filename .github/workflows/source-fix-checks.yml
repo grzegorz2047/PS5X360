@@ -78,6 +78,7 @@ on:
       - 'tools/check-page-version.mjs'
       - 'tools/check-draw-cost.cpp'
       - 'tools/check-watch-arming.cpp'
+      - 'tools/check-packet-cost.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

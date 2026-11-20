@@ -208,6 +208,7 @@ also listed here.
 | 72 (`72-phone-page-version`) | Kinect with a phone: a phone page left open while the app was updated reloads once by itself, so it runs the console's current page (candidate 28's phone kept an older page and showed no delay line) | host-checked (`tools/check-page-version.cpp`, `tools/check-page-version.mjs`); console: next combined candidate (31) |
 | 73 (`73-draw-cost`) | a diagnostic for 1.0.5: the summary splits the GPU thread's draw time (Modern Warfare 2: 448 ms/s) into primitives, render targets, pipeline, state and constants, bindings, buffers and recording, to choose what to make faster | host-checked (`tools/check-draw-cost.cpp`); console: first 1.0.5 perf candidate |
 | 74 (`74-watch-arming`) | a diagnostic for 1.0.5: the summary says, for each of the four views of physical memory, how many write-watch protections the GPU thread makes and how long they and the lock take (Modern Warfare 2's "marking valid": 248 ms/s), to decide whether fewer views can be protected | host-checked (`tools/check-watch-arming.cpp`); console: first 1.0.5 perf candidate |
+| 75 (`75-packet-cost`) | a diagnostic for 1.0.5: the summary splits the GPU thread's "rest of executing" (Battlefield 3: 468 ms/s, Tekken: 316) by PM4 packet kind (register writes, constants, draw decoding, events, waits, indirect buffers, ...) | host-checked (`tools/check-packet-cost.cpp`); console: first 1.0.5 perf candidate |
 
 ## Comparison with the official executable
 

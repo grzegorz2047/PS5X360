@@ -80,6 +80,7 @@ checks=(
   check-page-version.cpp           # fix 72
   check-draw-cost.cpp              # fix 73
   check-watch-arming.cpp           # fix 74
+  check-packet-cost.cpp            # fix 75
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -124,6 +125,7 @@ declare -A fix_of=(
   [check-page-version.cpp]=72
   [check-draw-cost.cpp]=73
   [check-watch-arming.cpp]=74
+  [check-packet-cost.cpp]=75
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
