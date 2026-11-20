@@ -448,7 +448,7 @@ void CheckTree() {
          "XamLoaderTerminateTitle logged first");
   Expect(xam.find("Ps5TitleEnd(\"XamLoaderLaunchTitle\",") > xam.find("void XamLoaderLaunchTitle_entry("),
          "XamLoaderLaunchTitle logged first");
-  for (const char* part : {"condition_variable", "Stage(", "XELOG", "std::fopen", "::sleep(", "wait_for(", "::close(",
+  for (const char* part : {"condition_variable", "Stage(", "XELOG", "std::fopen", "::sleep(", "wait_for(",
                            "raw_sink.store(nullptr"})
     Expect(watch.find(part) == std::string::npos, std::string("the watch never uses: ") + part);
   ExpectIn(".deps/xenia-canary/src/xenia/base/logging.cc",
@@ -461,6 +461,15 @@ void CheckTree() {
             "for (int signal : kEndingSignals) sigaction(signal, &ending, nullptr);",
             "if (number == SIGPIPE) return;", "raise(number);"});
   // Candidate 11.
+  {
+    // hang-watch.txt stays open after the game loop (the shader dumps close their own files).
+    const size_t destructor = watch.find("~HangWatchThread() {");
+    const std::string body = destructor == std::string::npos ? std::string()
+                                                              : watch.substr(destructor, watch.find("
+  }", destructor) - destructor);
+    Expect(!body.empty() && body.find("close(") == std::string::npos && body.find("hang_watch_fd.store(-1)") == std::string::npos,
+           "the watch's file stays open when the watch stops");
+  }
   ExpectIn("platform/ps5/crash_report.cpp",
            {"std::atomic<int> mirror_file{-1};", "if (fd >= 0) { (void)!write(fd, text, size); fsync(fd); }",
             "Mirror(line, used);", "Mirror(text, bytes);", "Mirror(text, size);", "Mirror(buffer, size);",
