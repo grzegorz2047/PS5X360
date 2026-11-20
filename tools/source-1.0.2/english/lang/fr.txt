@@ -132,6 +132,7 @@ Description\s(from\sthe\sx360db\sarchive) = Description\s(en\sanglais,\sde\sl'ar
 Destination\sexists\sor\scannot\sbe\spublished. = La\sdestination\sexiste\sou\sne\speut\spas\sêtre\sfinalisée.
 Detailed\slogs = Journaux\sdétaillés
 Developer = Développeur
+Disc\s%u = Disque\s%u
 Disconnected\sor\sunavailable = Déconnecté\sou\sindisponible
 Dithers\sthe\soutput\sso\sskies\sand\sshadows\sdo\snot\sshow\sbands. = Applique\sun\stramage\sà\sla\ssortie\spour\sque\sciels\set\sombres\sne\smontrent\spas\sde\sbandes.
 Does\snot\swork = Ne\sfonctionne\spas

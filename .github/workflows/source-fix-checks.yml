@@ -57,6 +57,7 @@ on:
       - 'tools/check-measure-10s.cpp'
       - 'tools/check-global-lock-spin.cpp'
       - 'tools/check-multidisc-source.cpp'
+      - 'tools/check-library-disc.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

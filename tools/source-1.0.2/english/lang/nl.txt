@@ -132,6 +132,7 @@ Description\s(from\sthe\sx360db\sarchive) = Beschrijving\s(in\shet\sEngels,\suit
 Destination\sexists\sor\scannot\sbe\spublished. = De\sbestemming\sbestaat\sal\sof\skan\sniet\sworden\safgerond.
 Detailed\slogs = Uitgebreide\slogs
 Developer = Ontwikkelaar
+Disc\s%u = Schijf\s%u
 Disconnected\sor\sunavailable = Losgekoppeld\sof\sniet\sbeschikbaar
 Dithers\sthe\soutput\sso\sskies\sand\sshadows\sdo\snot\sshow\sbands. = Voegt\sdithering\stoe\saan\sde\suitvoer\szodat\sluchten\sen\sschaduwen\sgeen\sbanden\stonen.
 Does\snot\swork = Werkt\sniet

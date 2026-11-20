@@ -132,6 +132,7 @@ Description\s(from\sthe\sx360db\sarchive) = Açıklama\s(İngilizce,\sx360db\sar
 Destination\sexists\sor\scannot\sbe\spublished. = Hedef\szaten\svar\sveya\stamamlanamıyor.
 Detailed\slogs = Ayrıntılı\sgünlükler
 Developer = Geliştirici
+Disc\s%u = Disk\s%u
 Disconnected\sor\sunavailable = Bağlantı\skesik\sveya\skullanılamaz
 Dithers\sthe\soutput\sso\sskies\sand\sshadows\sdo\snot\sshow\sbands. = Gökyüzü\sve\sgölgelerde\sbant\sgörünmemesi\siçin\sçıkışa\stitreme\sekler.
 Does\snot\swork = Çalışmıyor

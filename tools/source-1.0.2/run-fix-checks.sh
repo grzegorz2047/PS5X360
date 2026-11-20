@@ -61,6 +61,7 @@ checks=(
   check-global-lock-spin.cpp       # fix 55
   check-save-folder.cpp            # fix 50
   check-multidisc-source.cpp       # fix 51
+  check-library-disc.cpp           # fix 52
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -70,6 +71,7 @@ declare -A arguments=(
   [check-game-info.cpp]="$repo/tools/source-1.0.2/fixtures/gameinfo-excerpt.txt"
   [check-guest-crash.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-measure-10s.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-library-disc.cpp]="$repo/tools/source-1.0.2/english/lang"
 )
 # The fix each of these checks belongs to: when a test build leaves that fix out
 # (assemble.py --skip-fix, SOURCES.json fixes_skipped) its check is not run.
@@ -85,6 +87,7 @@ declare -A fix_of=(
   [check-global-lock-spin.cpp]=55
   [check-save-folder.cpp]=50
   [check-multidisc-source.cpp]=51
+  [check-library-disc.cpp]=52
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))

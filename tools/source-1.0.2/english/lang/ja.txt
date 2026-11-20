@@ -132,6 +132,7 @@ Description\s(from\sthe\sx360db\sarchive) = 説明（英語、x360db\sアーカ�
 Destination\sexists\sor\scannot\sbe\spublished. = インストール先がすでに存在するか、完了できません。
 Detailed\slogs = 詳細ログ
 Developer = 開発元
+Disc\s%u = ディスク\s%u
 Disconnected\sor\sunavailable = 切断済みまたは利用不可
 Dithers\sthe\soutput\sso\sskies\sand\sshadows\sdo\snot\sshow\sbands. = 空や影に縞が出ないよう、出力にディザリングをかけます。
 Does\snot\swork = 動作しない

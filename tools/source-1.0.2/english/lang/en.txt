@@ -134,6 +134,7 @@ Description\s(from\sthe\sx360db\sarchive) = Description\s(from\sthe\sx360db\sarc
 Destination\sexists\sor\scannot\sbe\spublished. = Destination\sexists\sor\scannot\sbe\spublished.
 Detailed\slogs = Detailed\slogs
 Developer = Developer
+Disc\s%u = Disc\s%u
 Disconnected\sor\sunavailable = Disconnected\sor\sunavailable
 Dithers\sthe\soutput\sso\sskies\sand\sshadows\sdo\snot\sshow\sbands. = Dithers\sthe\soutput\sso\sskies\sand\sshadows\sdo\snot\sshow\sbands.
 Does\snot\swork = Does\snot\swork
