@@ -1,9 +1,9 @@
 diff --git a/.deps/xenia-canary/src/xenia/kernel/kinect_title.h b/.deps/xenia-canary/src/xenia/kernel/kinect_title.h
 new file mode 100644
-index 0000000..0b6f863
+index 0000000..33b809a
 --- /dev/null
 +++ b/.deps/xenia-canary/src/xenia/kernel/kinect_title.h
-@@ -0,0 +1,69 @@
+@@ -0,0 +1,76 @@
 +/**
 + ******************************************************************************
 + * Xenia : Xbox 360 Emulator Research Project                                 *
@@ -69,12 +69,19 @@ index 0000000..0b6f863
 +  return module ? module->hash().value_or(0) : 0;
 +}
 +
++namespace xboxkrnl {
++// 1.0.5_candidate_5 (xboxkrnl_pscam.cc): binds the skeleton frame function and the hand seam
++// as soon as the title starts its NUI library (XMsg FE/2B003), before the JIT can have compiled
++// NuiSkeletonGetNextFrame (Kinect Sports had, by its first camera request).
++void BindVirtualKinectEarly(KernelState* kernel_state);
++}  // namespace xboxkrnl
++
 +}  // namespace kernel
 +}  // namespace xe
 +
 +#endif  // XENIA_KERNEL_KINECT_TITLE_H_
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/apps/xam_app.cc b/.deps/xenia-canary/src/xenia/kernel/xam/apps/xam_app.cc
-index c850d9d..eec5952 100644
+index c850d9d..3b7d507 100644
 --- a/.deps/xenia-canary/src/xenia/kernel/xam/apps/xam_app.cc
 +++ b/.deps/xenia-canary/src/xenia/kernel/xam/apps/xam_app.cc
 @@ -9,9 +9,12 @@
@@ -90,7 +97,7 @@ index c850d9d..eec5952 100644
  #include "xenia/kernel/kernel_state.h"
  #include "xenia/kernel/user_module.h"
  #include "xenia/kernel/nui.h"
-@@ -163,6 +166,23 @@ X_HRESULT XamApp::ExecuteDispatchMessage(uint32_t message, uint32_t buffer_ptr,
+@@ -163,7 +166,27 @@ X_HRESULT XamApp::ExecuteDispatchMessage(uint32_t message, uint32_t buffer_ptr,
        XELOGD("XNuiDelayUI unimplemented({:08X})", ms_delay);
        return X_E_SUCCESS;
      }
@@ -112,9 +119,13 @@ index c850d9d..eec5952 100644
 +      break;
 +    }
      case 0x0002B003: {
++      // Xbox360PS5 (1.0.5_candidate_5): the title starts its NUI library; the virtual Kinect's
++      // skeleton hook goes in now, before NuiSkeletonGetNextFrame can be compiled.
++      xboxkrnl::BindVirtualKinectEarly(kernel_state_);
        // Games used in:
        // 4D5309C9
-@@ -206,30 +226,47 @@ X_HRESULT XamApp::ExecuteDispatchMessage(uint32_t message, uint32_t buffer_ptr,
+       // It only receives buffer
+@@ -206,30 +229,47 @@ X_HRESULT XamApp::ExecuteDispatchMessage(uint32_t message, uint32_t buffer_ptr,
      }
      case 0x0002C009: {
        // Registers (non-zero) or removes (zero) a Kinect identity callback.
@@ -177,6 +188,38 @@ index c850d9d..eec5952 100644
          return X_E_SUCCESS;
        }
        // TODO(knuckleslee): Invoke the callback for identity notifications.
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_avatar.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_avatar.cc
+index ddc96f0..3db7e0f 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_avatar.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_avatar.cc
+@@ -11,6 +11,7 @@
+ #include "xenia/base/logging.h"
+ #include "xenia/kernel/util/shim_utils.h"
+ #include "xenia/kernel/xam/xam_private.h"
++#include "xenia/kernel/kinect_title.h"
+ 
+ DEFINE_bool(allow_avatar_initialization, false,
+             "Enable Avatar Initialization\n"
+@@ -34,6 +35,19 @@ dword_result_t XamAvatarInitialize_entry(
+   if (kernel_state()->title_id() == kAvatarEditorID) {
+     return X_STATUS_SUCCESS;
+   }
++  // Xbox360PS5 (1.0.5_candidate_5): games that require Kinect are avatar games, and some do not
++  // handle a failed start: Kinect Sports (4D5308C9) skips setting a global at 82523A38 when
++  // its XAvatarInitialize fails and its main thread then reads through it (a crash at 82524990
++  // on 1.0.5_candidate_3). Their avatars start; the asset calls stay the core's stubs.
++  if (KinectRequiredTitle(kernel_state())) {
++    static bool said = false;
++    if (!said) {
++      said = true;
++      XELOGW("Avatars: started for this Kinect game (allow_avatar_initialization is {})",
++             cvars::allow_avatar_initialization ? "on" : "off");
++    }
++    return X_STATUS_SUCCESS;
++  }
+ 
+   return cvars::allow_avatar_initialization ? X_STATUS_SUCCESS : ~0u;
+ }
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_nui.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_nui.cc
 index 5a5720c..036f17a 100644
 --- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_nui.cc
@@ -230,7 +273,7 @@ index 5a5720c..036f17a 100644
  #if XE_PLATFORM_PS5
    static std::atomic<bool> motion_reported{false};
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
-index 20be75b..72b04c6 100644
+index 20be75b..98dc83c 100644
 --- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
 +++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
 @@ -37,7 +37,11 @@
@@ -407,8 +450,7 @@ index 20be75b..72b04c6 100644
 +  // Fix 57 diagnostics: the title's direction edges (menu moves) and the frames its hand
 +  // context was available, counted every frame, reported with the line below.
 +  static uint32_t edges_right = 0, edges_left = 0, context_frames = 0;
-   if (ppc_context->r[3] == X_E_SUCCESS &&
--      uint32_t(ppc_context->lr) == 0x821B51D0 && frame >= 0x80 &&
++  if (ppc_context->r[3] == X_E_SUCCESS &&
 +      uint32_t(ppc_context->lr) == g_skeleton_return.load() && frame >= 0x80 &&
 +      g_hand_seam_r11.load() && uint64_t(frame - 0x80) + 0x2788 <= 0x100000000ull &&
 +      IsGuestRangeMapped(kernel_state->memory(), frame - 0x80, 0x2788, false)) {
@@ -434,7 +476,8 @@ index 20be75b..72b04c6 100644
 +    }
 +    xbox360ps5::motion::PublishGameHands(hands);
 +  }
-+  if (ppc_context->r[3] == X_E_SUCCESS &&
+   if (ppc_context->r[3] == X_E_SUCCESS &&
+-      uint32_t(ppc_context->lr) == 0x821B51D0 && frame >= 0x80 &&
 +      uint32_t(ppc_context->lr) == g_skeleton_return.load() && frame >= 0x80 &&
 +      g_hand_seam_r11.load() &&
        xbox360ps5::motion::guest_skeleton_frames.load() % 150 == 0) {
@@ -515,7 +558,7 @@ index 20be75b..72b04c6 100644
    cpu::Function* function = nullptr;
    const cpu::Symbol::Status status = xex->DeclareFunction(address, &function);
    if (!function || (status != cpu::Symbol::Status::kNew &&
-@@ -1017,8 +1164,8 @@ void BindSkeletonSource(KernelState* kernel_state) {
+@@ -1017,12 +1164,17 @@ void BindSkeletonSource(KernelState* kernel_state) {
    xbox360ps5::motion::guest_skeleton_bound = true;
    BindEstimatedHands(kernel_state, xex);
    XELOGW("Virtual Kinect: skeleton frames of the title come from the "
@@ -526,7 +569,16 @@ index 20be75b..72b04c6 100644
  }
  
  }  // namespace
-@@ -1041,6 +1188,10 @@ void ShutdownCameraDevice() {
+ 
++void BindVirtualKinectEarly(KernelState* kernel_state) {
++  if (!xbox360ps5::motion::enabled.load() || !KinectRequiredTitle(kernel_state)) return;
++  BindSkeletonSource(kernel_state);
++}
++
+ void ShutdownCameraDevice() {
+   std::unique_ptr<CameraDevice> camera_device;
+   {
+@@ -1041,6 +1193,10 @@ void ShutdownCameraDevice() {
      g_skeleton_source.notified_user = xbox360ps5::motion::kUserIndexNone;
    }
    g_skeleton_binding_tried = false;
@@ -537,7 +589,7 @@ index 20be75b..72b04c6 100644
    xbox360ps5::motion::guest_skeleton_bound = false;
    xbox360ps5::motion::guest_skeleton_frames = 0;
    xbox360ps5::motion::guest_skeleton_bodies = 0;
-@@ -1128,9 +1279,18 @@ dword_result_t PsCamDeviceRequest_entry(dword_t request_ptr) {
+@@ -1128,9 +1284,18 @@ dword_result_t PsCamDeviceRequest_entry(dword_t request_ptr) {
    if (!request_ptr) {
      return X_STATUS_INVALID_PARAMETER;
    }

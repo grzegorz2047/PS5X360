@@ -390,6 +390,13 @@ void CheckTree() {
   // The title's skeleton frames and the fallback get the normalised body.
   CHECK(cam.find("const xbox360ps5::motion::Frame pose = xbox360ps5::motion::NormalizedSnapshot();") != std::string::npos);
   CHECK(cam.find("auto pose = xbox360ps5::motion::NormalizedSnapshot();") != std::string::npos);
+  // Kinect Sports (1.0.5_candidate_5): avatars start for Kinect games, and the skeleton hook goes
+  // in when the title starts its NUI library (2B003), before NuiSkeletonGetNextFrame is compiled.
+  const std::string avatar = ReadText(".deps/xenia-canary/src/xenia/kernel/xam/xam_avatar.cc");
+  CHECK(avatar.find("if (KinectRequiredTitle(kernel_state())) {") != std::string::npos);
+  CHECK(app.find("xboxkrnl::BindVirtualKinectEarly(kernel_state_);") != std::string::npos &&
+        app.find("xboxkrnl::BindVirtualKinectEarly(kernel_state_);") > app.find("case 0x0002B003:"));
+  CHECK(cam.find("void BindVirtualKinectEarly(KernelState* kernel_state) {") != std::string::npos);
   // The virtual depth frames show the same body (DBZ's hand detection reads them).
   const std::string depth = ReadText("include/xbox360ps5/virtual_depth_camera.hpp");
   CHECK(depth.find("Render(NormalizedSnapshot(),depth_);") != std::string::npos);
