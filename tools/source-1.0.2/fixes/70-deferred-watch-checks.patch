@@ -1,0 +1,241 @@
+diff --git a/include/xbox360ps5/deferred_watch.hpp b/include/xbox360ps5/deferred_watch.hpp
+--- a/include/xbox360ps5/deferred_watch.hpp
++++ b/include/xbox360ps5/deferred_watch.hpp
+@@ -19,10 +19,24 @@
+ // leaves no write unseen: one before the protection changes the hash, one after it faults.
+ // A draw later in the same submission can still use a unit's copy after the game rewrote it
+ // (before, that write faulted at once): the reason the setting is per game and off by default.
++//
++// Fix 70 (tools/source-1.0.2/fixes/70-deferred-watch-checks.patch): on 1.0.4_candidate_27
++// Modern Warfare 2 ran faster with the setting (its GPU thread's "marking valid" from 202-275 to
++// 12-18 ms a second) but showed a film-grain flicker over the whole screen now and then: a draw
++// later in a submission used a copy the game had rewritten since its upload. Now only uploads
++// for vertex data (requests that keep nothing for later, RequestRange's allow_unwatched) are
++// deferred, everything else is protected at once as before; and every request first compares
++// the waiting units of its range with their hashes, so a unit the game wrote since its upload is
++// invalidated and uploaded again before the draw uses it, as its write fault would have made it.
++// The summary also names the units changed most often; it no longer needs "Optimized video
++// memory"; Modern Warfare 2's preset leaves the setting off until the console shows it clean.
+ #pragma once
+ #include <algorithm>
+ #include <cstddef>
+ #include <cstdint>
++#include <cstdio>
++#include <string>
++#include <unordered_map>
+ #include <vector>
+ 
+ namespace xbox360ps5::deferred_watch {
+@@ -99,4 +113,20 @@ class Pending {
+   uint64_t serial_ = 0;
+ };
+ 
++// Fix 70: the units changed most often, "physical address (count)" by count, at most `most`.
++inline std::string TopChanged(const std::unordered_map<uint32_t, uint32_t>& counts, uint32_t unit_shift,
++                              size_t most) {
++  std::vector<std::pair<uint32_t, uint32_t>> items(counts.begin(), counts.end());
++  std::sort(items.begin(), items.end(), [](const auto& a, const auto& b) {
++    return a.second != b.second ? a.second > b.second : a.first < b.first;
++  });
++  std::string out;
++  for (size_t n = 0; n < items.size() && n < most; ++n) {
++    char item[40];
++    std::snprintf(item, sizeof(item), "%s%08X (%u)", n ? ", " : "", items[n].first << unit_shift, items[n].second);
++    out += item;
++  }
++  return out.empty() ? std::string("none") : out;
++}
++
+ }  // namespace xbox360ps5::deferred_watch
+diff --git a/.deps/xenia-canary/src/xenia/gpu/shared_memory.h b/.deps/xenia-canary/src/xenia/gpu/shared_memory.h
+--- a/.deps/xenia-canary/src/xenia/gpu/shared_memory.h
++++ b/.deps/xenia-canary/src/xenia/gpu/shared_memory.h
+@@ -95,6 +95,8 @@ class SharedMemory {
+   // watches), merged into runs, and invalidates those the game wrote since their copy. GPU
+   // command thread, without the global critical region held.
+   void FlushDeferredWatches();
++  // Fix 70: the deferred watches' summary line, every 120 frames, with or without GPU diagnostics.
++  void ReportDeferredWatches();
+ #if XE_PLATFORM_PS5
+   // Fix 36: the guest frame, for unwatched units unchanged over frames (GPU
+   // command thread, at each swap).
+@@ -291,6 +293,14 @@ class SharedMemory {
+   xbox360ps5::deferred_watch::Pending deferred_watches_;
+   xbox360ps5::deferred_watch::Stats deferred_stats_;
+   std::chrono::steady_clock::time_point deferred_reported_{};
++  // Fix 70: units waiting for their protection (a bit each) and their hash at the latest upload;
++  // whether the request being served is for vertex data; what changed before the protection.
++  std::vector<uint64_t> deferred_pending_bits_;
++  std::vector<uint64_t> deferred_hash_;
++  bool request_vertex_ = false;
++  uint64_t deferred_changed_at_request_ = 0, deferred_immediate_units_ = 0;
++  std::unordered_map<uint32_t, uint32_t> deferred_change_counts_;
++  void CheckDeferredInRange(uint32_t start, uint32_t length);
+   std::vector<std::pair<uint32_t, uint32_t>> unwatched_filtered_;
+   bool request_allows_unwatched_ = false;  // GPU thread: the request served.
+   uint64_t unwatched_skips_ = 0, unwatched_uploads_ = 0;
+diff --git a/.deps/xenia-canary/src/xenia/gpu/shared_memory.cc b/.deps/xenia-canary/src/xenia/gpu/shared_memory.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/shared_memory.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/shared_memory.cc
+@@ -31,6 +31,7 @@
+ #include <atomic>
+ #include <chrono>
+ #include <cstdio>
++#include <unordered_map>  // fix 70
+ 
+ namespace xbox360ps5 {
+ // memory.cc: the 4 KiB range a write fault hit, while its callbacks run.
+@@ -465,6 +466,7 @@ void SharedMemory::ShutdownCommon() {
+ void SharedMemory::ClearCache() {
+ #if XE_PLATFORM_PS5
+   deferred_watches_.Clear();  // fix 68: every unit becomes invalid below
++  std::fill(deferred_pending_bits_.begin(), deferred_pending_bits_.end(), uint64_t(0));  // fix 70
+   {
+     auto global_lock = global_critical_region_.Acquire();
+     std::fill(unit_heat_.begin(), unit_heat_.end(), uint8_t(0));
+@@ -800,12 +802,23 @@ void SharedMemory::MakeRangeValid(uint32_t start, uint32_t length,
+   // Fix 68: an upload with deferred memory watches on records its units (with the hash of the
+   // guest's bytes, before the copy that follows) for FlushDeferredWatches instead of protecting
+   // them now. GPU-written data and other callers are protected at once as before.
+-  if (deferring_upload_watch_ && !written_by_gpu && memory_invalidation_callback_handle_) {
++  if (deferring_upload_watch_ && !written_by_gpu && memory_invalidation_callback_handle_ &&
++      !request_vertex_) {
++    // Fix 70: data other than vertex data (textures, index buffers, constants) may be kept by
++    // its user past this request: protected at once, as without the setting.
++    deferred_immediate_units_ += valid_page_last - valid_page_first + 1;
++  } else if (deferring_upload_watch_ && !written_by_gpu && memory_invalidation_callback_handle_) {
+     const size_t unit_bytes = size_t(1) << page_size_log2_;
++    if (deferred_pending_bits_.empty()) {  // fix 70
++      deferred_pending_bits_.assign(((kBufferSize >> page_size_log2_) + 63) / 64, 0);
++      deferred_hash_.assign(kBufferSize >> page_size_log2_, 0);
++    }
+     for (uint32_t unit = valid_page_first; unit <= valid_page_last; ++unit) {
+       if (skipped_unwatched && UnitBit(unwatched_bits_, unit)) continue;
+-      deferred_watches_.Add(
+-          unit, XXH3_64bits(memory().TranslatePhysical(unit << page_size_log2_), unit_bytes));
++      const uint64_t hash = XXH3_64bits(memory().TranslatePhysical(unit << page_size_log2_), unit_bytes);
++      deferred_watches_.Add(unit, hash);
++      deferred_hash_[unit] = hash;  // fix 70: the latest upload's, for the requests' check
++      SetUnitBit(deferred_pending_bits_, unit);
+     }
+     if (deferred_watches_.Full()) FlushDeferredWatches();
+     return;
+@@ -875,31 +888,62 @@ void SharedMemory::FlushDeferredWatches() {
+         if (memory_invalidation_callback_handle_)
+           memory().EnablePhysicalMemoryAccessCallbacks(first << page_size_log2_,
+                                                         (last - first + 1) << page_size_log2_, true, false);
++        for (uint32_t unit = first; unit <= last; ++unit) ClearUnitBit(deferred_pending_bits_, unit);  // fix 70
+       },
+       [&](uint32_t unit) {
+         return XXH3_64bits(memory().TranslatePhysical(unit << page_size_log2_), unit_bytes);
+       },
+       // Written by the game since its copy: invalidated as its write fault would have done.
+-      [&](uint32_t unit) { MemoryInvalidationCallback(unit << page_size_log2_, uint32_t(unit_bytes), true); });
++      [&](uint32_t unit) {
++        ++deferred_change_counts_[unit];  // fix 70
++        MemoryInvalidationCallback(unit << page_size_log2_, uint32_t(unit_bytes), true);
++      });
+   deferred_stats_.Add(stats);
+ }
+-void SharedMemory::ReportRequestCacheStats() {
+-  {  // Fix 68: deferred memory watches since the previous report.
+-    const auto now = std::chrono::steady_clock::now();
+-    const double seconds =
+-        deferred_reported_.time_since_epoch().count()
+-            ? std::chrono::duration<double>(now - deferred_reported_).count()
+-            : 0.0;
+-    deferred_reported_ = now;
+-    if (seconds > 0 && (deferred_stats_.records || xbox360ps5::gpu_diag::deferred_watches.load(std::memory_order_relaxed))) {
+-      XELOGW("Performance deferred watches ({}): {:.0f} uploaded units/s protected as {:.0f} units/s in {:.0f} protection calls/s after merging, {:.0f} changed before their protection/s, {:.0f} batches/s",
+-             xbox360ps5::gpu_diag::deferred_watches.load(std::memory_order_relaxed) ? "on" : "off",
+-             double(deferred_stats_.records) / seconds, double(deferred_stats_.units) / seconds,
+-             double(deferred_stats_.runs) / seconds, double(deferred_stats_.changed) / seconds,
+-             double(deferred_stats_.flushes) / seconds);
++// Fix 70: before a request is answered, the waiting units of its range are compared with their
++// latest upload: one the game wrote since is invalidated (and no longer waits), so the request
++// uploads it again. GPU command thread, without the global critical region held.
++void SharedMemory::CheckDeferredInRange(uint32_t start, uint32_t length) {
++  if (deferred_pending_bits_.empty() || !length) return;
++  const size_t unit_bytes = size_t(1) << page_size_log2_;
++  const uint32_t first = start >> page_size_log2_, last = (start + length - 1) >> page_size_log2_;
++  for (uint32_t unit = first; unit <= last; ++unit) {
++    if (!(deferred_pending_bits_[unit >> 6] >> (unit & 63) & 1)) {
++      // A whole word without waiting units is skipped.
++      if (!deferred_pending_bits_[unit >> 6]) unit |= 63;
++      continue;
+     }
+-    deferred_stats_ = {};
++    if (XXH3_64bits(memory().TranslatePhysical(unit << page_size_log2_), unit_bytes) == deferred_hash_[unit])
++      continue;
++    ClearUnitBit(deferred_pending_bits_, unit);
++    ++deferred_changed_at_request_;
++    ++deferred_change_counts_[unit];
++    MemoryInvalidationCallback(unit << page_size_log2_, uint32_t(unit_bytes), true);
+   }
++}
++void SharedMemory::ReportDeferredWatches() {
++  const auto now = std::chrono::steady_clock::now();
++  const double seconds = deferred_reported_.time_since_epoch().count()
++                             ? std::chrono::duration<double>(now - deferred_reported_).count()
++                             : 0.0;
++  deferred_reported_ = now;
++  if (seconds > 0 && (deferred_stats_.records || deferred_immediate_units_ ||
++                      xbox360ps5::gpu_diag::deferred_watches.load(std::memory_order_relaxed))) {
++    XELOGW("Performance deferred watches ({}): {:.0f} uploaded units/s protected as {:.0f} units/s in {:.0f} protection calls/s after merging, {:.0f} changed before their protection/s, {:.0f} batches/s",
++           xbox360ps5::gpu_diag::deferred_watches.load(std::memory_order_relaxed) ? "on" : "off",
++           double(deferred_stats_.records) / seconds, double(deferred_stats_.units) / seconds,
++           double(deferred_stats_.runs) / seconds, double(deferred_stats_.changed) / seconds,
++           double(deferred_stats_.flushes) / seconds);
++    XELOGW("Performance deferred watches: {:.0f} units/s found changed by a request before their protection; {:.0f} units/s of other data protected at once; changed most: {}",
++           double(deferred_changed_at_request_) / seconds, double(deferred_immediate_units_) / seconds,
++           xbox360ps5::deferred_watch::TopChanged(deferred_change_counts_, page_size_log2_, 6));
++  }
++  deferred_stats_ = {};
++  deferred_changed_at_request_ = deferred_immediate_units_ = 0;
++  deferred_change_counts_.clear();
++}
++void SharedMemory::ReportRequestCacheStats() {
++  // Fix 70: the deferred watches' line is ReportDeferredWatches', also without GPU diagnostics.
+   const auto stats = request_cache_.TakeStats();
+   XELOGW("Performance range-cache: {} probes after bitmap fast path, {} reused validations; CPU/GPU invalidations preserved", stats.requests, stats.hits);
+   XELOGW("Performance uploads: {} bytes, {} chunks since last report; invalidation window {} bytes", upload_bytes_, upload_chunks_,
+@@ -946,6 +990,12 @@ bool SharedMemory::RequestRange(uint32_t start, uint32_t length,
+   if (start > kBufferSize || (kBufferSize - start) < length) {
+     return false;
+   }
++#if XE_PLATFORM_PS5
++  // Fix 70: only vertex data may wait for its protection; what waits in this range and was
++  // written since its upload is invalidated before the answer (the fast path below included).
++  request_vertex_ = allow_unwatched;
++  if (deferred_watches_.size()) CheckDeferredInRange(start, length);
++#endif
+ 
+ #if XE_PLATFORM_PS5
+   // Kept GPU-written units are compared with the guest's bytes and watched
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+@@ -1767,6 +1767,8 @@ void VulkanCommandProcessor::IssueSwap(uint32_t frontbuffer_ptr,
+ #if XE_PLATFORM_PS5
+   if (xbox360ps5::gpu_diag::enabled.load(std::memory_order_relaxed) &&
+       frame_current_ && (frame_current_ % 120) == 0) shared_memory_->ReportRequestCacheStats();
++  // Fix 70: the deferred watches' line, with or without GPU diagnostics.
++  if (frame_current_ && (frame_current_ % 120) == 0) shared_memory_->ReportDeferredWatches();
+   // Fix 36: the frame, for unwatched units unchanged over frames.
+   shared_memory_->SetUnwatchedFrame(frame_current_);
+ #endif
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -495,9 +495,8 @@ GameOverrides GamePreset(const std::string& title_id) {
+       // level starts unless memory exports are read back (fix 30; research/bf3/
+       // ANALYSIS.md; menu and levels on the console with candidate 36).
+       {"45410950", {{"memexport", 1}}},
+-      // Fix 68: Call of Duty: Modern Warfare 2 protected each upload at once, ~5600 protection calls
+-      // a second at ~37 us (1.0.4_candidate_23): its uploads are protected once per submission.
+-      {"41560817", {{"deferred_watches", 1}}},
++      // Fix 68/70: Call of Duty: Modern Warfare 2 ("Deferred memory watches") is left off until the
++      // console shows it without the flicker candidate 27 had; the player can turn it on per game.
+   };
+   GameOverrides preset;
+   for (const auto& [id, values] : built_in) if (Lower(title_id) == Lower(id)) preset = values;

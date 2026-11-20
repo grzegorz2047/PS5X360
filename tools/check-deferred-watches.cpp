@@ -121,8 +121,8 @@ void CheckTree() {
          "the per-game option, live, off by default");
   Expect(launcher.find("gpu_diag::deferred_watches = deferred_watches != 0;  // fix 68") != std::string::npos,
          "the option switches the core");
-  Expect(launcher.find("{\"41560817\", {{\"deferred_watches\", 1}}},") != std::string::npos,
-         "Modern Warfare 2's built-in preset turns it on");
+  // Fix 70: Modern Warfare 2's built-in preset no longer turns it on (candidate 27's flicker);
+  // tools/check-deferred-checks.cpp checks that.
   Expect(Read("include/xbox360ps5/launcher.hpp").find("int deferred_watches = 0;") != std::string::npos, "off by default");
   Expect(Read("include/xbox360ps5/gpu_diagnostics.hpp").find("inline std::atomic<bool> deferred_watches{false};") !=
              std::string::npos,
