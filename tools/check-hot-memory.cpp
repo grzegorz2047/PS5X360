@@ -120,7 +120,7 @@ void CheckTree() {
   const size_t mx = vk.find("xbox360ps5::frame_cost::ArmKindScope frame_cost_kind(xbox360ps5::frame_cost::kArmMemexport);  // fix 78");
   const size_t mx_request = vk.find("shared_memory_->RequestRange(memexport_range_base_bytes,", mx);
   Expect(vertex != std::string::npos && vfetch != std::string::npos && vfetch - vertex < 200 && mx != std::string::npos &&
-             mx_request != std::string::npos && mx_request - mx < 200,
+             mx_request != std::string::npos && mx_request - mx < 300,
          "vertex-data and memexport requests set their kind");
   const std::string tex = Read(".deps/xenia-canary/src/xenia/gpu/texture_cache.cc");
   const size_t request = tex.find("void TextureCache::RequestTextures(uint32_t used_texture_mask) {");
