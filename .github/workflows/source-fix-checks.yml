@@ -3,9 +3,9 @@ name: Host checks of the 1.0.2 source fixes
 # Assembles the v1.0.2 source tree (tools/source-1.0.2/assemble.py, with the fixes in
 # tools/source-1.0.2/fixes) and runs the host checks of those fixes
 # (tools/source-1.0.2/run-fix-checks.sh: the tools/check-*.cpp with the runner's clang-18, and
-# tools/check-english-source.py for fix 25's English keys with python3). No PS5 toolchain, RADV
-# build or apt packages are needed. The source build (build-source-1.0.2.yml) runs the same
-# checks before it compiles.
+# tools/check-english-source.py for fix 25's English keys and the source release's checks with
+# python3). No PS5 toolchain, RADV build or apt packages are needed. The source build
+# (build-source-1.0.2.yml) runs the same checks before it compiles.
 on:
   push:
     branches: [source-1.0.2-patches, 'fix/**']
@@ -29,6 +29,18 @@ on:
       - 'tools/check-bf3-preset.py'
       - 'tools/check-save-devices.cpp'
       - 'tools/check-english-source.py'
+      - 'tools/check-release-version.py'
+      - 'tools/check-source-package.py'
+      - 'tools/check-release-guard.py'
+      - 'tools/check-core-commit.py'
+      - 'tools/binary-release/build_package.py'
+      - 'tools/binary-release/fself.py'
+      - 'tools/binary-release/patches.py'
+      - 'assets/presets.txt'
+      - 'assets/config/**'
+      - 'assets/patches/**'
+      - '.github/workflows/build-source-1.0.2.yml'
+      - '.github/workflows/release-source.yml'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

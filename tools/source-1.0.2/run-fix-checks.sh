@@ -7,6 +7,10 @@
 # Then tools/check-assemble-skip.py (the switch that leaves fixes out) and tools/check-english-source.py
 # (fix 25, English keys) run with python3, and tools/check-gdfx-names.sh (fix 26: GDFX names and
 # guest paths, linked with the tree's xenia/base and disc image device) with bash.
+# The source release's checks run with python3 too: tools/check-release-version.py (the version
+# label in the tree's VERSION and SOURCES.json, the release eboot check, the GPL source tarball
+# step), tools/check-source-package.py (package.py), tools/check-release-guard.py
+# (release-source.yml's decisions) and tools/check-core-commit.py (build.sh's core commit).
 set -euo pipefail
 repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 tree=$(realpath "$1")
@@ -74,6 +78,34 @@ if "$python" -I "$repo/tools/check-english-source.py" --tree "$tree"; then
   echo "pass check-english-source.py"
 else
   echo "FAIL check-english-source.py"
+  status=1
+fi
+echo "=== check-release-version.py"
+if "$python" -I "$repo/tools/check-release-version.py" --tree "$tree"; then
+  echo "pass check-release-version.py"
+else
+  echo "FAIL check-release-version.py"
+  status=1
+fi
+echo "=== check-source-package.py"
+if "$python" -I "$repo/tools/check-source-package.py"; then
+  echo "pass check-source-package.py"
+else
+  echo "FAIL check-source-package.py"
+  status=1
+fi
+echo "=== check-release-guard.py"
+if "$python" -I "$repo/tools/check-release-guard.py"; then
+  echo "pass check-release-guard.py"
+else
+  echo "FAIL check-release-guard.py"
+  status=1
+fi
+echo "=== check-core-commit.py"
+if "$python" -I "$repo/tools/check-core-commit.py"; then
+  echo "pass check-core-commit.py"
+else
+  echo "FAIL check-core-commit.py"
   status=1
 fi
 echo "=== check-gdfx-names.sh"
