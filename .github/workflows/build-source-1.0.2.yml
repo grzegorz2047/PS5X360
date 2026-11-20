@@ -6,7 +6,7 @@ name: Rebuild v1.0.2 from source drops (not for release)
 # parts of 1.0.2 are not in any drop (docs/SOURCE-1.0.2.md). A source release goes through
 # release-source.yml, which calls this workflow in release mode (below).
 # The artifact carries src102-out/lang/*.txt, the English-keyed language files the rebuilt
-# eboot reads (fix 25): a test package replaces PPSA50011/assets/lang/*.txt with them.
+# eboot reads (fix 25): a test package replaces <title id>/assets/lang/*.txt with them.
 #
 # Caches: the built RADV driver and payload SDK (.deps/references/PS5_Vulkan/.deps/native),
 # keyed by the three pinned reference commits and the RADV build script, so Mesa and its
@@ -15,8 +15,9 @@ name: Rebuild v1.0.2 from source drops (not for release)
 # Release mode (workflow_call from release-source.yml with release: true and version: X.Y.Z):
 # the version label is that version (assemble.py --release, PS5X360_BUILD_VERSION) instead of
 # tools/source-1.0.2/BUILD_VERSION's candidate label, no fix is left out, and after the link
-# tools/source-1.0.2/check_release_elf.py checks eboot.elf/eboot.bin carry "PS5X360Reloaded v<version>"
-# and "BOOT version <version>" and no candidate label, and SOURCES.json leaves no fix out. Only
+# tools/source-1.0.2/check_release_elf.py checks eboot.elf/eboot.bin carry
+# "PS5X360Reloaded v<version>" and "BOOT version <version>", no candidate label and not the
+# official app's "PS5X360 v<version>", and SOURCES.json leaves no fix out. Only
 # then is the artifact named eboot-<version>-from-source (a failed release run uploads its logs
 # under the old NOT-FOR-RELEASE name), and the assembled tree build/src102 goes out as the GPL-3.0
 # corresponding source PS5X360-<version>-source.tar.xz (artifact source-<version>): a
@@ -239,7 +240,7 @@ jobs:
           key: src102-ccache-${{ github.run_id }}
 
       # Fix 25 keys the interface by English: this eboot needs these language files in
-      # PPSA50011/assets/lang/ in place of the official package's (keyed by Portuguese).
+      # <title id>/assets/lang/ (PPSA83600) in place of the official package's (keyed by Portuguese).
       - name: Language files of the source build (English keys)
         if: always()
         run: |

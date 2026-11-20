@@ -53,8 +53,10 @@ on:
       - 'tools/check-release-version.py'
       - 'tools/check-source-package.py'
       - 'tools/check-release-guard.py'
+      - 'tools/check-release-images.py'
       - 'tools/check-core-commit.py'
       - 'tools/binary-release/build_package.py'
+      - 'tools/binary-release/make_images.sh'
       - 'tools/binary-release/fself.py'
       - 'tools/binary-release/patches.py'
       - 'assets/presets.txt'
@@ -62,6 +64,7 @@ on:
       - 'assets/patches/**'
       - '.github/workflows/build-source-1.0.2.yml'
       - '.github/workflows/release-source.yml'
+      - '.github/workflows/release-binary.yml'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

@@ -1,16 +1,30 @@
-"""Builds the PPSA50011 package of a PS5X360 release compiled from source (tools/source-1.0.2).
+"""Builds the PPSA83600 package of a PS5X360Reloaded release compiled from source (tools/source-1.0.2).
 
     python3 -I tools/source-1.0.2/package.py --base-zip PPSA50011-v1.0.2.zip \
         --eboot build/src102-out/eboot.bin --lang-dir build/src102-out/lang \
         --sources-json build/src102/SOURCES.json --version 1.0.3 \
         --source-url https://github.com/<owner>/<repo>/tree/<commit> --out-dir dist/source-release
 
-The base is the official v1.0.2 PPSA50011.zip, checked against its SHA-256 as
+The base is the official PS5X360 v1.0.2 PPSA50011.zip, checked against its SHA-256 as
 tools/binary-release/build_package.py checks it. Unlike that script, nothing is patched or
-signed again: eboot.bin is the source build's, already signed by build.sh. This script:
+signed again: eboot.bin is the source build's, already signed by build.sh. PS5X360Reloaded has
+its own title id, PPSA83600, so it installs next to the official PS5X360 (PPSA50011) instead of
+replacing it. This script:
 
+  * reads the base's files under PPSA50011/ and writes them under PPSA83600/;
+  * rewrites sce_sys/param.json: titleId PPSA83600, conceptId 83600, contentId
+    UP9000-PPSA83600_00-PS5X360RELOADED0 and the titleName PS5X360Reloaded in every language
+    entry; every other field and the file's layout (key order, indent, CRLF) stay the base's;
+  * replaces sce_sys/icon0.png, pic0.png and pic1.png with the PS5X360Reloaded art in
+    tools/source-1.0.2/package-art (checked by SHA-256 and size, see its README.md);
+  * replaces the official user docs that name its folder PPSA50011 (tools/source-1.0.2/package-docs,
+    see its README.md): INSTALLATION.md with PS5X360Reloaded's own, RELEASE_NOTES.md with
+    docs/release-notes/v<version>.md, dlc/README.md and updates/README.md with the folder
+    renamed, and leaves out AUTOLOG.md; then refuses the package if any other text file still
+    names PPSA50011 (the English-keyed language files included);
   * replaces eboot.bin, after checking the SELF magic and that the binary carries the release's
-    version labels ("PS5X360 v<version>", "BOOT version <version>") and no candidate label;
+    version labels ("PS5X360Reloaded v<version>", "BOOT version <version>"), no candidate label
+    and not the official app's "PS5X360 v<version>" label;
   * replaces every assets/lang/*.txt with the English-keyed files of the build (fix 25; the
     eboot reads /app0/assets/lang/). It does not merge assets/lang-overrides, because those are
     keyed by Portuguese for the official executable and their texts are already in
@@ -20,9 +34,9 @@ signed again: eboot.bin is the source build's, already signed by build.sh. This 
   * writes VERSION, RELEASE.json (a source build), licenses/PS5X360-<version>-NOTICE.txt (the
     GPL-3.0 notice), the licence texts the official package lacks (tools/source-1.0.2/licenses),
     and MANIFEST.json;
-  * writes <out-dir>/PPSA50011.zip (deterministic), <out-dir>/PPSA50011.zip.sha256 and the
-    unpacked <out-dir>/stage/PPSA50011. The images come from it with
-    tools/binary-release/make_images.sh <out-dir>/stage/PPSA50011 <out-dir>.
+  * writes <out-dir>/PPSA83600.zip (deterministic), <out-dir>/PPSA83600.zip.sha256 and the
+    unpacked <out-dir>/stage/PPSA83600. The images come from it with
+    tools/binary-release/make_images.sh <out-dir>/stage/PPSA83600 <out-dir> PPSA83600.
 
 The modification date in the NOTICE is --date, else SOURCE_DATE_EPOCH, else today (UTC).
 """
@@ -43,7 +57,21 @@ sys.path.insert(0, str(ROOT / 'tools/binary-release'))
 import build_package  # noqa: E402  (constants and helpers only; its main() is not run)
 import fself  # noqa: E402
 
-PREFIX = build_package.PREFIX
+# The official package's folder; the release's own title id and folder.
+BASE_PREFIX = build_package.PREFIX
+TITLE_ID = 'PPSA83600'
+PREFIX = TITLE_ID + '/'
+# sce_sys/param.json of the release. The contentId keeps the official package's form
+# (<service id UP9000>-<titleId>_00-<16 uppercase letters or digits>) with a label of its own, so
+# the console and ShadowMountPlus see a different app from the official UP9000-PPSA50011_00-...
+CONCEPT_ID = TITLE_ID[4:]
+CONTENT_ID = f'UP9000-{TITLE_ID}_00-PS5X360RELOADED0'
+TITLE_NAME = 'PS5X360Reloaded'
+CONTENT_ID_RE = re.compile(r'UP9000-(PPSA[0-9]{5})_00-[A-Z0-9]{16}')
+# The home-screen label of the release (build_version.hpp) and the official app's, which a
+# PS5X360Reloaded eboot must not carry.
+HOME_LABEL = b'PS5X360Reloaded v'
+OFFICIAL_LABEL_RE = re.compile(rb'PS5X360 v[0-9]')
 BASE_ZIP_SHA256 = build_package.BASE_ZIP_SHA256
 BASE_VERSION = build_package.BASE_VERSION
 UPSTREAM = build_package.UPSTREAM
@@ -70,6 +98,36 @@ LICENCES = [
     ('MPL-2.0.txt', 'licenses/CACERT-MPL-2.0.txt',
      '3f3d9e0024b1921b067d6f7f88deb4a60cbe7a78e76c64e3f1d7fc3b779b9d04'),
 ]
+
+# (file in tools/source-1.0.2/package-art, path in the package, (width, height), SHA-256); see
+# package-art/README.md. The sizes are the official package's.
+ART = [
+    ('icon0.png', 'sce_sys/icon0.png', (512, 512),
+     '0ea06e8927b1cf3a284a56e3440fd51017bc3e3efd1fc28b8015c4e6c662d50c'),
+    ('pic0.png', 'sce_sys/pic0.png', (3840, 2160),
+     '279db3b467fed42d9f5213c725a221e92ac919a8673ead61cb3b8755d7db1054'),
+    ('pic1.png', 'sce_sys/pic1.png', (1920, 1080),
+     'a44a30407639a3859a6efbffb9ec555a9a220f86c9b886e09e2e48bd8776e377'),
+]
+PNG_SIGNATURE = b'\x89PNG\r\n\x1a\n'
+
+# The official package's user docs name its folder PPSA50011 (copy the folder there, put DLC and
+# updates in PPSA50011/..., logs in /data/homebrew/PPSA50011/logs); shipped as they are, they
+# would send PS5X360Reloaded's files into the official app's folder. See package-docs/README.md.
+# INSTALLATION.md: PS5X360Reloaded's own (package-docs/INSTALLATION.md, placeholders filled in).
+# RELEASE_NOTES.md: the release's notes, docs/release-notes/v<version>.md.
+# (path, times the official text names PPSA50011): that text with the folder renamed.
+DOC_RENAMES = [('dlc/README.md', 1), ('updates/README.md', 1)]
+# Left out: the official AutoLog payload's guide (it reads /data/homebrew/PPSA50011/logs only).
+DOCS_LEFT_OUT = ['AUTOLOG.md']
+# The package's files that may name the official title id: the notices of where the package came
+# from, the docs that tell PS5X360Reloaded apart from it, and binaries (eboot.bin reads the
+# official folder for the first start's import; the official Kinect tracker and its source).
+# Every other text file naming it stops the packaging.
+# (licenses/PS5X360-<version>-NOTICE.txt too.)
+OFFICIAL_ID_ALLOWED = {'INSTALLATION.md', 'RELEASE_NOTES.md', 'RELEASE.json', 'eboot.bin',
+                       'tools/kinect-tracker.elf', 'KINECT-source-and-licenses.zip'}
+TEXT_SUFFIXES = ('.md', '.txt', '.json', '.toml', '.conf', '.ini', '.cfg', '.html', '.xml')
 
 
 def fail(message):
@@ -143,12 +201,105 @@ def toolchain_pins(workflow_text):
 def check_eboot(eboot, version):
     if len(eboot) < 4 or int.from_bytes(eboot[:4], 'little') not in fself.FSELF_MAGICS:
         fail('eboot.bin is not a signed PS5 SELF (build.sh output expected)')
-    for label in (b'PS5X360 v' + version.encode(), b'BOOT version ' + version.encode()):
+    for label in (HOME_LABEL + version.encode(), b'BOOT version ' + version.encode()):
         if label + b'\0' not in eboot:
             fail(f'eboot.bin does not carry the label {label.decode()!r}: built with another version')
     found = CANDIDATE_LABEL_RE.search(eboot)
     if found:
         fail(f'eboot.bin carries a candidate label ({eboot[found.start():found.end() + 8]!r})')
+    found = OFFICIAL_LABEL_RE.search(eboot)
+    if found:
+        fail(f'eboot.bin carries the official app\'s label ({eboot[found.start():found.end() + 8]!r}): '
+             'not built as PS5X360Reloaded')
+
+
+def param_json(base):
+    """The release's sce_sys/param.json from the official one: new titleId, conceptId, contentId
+    and titleName in every localizedParameters language; the rest, the key order, the indent and
+    the line endings stay the base's."""
+    try:
+        param = json.loads(base)
+    except ValueError as error:
+        fail(f'base sce_sys/param.json is not JSON ({error})')
+    if not isinstance(param, dict):
+        fail('base sce_sys/param.json is not a JSON object')
+    if param.get('titleId') != BASE_PREFIX.rstrip('/'):
+        fail(f'base sce_sys/param.json titleId {param.get("titleId")!r} is not {BASE_PREFIX.rstrip("/")}')
+    for key in ('conceptId', 'contentId'):
+        if not isinstance(param.get(key), str):
+            fail(f'base sce_sys/param.json has no {key}')
+    localized = param.get('localizedParameters')
+    languages = [code for code, entry in (localized or {}).items() if isinstance(entry, dict)] \
+        if isinstance(localized, dict) else []
+    if not languages or localized.get('defaultLanguage') not in languages:
+        fail('base sce_sys/param.json has no localizedParameters entry for its defaultLanguage')
+    match = CONTENT_ID_RE.fullmatch(CONTENT_ID)
+    if not match or match.group(1) != TITLE_ID or not CONCEPT_ID.isdigit() or TITLE_ID[4:] != CONCEPT_ID:
+        fail(f'contentId {CONTENT_ID!r} / conceptId {CONCEPT_ID!r} do not fit titleId {TITLE_ID}')
+    param['titleId'] = TITLE_ID
+    param['conceptId'] = CONCEPT_ID
+    param['contentId'] = CONTENT_ID
+    for code in languages:
+        localized[code]['titleName'] = TITLE_NAME
+    newline = '\r\n' if b'\r\n' in base else '\n'
+    text = json.dumps(param, indent=2).replace('\n', newline)
+    if base.rstrip(b' \t').endswith(b'\n'):
+        text += newline
+    return text.encode()
+
+
+def png_size(data):
+    """(width, height) of a PNG, from its IHDR chunk."""
+    if len(data) < 24 or data[:8] != PNG_SIGNATURE or data[12:16] != b'IHDR':
+        return None
+    return int.from_bytes(data[16:20], 'big'), int.from_bytes(data[20:24], 'big')
+
+
+def art_files():
+    files = {}
+    for name, target, size, digest in ART:
+        data = (HERE / 'package-art' / name).read_bytes()
+        if sha256(data) != digest:
+            fail(f'tools/source-1.0.2/package-art/{name} is not the reviewed file (SHA-256 differs)')
+        if png_size(data) != size:
+            fail(f'tools/source-1.0.2/package-art/{name} is not a {size[0]}x{size[1]} PNG')
+        files[target] = data
+    return files
+
+
+def package_docs(files, version, repo, commit, repo_root=ROOT):
+    """Replaces the official user docs that name PPSA50011 (DOC_RENAMES, DOCS_LEFT_OUT, see
+    package-docs/README.md) in `files` ({name under PREFIX: bytes})."""
+    official = BASE_PREFIX.rstrip('/')
+    for name, count in DOC_RENAMES:
+        data = files.get(PREFIX + name)
+        if data is None:
+            fail(f'base package has no {name}')
+        if data.count(official.encode()) != count:
+            fail(f'base package {name} names {official} {data.count(official.encode())} times, not {count}')
+        files[PREFIX + name] = data.replace(official.encode(), TITLE_ID.encode())
+    for name in DOCS_LEFT_OUT:
+        files.pop(PREFIX + name, None)
+    template = (HERE / 'package-docs/INSTALLATION.md').read_text(encoding='utf-8')
+    for key in ('@VERSION@', '@REPOSITORY@', '@COMMIT@'):
+        if key not in template:
+            fail(f'tools/source-1.0.2/package-docs/INSTALLATION.md has no {key}')
+    text = template.replace('@VERSION@', version).replace('@REPOSITORY@', repo).replace('@COMMIT@', commit)
+    files[PREFIX + 'INSTALLATION.md'] = text.encode()
+    notes = repo_root / f'docs/release-notes/v{version}.md'
+    if not notes.is_file():
+        fail(f'no release notes {notes.relative_to(repo_root).as_posix()} for RELEASE_NOTES.md')
+    files[PREFIX + 'RELEASE_NOTES.md'] = notes.read_bytes()
+
+
+def official_id_problems(files, version):
+    """Text files of the package (not OFFICIAL_ID_ALLOWED or the release's NOTICE) that still name
+    the official title id."""
+    official = BASE_PREFIX.rstrip('/').encode()
+    allowed = OFFICIAL_ID_ALLOWED | {f'licenses/PS5X360-{version}-NOTICE.txt'}
+    return sorted(name[len(PREFIX):] for name, data in files.items()
+                  if name[len(PREFIX):] not in allowed
+                  and name.lower().endswith(TEXT_SUFFIXES) and official in data)
 
 
 def check_sources(sources, version):
@@ -207,7 +358,7 @@ def notice(version, date, repo, commit, eboot_sha, sources, toolchain, sources_s
         else:
             pins.append(f'        build host  {pin["runner"]}, {pin["compiler"]}')
     pins = '\n'.join(pins)
-    return f"""PS5X360 {version} - built from source, distributed under the GNU GPL version 3
+    return f"""PS5X360Reloaded {version} ({TITLE_ID}) - built from source, distributed under the GNU GPL version 3
 
 Licence of eboot.bin
     eboot.bin as a whole is distributed under the terms of the GNU General Public License
@@ -273,7 +424,14 @@ Not linked into this eboot.bin
 
 Other files
     Every other file is the official {BASE_VERSION} PPSA50011.zip (sha256 {BASE_ZIP_SHA256})
-    unchanged, except: assets/lang/*.txt (English-keyed, tools/source-1.0.2/english/lang),
+    unchanged, moved from PPSA50011/ to {PREFIX}, except: sce_sys/param.json (title id
+    {TITLE_ID}, content id {CONTENT_ID}, name {TITLE_NAME}, so this
+    app installs next to the official PS5X360 instead of replacing it), sce_sys/icon0.png,
+    pic0.png and pic1.png (the official art marked "RELOADED", tools/source-1.0.2/package-art),
+    the user docs that named the official app's folder (tools/source-1.0.2/package-docs:
+    INSTALLATION.md is PS5X360Reloaded's own, RELEASE_NOTES.md is this release's notes,
+    dlc/README.md and updates/README.md name {PREFIX} instead, AUTOLOG.md is left out),
+    assets/lang/*.txt (English-keyed, tools/source-1.0.2/english/lang),
     assets/presets.txt, assets/config/*.toml and assets/patches/*.patch.toml (from the
     repository), VERSION, RELEASE.json, MANIFEST.json, this notice and the licence files above
     (tools/source-1.0.2/licenses/README.md says where each came from).
@@ -283,14 +441,23 @@ Other files
 
 def build(base_files, eboot, lang, sources, version, source_url, date, toolchain, sources_sha,
           repo_root=ROOT):
-    """The package's files ({zip name: bytes}) from the official base's files. `sources` is the
-    parsed SOURCES.json and `sources_sha` the SHA-256 of its bytes."""
+    """The package's files ({zip name under PPSA83600/: bytes}) from the official base's files
+    (under PPSA50011/). `sources` is the parsed SOURCES.json and `sources_sha` the SHA-256 of its
+    bytes."""
     check_version(version)
     repo, commit = parse_source_url(source_url)
     check_eboot(eboot, version)
     check_sources(sources, version)
     english_lang(lang)
-    files = dict(base_files)
+    outside = sorted(name for name in base_files if not name.startswith(BASE_PREFIX))
+    if outside:
+        fail(f'base package files outside {BASE_PREFIX}: {", ".join(outside[:5])}')
+    files = {PREFIX + name[len(BASE_PREFIX):]: data for name, data in base_files.items()}
+    if PREFIX + 'sce_sys/param.json' not in files:
+        fail('base package has no sce_sys/param.json')
+    files[PREFIX + 'sce_sys/param.json'] = param_json(files[PREFIX + 'sce_sys/param.json'])
+    for target, data in art_files().items():
+        files[PREFIX + target] = data
     if files.get(PREFIX + 'VERSION') != (BASE_VERSION + '\n').encode():
         fail('base package VERSION is not ' + BASE_VERSION)
     if PREFIX + 'eboot.bin' not in files:
@@ -320,11 +487,15 @@ def build(base_files, eboot, lang, sources, version, source_url, date, toolchain
     for target, data in licence_texts().items():
         files[PREFIX + target] = data
 
+    package_docs(files, version, repo, commit, repo_root)
+
     files[PREFIX + 'VERSION'] = (version + '\n').encode()
     files[PREFIX + f'licenses/PS5X360-{version}-NOTICE.txt'] = notice(
         version, date, repo, commit, eboot_sha, sources, toolchain, sources_sha)
     files[PREFIX + 'RELEASE.json'] = (json.dumps({
         'version': version,
+        'title_id': TITLE_ID,
+        'title_name': TITLE_NAME,
         'executable_sha256': eboot_sha,
         'candidate': False,
         'published': True,
@@ -346,14 +517,18 @@ def build(base_files, eboot, lang, sources, version, source_url, date, toolchain
     manifest = {name[len(PREFIX):]: {'bytes': len(data), 'sha256': sha256(data)}
                 for name, data in sorted(files.items())}
     files[PREFIX + 'MANIFEST.json'] = (json.dumps(manifest, indent=2) + '\n').encode()
+    named = official_id_problems(files, version)
+    if named:
+        fail(f'files that still name the official title id {BASE_PREFIX.rstrip("/")}: {", ".join(named)} '
+             '(English-keyed language files: tools/source-1.0.2/english/rekey.py RENAMES)')
     return files
 
 
 def write_package(files, out_dir):
-    """Writes the deterministic PPSA50011.zip (as build_package.py does), checks it, extracts
-    <out_dir>/stage and writes PPSA50011.zip.sha256. Returns the zip's SHA-256."""
+    """Writes the deterministic PPSA83600.zip (as build_package.py does), checks it, extracts
+    <out_dir>/stage and writes PPSA83600.zip.sha256. Returns the zip's SHA-256."""
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_zip = out_dir / 'PPSA50011.zip'
+    out_zip = out_dir / f'{TITLE_ID}.zip'
     with zipfile.ZipFile(out_zip, 'w', zipfile.ZIP_DEFLATED) as zout:
         for name, data in sorted(files.items()):
             info = zipfile.ZipInfo(name, date_time=ZIP_TIME)
@@ -377,7 +552,7 @@ def write_package(files, out_dir):
         shutil.rmtree(stage, ignore_errors=True)
         zcheck.extractall(stage)
     digest = sha256(out_zip.read_bytes())
-    (out_dir / 'PPSA50011.zip.sha256').write_text(f'{digest}  PPSA50011.zip\n', encoding='utf-8')
+    (out_dir / f'{TITLE_ID}.zip.sha256').write_text(f'{digest}  {TITLE_ID}.zip\n', encoding='utf-8')
     return digest
 
 
@@ -409,8 +584,8 @@ def main(argv=None):
                   modification_date(args.date), toolchain_pins(WORKFLOW.read_text(encoding='utf-8')),
                   sha256(sources_bytes))
     digest = write_package(files, args.out_dir)
-    out_zip = args.out_dir / 'PPSA50011.zip'
-    print(json.dumps({'version': version, 'package': str(out_zip), 'files': len(files),
+    out_zip = args.out_dir / f'{TITLE_ID}.zip'
+    print(json.dumps({'version': version, 'title_id': TITLE_ID, 'package': str(out_zip), 'files': len(files),
                       'bytes': out_zip.stat().st_size, 'sha256': digest,
                       'eboot_sha256': sha256(files[PREFIX + 'eboot.bin'])}))
     return 0

@@ -1,6 +1,6 @@
 # Licence texts added to the source-built package
 
-`tools/source-1.0.2/package.py` puts these files into `PPSA50011/licenses/` of a release built
+`tools/source-1.0.2/package.py` puts these files into `PPSA83600/licenses/` of a release built
 from source. The official v1.0.2 package is missing them, or carries a wrong one. Each file is
 verbatim, and `package.py` checks it against the SHA-256 below before using it, so a changed
 copy, or one converted to CRLF, stops the packaging.

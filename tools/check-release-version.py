@@ -10,10 +10,13 @@ and the GPL source tarball.
    (no candidate label, no "v", no fourth part, ASCII digits only) and leaves no fix out; a bad
    release stops assemble.py before it creates or downloads anything. Every version is a valid C
    string and CMake value. VERSION and SOURCES.json's version/version_source/release are written.
-2. tools/source-1.0.2/check_release_elf.py on made-up executables: the label and boot line of
-   exactly this version pass, RADV's own "candidate_" names pass, and a candidate label, another
-   version (1.0.30 is not 1.0.3), a missing line, or a SOURCES.json leaving a fix out fail.
-   With --candidate-elf, on a real test build: its candidate label fails, and the same ELF with
+2. tools/source-1.0.2/check_release_elf.py on made-up executables: the label
+   ("PS5X360Reloaded v<version>") and boot line of exactly this version pass, RADV's own
+   "candidate_" names pass, and a candidate label, another version (1.0.30 is not 1.0.3), a
+   missing line, the official app's "PS5X360 v<version>" label (alone or next to the new one) or a
+   SOURCES.json leaving a fix out fail.
+   With --candidate-elf, on a real test build (one labelled "PS5X360Reloaded v..._candidate_N"):
+   its candidate label fails, and the same ELF with
    the label replaced by a plain version passes (no false alarm anywhere else in 38 MB).
 3. build-source-1.0.2.yml: the workflow_call inputs, the forced-empty skip list, the artifact
    names, the check step; and its "GPL source tarball" step, run with GNU tar and xz on a made-up
@@ -157,30 +160,39 @@ def check_versions(tmp):
     print('  assemble.py: override order, release validation, skip refusal, VERSION/SOURCES.json')
 
 
-GOOD = (b'\x7fELF\x00junk\x00PS5X360 v1.0.3\x00{"version":"1.0.3"}\x00BOOT version 1.0.3\x00'
+GOOD = (b'\x7fELF\x00junk\x00PS5X360Reloaded v1.0.3\x00{"version":"1.0.3"}\x00BOOT version 1.0.3\x00'
         b'intersection_candidate_aabb_opaque\x00candidate_infos\x00candidate_vertex_index\x00'
-        b'PS5X360 development build\x00ACO_DEBUG\x001.0.3\x00')
+        b'PS5X360Reloaded development build\x00ACO_DEBUG\x001.0.3\x00'
+        # session_log.hpp's header "PS5X360 " + version is kept, and is no label.
+        b'PS5X360 \x00')
+LABEL = b'PS5X360Reloaded v1.0.3\x00'
 
 
 def check_elf_logic(tmp):
     bp = check_release_elf.binary_problems
     assert bp(GOOD, '1.0.3') == [], bp(GOOD, '1.0.3')
     cases = {
-        'candidate label': GOOD.replace(b'PS5X360 v1.0.3\x00', b'PS5X360 v1.0.3_candidate_37\x00'),
+        'candidate label': GOOD.replace(LABEL, b'PS5X360Reloaded v1.0.3_candidate_37\x00'),
         'candidate boot line': GOOD.replace(b'BOOT version 1.0.3\x00', b'BOOT version 1.0.3_candidate_37\x00'),
         'bare candidate version': GOOD + b'1.0.3_candidate_37\x00',
         'candidate with a dash': GOOD + b'1.0.3-candidate-2\x00',
-        'another version too': GOOD + b'PS5X360 v1.0.2\x00',
+        'another version too': GOOD + b'PS5X360Reloaded v1.0.2\x00',
+        'official label too': GOOD + b'PS5X360 v1.0.3\x00',
+        'official label instead': GOOD.replace(LABEL, b'PS5X360 v1.0.3\x00'),
+        'official candidate label too': GOOD + b'PS5X360 v1.0.3_candidate_52\x00',
         'fallback boot line too': GOOD + b'BOOT version 1.0.2\x00',
-        '1.0.30 is not 1.0.3': GOOD.replace(b'PS5X360 v1.0.3\x00', b'PS5X360 v1.0.30\x00'),
-        'no label': GOOD.replace(b'PS5X360 v1.0.3\x00', b'PS5X360 development build\x00'),
+        '1.0.30 is not 1.0.3': GOOD.replace(LABEL, b'PS5X360Reloaded v1.0.30\x00'),
+        'no label': GOOD.replace(LABEL, b'PS5X360Reloaded development build\x00'),
         'no boot line': GOOD.replace(b'BOOT version 1.0.3\x00', b''),
-        'label not a whole string': GOOD.replace(b'PS5X360 v1.0.3\x00', b'PS5X360 v1.0.3'),
+        'label not a whole string': GOOD.replace(LABEL, b'PS5X360Reloaded v1.0.3'),
         'empty': b'',
     }
     for name, data in cases.items():
         assert bp(data, '1.0.3'), name
     assert bp(GOOD, '1.0.4') and bp(GOOD, '1.0')
+    assert check_release_elf.LABELS[0] == b'PS5X360Reloaded v'
+    for name in ('official label too', 'official label instead', 'official candidate label too'):
+        assert any('official app' in p for p in bp(cases[name], '1.0.3')), name
     assert check_release_elf.version_problems('1.0.3') == []
     for junk in ('1.0.3_candidate_37', 'v1.0.3', '', None, '1.0.3\n'):
         assert check_release_elf.version_problems(junk), repr(junk)
@@ -224,7 +236,8 @@ def check_elf_logic(tmp):
 
 def check_real_elf(path):
     data = Path(path).read_bytes()
-    labels = check_release_elf.label_values(data, b'PS5X360 v')
+    # A test build with the PS5X360Reloaded label (PS5X360Reloaded v1.0.3_candidate_N).
+    labels = check_release_elf.label_values(data, check_release_elf.LABELS[0])
     assert len(set(labels)) == 1 and 'candidate' in labels[0], labels
     label = labels[0]
     assert check_release_elf.binary_problems(data, label.split('_', 1)[0])

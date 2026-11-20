@@ -3,23 +3,42 @@
     python3 -I tools/check-source-package.py
 
 Runs on a small made-up base PPSA50011.zip (the official one is 86 MB and pinned by SHA-256;
-the check swaps the pinned hash for the fixture's to run the command line end to end). It checks:
-  * the layout is the base's, with eboot.bin replaced byte for byte (not patched, not re-signed);
+the check swaps the pinned hash for the fixture's to run the command line end to end) that
+carries the official sce_sys/param.json verbatim. It checks:
+  * the layout is the base's, moved from PPSA50011/ to PPSA83600/ (PS5X360Reloaded's title id),
+    with eboot.bin replaced byte for byte (not patched, not re-signed);
+  * sce_sys/param.json differs from the base in exactly titleId PPSA83600, conceptId 83600,
+    contentId UP9000-PPSA83600_00-PS5X360RELOADED0 and titleName PS5X360Reloaded in every
+    language, keeping the base's key order, indent and CRLF; a base param that is not the
+    official app's is refused;
+  * sce_sys/icon0.png, pic0.png and pic1.png are the reviewed PS5X360Reloaded art (variant A3,
+    by SHA-256) from tools/source-1.0.2/package-art, at the official sizes;
+  * the official user docs that name PPSA50011 are not shipped as they are
+    (tools/source-1.0.2/package-docs): INSTALLATION.md is PS5X360Reloaded's own with the version,
+    repository and commit filled in, RELEASE_NOTES.md is docs/release-notes/v<version>.md,
+    dlc/README.md and updates/README.md name PPSA83600/ instead, AUTOLOG.md is left out, and no
+    other file names PPSA50011 except the notices of where the package came from;
   * every assets/lang/*.txt is the build's English-keyed file, pt-BR.txt is added, and nothing of
     the Portuguese-keyed base files or assets/lang-overrides is merged in;
   * presets, configs and patches come from the repository; readback-auto.off and the binary
     release's OPT notice are absent;
   * VERSION, RELEASE.json, the GPL notice and the added licence texts (verbatim, by SHA-256);
-  * MANIFEST.json lists every other file, the stage matches the zip, and two runs give the same
-    zip byte for byte;
-  * it refuses: a candidate or malformed version, an eboot with another or a candidate label or
-    without the SELF magic, skipped fixes, a SOURCES.json of another version, a base language
+  * MANIFEST.json lists every other file, the stage matches the zip, the outputs are
+    PPSA83600.zip, PPSA83600.zip.sha256 and stage/PPSA83600, and two runs give the same zip byte
+    for byte;
+  * the home-screen label package.py wants is check_release_elf.py's ("PS5X360Reloaded v");
+  * it refuses: a candidate or malformed version, an eboot with another or a candidate label, with
+    the official app's "PS5X360 v" label or without the SELF magic, base files outside
+    PPSA50011/, a base without param.json, art that is not the reviewed files, an official doc
+    that changed or is missing, a text file (a language file, a repository preset) still naming
+    PPSA50011, a release without its notes, skipped fixes, a SOURCES.json of another version, a base language
     without an English-keyed file, a Portuguese-keyed file, a source URL without a commit and a
     base zip other than the official one.
 """
 import hashlib
 import io
 import json
+import re
 import sys
 import tempfile
 import zipfile
@@ -28,9 +47,47 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / 'tools/source-1.0.2'))
 import package  # noqa: E402
+import check_release_elf  # noqa: E402
 
+B = package.BASE_PREFIX
 P = package.PREFIX
+assert B == 'PPSA50011/' and P == 'PPSA83600/', (B, P)
 VERSION = '1.0.3'
+# sce_sys/param.json of the official v1.0.2 PPSA50011.zip, verbatim (881 bytes, CRLF).
+OFFICIAL_PARAM = ('{\r\n  "ageLevel": {\r\n    "default": 0\r\n  },\r\n  "applicationCategoryType": 0,\r\n'
+                  '  "applicationDrmType": "free",\r\n  "attribute": 0,\r\n  "attribute2": 0,\r\n'
+                  '  "attribute3": 0,\r\n  "conceptId": "50011",\r\n  "contentBadgeType": 1,\r\n'
+                  '  "contentId": "UP9000-PPSA50011_00-XBOX360PS5M80001",\r\n  "contentVersion": "00.001.000",\r\n'
+                  '  "downloadDataSize": 256,\r\n  "gameIntent": {\r\n    "permittedIntents": [\r\n      {\r\n'
+                  '        "intentType": "launchActivity"\r\n      }\r\n    ]\r\n  },\r\n'
+                  '  "localizedParameters": {\r\n    "defaultLanguage": "en-US",\r\n    "en-US": {\r\n'
+                  '      "titleName": "PS5X360"\r\n    }\r\n  },\r\n  "masterVersion": "00.01",\r\n'
+                  '  "pubtools": {\r\n    "creationDate": "2026-08-22 00:00:00",\r\n'
+                  '    "loudnessSnd0": "-28.00",\r\n    "toolVersion": "2.00"\r\n  },\r\n'
+                  '  "requiredSystemSoftwareVersion": "0x0000000000000000",\r\n'
+                  '  "sdkVersion": "0x0000000000000000",\r\n  "titleId": "PPSA50011",\r\n'
+                  '  "versionFileUri": ""\r\n}\r\n').encode()
+# What package.py must make of it: these four lines differ, nothing else.
+RELOADED_PARAM = (OFFICIAL_PARAM.replace(b'"conceptId": "50011"', b'"conceptId": "83600"')
+                  .replace(b'"UP9000-PPSA50011_00-XBOX360PS5M80001"', b'"UP9000-PPSA83600_00-PS5X360RELOADED0"')
+                  .replace(b'"titleName": "PS5X360"', b'"titleName": "PS5X360Reloaded"')
+                  .replace(b'"titleId": "PPSA50011"', b'"titleId": "PPSA83600"'))
+# The reviewed PS5X360Reloaded art (variant A3): file, (width, height), SHA-256.
+ART = {'icon0.png': ((512, 512), '0ea06e8927b1cf3a284a56e3440fd51017bc3e3efd1fc28b8015c4e6c662d50c'),
+       'pic0.png': ((3840, 2160), '279db3b467fed42d9f5213c725a221e92ac919a8673ead61cb3b8755d7db1054'),
+       'pic1.png': ((1920, 1080), 'a44a30407639a3859a6efbffb9ec555a9a220f86c9b886e09e2e48bd8776e377')}
+# The official package's user docs that name its folder (shortened; the lines naming it verbatim).
+OFFICIAL_DOCS = {
+    B + 'INSTALLATION.md': b'# Installation and usage\n\n4. Copy the **entire** `PPSA50011` folder to `/data/homebrew/`. '
+                           b'The final executable path must be `/data/homebrew/PPSA50011/eboot.bin`.\n',
+    B + 'RELEASE_NOTES.md': b"# PS5X360 v1.0.2\n\nPlease send the game's log from `PPSA50011/logs` with your results.\n",
+    B + 'AUTOLOG.md': b'# PS5X360 AutoLog ELF 1.0.9-preview\n\n`/data/homebrew/PPSA50011/no-log-upload`\n',
+    B + 'dlc/README.md': b'# DLC installation\n\n1. Copy complete Xbox 360 DLC STFS package files to `PPSA50011/dlc/`. '
+                         b'Alternatively use `dlc/` beside the game executable/image.\n',
+    B + 'updates/README.md': b'# Title updates\n\n1. Copy the Xbox 360 title update package for your game into this '
+                             b'folder (`PPSA50011/updates`).\n',
+    B + 'CREDITS.md': b'# Credits\n\nPS5X360 by BrinooTk.\n',
+}
 COMMIT = 'f9140f1' + '0' * 33
 SOURCE_URL = f'https://github.com/example/PS5X360Reloaded/tree/{COMMIT}'
 DATE = '2026-11-20'
@@ -44,7 +101,9 @@ def sha(data):
 def eboot(label=VERSION, extra=b''):
     # Mesa's own strings contain "candidate_" and must not count as a candidate label.
     return (MAGIC + b'\0' * 60 + b'intersection_candidate_aabb_opaque\0candidate_infos\0'
-            + f'PS5X360 v{label}\0\0\0BOOT version {label}\0'.encode() + extra)
+            + f'PS5X360Reloaded v{label}\0\0\0BOOT version {label}\0'.encode()
+            # session_log.hpp's header "PS5X360 " is no label.
+            + b'PS5X360 \0' + extra)
 
 
 def english(code, body='Settings = Ustawienia\n'):
@@ -76,23 +135,29 @@ TOOLCHAIN = package.toolchain_pins(package.WORKFLOW.read_text(encoding='utf-8'))
 
 def base_files():
     files = {
-        P + 'VERSION': b'1.0.2\n',
-        P + 'eboot.bin': MAGIC + b'official 1.0.2 executable',
-        P + 'RELEASE.json': b'{"version": "1.0.2"}\n',
-        P + 'MANIFEST.json': b'{}\n',
-        P + 'LICENSE': b'MIT License\n',
-        P + 'readback-auto.off': b'',
+        B + 'VERSION': b'1.0.2\n',
+        B + 'eboot.bin': MAGIC + b'official 1.0.2 executable',
+        B + 'RELEASE.json': b'{"version": "1.0.2"}\n',
+        B + 'MANIFEST.json': b'{}\n',
+        B + 'LICENSE': b'MIT License\n',
+        B + 'readback-auto.off': b'',
         # Not in the official zip; a base made from the binary release's stage would carry it.
-        P + 'licenses/PS5X360-OPT-NOTICE.txt': b'eboot.bin is the official 1.0.2 executable\n',
-        P + 'assets/presets.txt': b'old presets\n',
-        P + 'assets/fonts/font.ttf': b'\0font',
-        P + 'licenses/MINIUPNPC.txt': b'../LICENSE',
-        P + 'licenses/WOLFSSL-GPL-3.txt': b'GPL-3\r\n',
-        P + 'licenses/PS5X360-NOTICE.txt': b'PS5X360 1.0.0 - source of the parts\n',
-        P + 'sce_sys/param.json': b'{}',
+        B + 'licenses/PS5X360-OPT-NOTICE.txt': b'eboot.bin is the official 1.0.2 executable\n',
+        B + 'assets/presets.txt': b'old presets\n',
+        B + 'assets/fonts/font.ttf': b'\0font',
+        B + 'licenses/MINIUPNPC.txt': b'../LICENSE',
+        B + 'licenses/WOLFSSL-GPL-3.txt': b'GPL-3\r\n',
+        B + 'licenses/PS5X360-NOTICE.txt': b'PS5X360 1.0.0 - source of the parts\n',
+        B + 'KINECT-source-and-licenses.zip': b'PK official kinect sources',
+        B + 'tools/kinect-tracker.elf': b'\x7fELF tracker',
+        B + 'sce_sys/param.json': OFFICIAL_PARAM,
+        B + 'sce_sys/icon0.png': b'\x89PNG official icon0',
+        B + 'sce_sys/pic0.png': b'\x89PNG official pic0',
+        B + 'sce_sys/pic1.png': b'\x89PNG official pic1',
     }
+    files.update(OFFICIAL_DOCS)
     for name, data in PORTUGUESE.items():
-        files[P + 'assets/lang/' + name] = data
+        files[B + 'assets/lang/' + name] = data
     return files
 
 
@@ -128,16 +193,77 @@ def check_files(files, base_sha=package.BASE_ZIP_SHA256):
     repo_assets |= {f'assets/patches/{p.name}' for p in (REPO / 'assets/patches').glob('*.patch.toml')}
     added = {f'licenses/PS5X360-{VERSION}-NOTICE.txt', 'licenses/GPL-3.0.txt',
              'licenses/MBEDTLS-3.6.7-LICENSE.txt', 'licenses/CACERT-MPL-2.0.txt', 'assets/lang/pt-BR.txt'}
-    expected = ({name[len(P):] for name in base} - {'readback-auto.off', 'licenses/PS5X360-OPT-NOTICE.txt'}
+    expected = ({name[len(B):] for name in base}
+                - {'readback-auto.off', 'licenses/PS5X360-OPT-NOTICE.txt', 'AUTOLOG.md'}
                 | repo_assets | added)
     assert names == expected, sorted(names ^ expected)
     assert all(name.startswith(P) for name in files)
+    assert not any(name.startswith(B) or B.rstrip('/') in name for name in files)
 
     # eboot.bin byte for byte; untouched files byte for byte.
     assert files[P + 'eboot.bin'] == eboot()
-    for name in ('LICENSE', 'assets/fonts/font.ttf', 'licenses/WOLFSSL-GPL-3.txt',
-                 'licenses/PS5X360-NOTICE.txt', 'sce_sys/param.json'):
-        assert files[P + name] == base[P + name], name
+    for name in ('LICENSE', 'assets/fonts/font.ttf', 'licenses/WOLFSSL-GPL-3.txt', 'CREDITS.md',
+                 'licenses/PS5X360-NOTICE.txt', 'KINECT-source-and-licenses.zip', 'tools/kinect-tracker.elf'):
+        assert files[P + name] == base[B + name], name
+
+    # param.json: the official file with the new id, content id, concept id and name, nothing else.
+    assert sha(OFFICIAL_PARAM) == '68f56aa52bfdf3b73f8c8f41294b29da9d9f4d0b49fe5da953ea433123178313'
+    param_bytes = files[P + 'sce_sys/param.json']
+    assert param_bytes == RELOADED_PARAM, param_bytes
+    assert param_bytes != base[B + 'sce_sys/param.json']
+    assert param_bytes.count(b'\r\n') == OFFICIAL_PARAM.count(b'\r\n') and b'\n' not in param_bytes.replace(b'\r\n', b'')
+    param, official = json.loads(param_bytes), json.loads(OFFICIAL_PARAM)
+    assert list(param) == list(official)
+    assert param['titleId'] == 'PPSA83600' and param['conceptId'] == '83600'
+    assert param['contentId'] == 'UP9000-PPSA83600_00-PS5X360RELOADED0'
+    assert re.fullmatch(r'UP9000-PPSA[0-9]{5}_00-[A-Z0-9]{16}', param['contentId'])
+    assert param['contentId'] != official['contentId'] and param['conceptId'] == param['titleId'][4:]
+    assert param['localizedParameters'] == {'defaultLanguage': 'en-US', 'en-US': {'titleName': 'PS5X360Reloaded'}}
+    changed = {key for key in official if official[key] != param[key]}
+    assert changed == {'titleId', 'conceptId', 'contentId', 'localizedParameters'}, changed
+
+    # The official user docs that name PPSA50011: PS5X360Reloaded's INSTALLATION.md, this
+    # release's notes, the DLC and updates READMEs with the folder renamed, no AutoLog guide.
+    template = (REPO / 'tools/source-1.0.2/package-docs/INSTALLATION.md').read_text(encoding='utf-8')
+    installation = files[P + 'INSTALLATION.md'].decode()
+    assert installation == (template.replace('@VERSION@', VERSION)
+                            .replace('@REPOSITORY@', 'https://github.com/example/PS5X360Reloaded')
+                            .replace('@COMMIT@', COMMIT)), installation
+    for needle in ('# PS5X360Reloaded 1.0.3: installation', '`/data/homebrew/PPSA83600/eboot.bin`',
+                   '`/data/homebrew/PPSA83600/assets/roms/`', '`/data/homebrew/PPSA83600/logs`',
+                   'Never copy this folder or its files into\n`/data/homebrew/PPSA50011`',
+                   f'https://github.com/example/PS5X360Reloaded/blob/{COMMIT}/README.md',
+                   'licenses/PS5X360-1.0.3-NOTICE.txt'):
+        assert needle in installation, needle
+    assert not re.search(r'@[A-Z]+@', installation) and 'PPSA50011.zip' not in installation
+    # Each paragraph naming the official folder says it is the official app's.
+    for paragraph in installation.split('\n\n'):
+        if 'PPSA50011' in paragraph:
+            assert 'official' in paragraph, paragraph
+    assert files[P + 'RELEASE_NOTES.md'] == (REPO / f'docs/release-notes/v{VERSION}.md').read_bytes()
+    assert files[P + 'RELEASE_NOTES.md'] != base[B + 'RELEASE_NOTES.md']
+    for name in ('dlc/README.md', 'updates/README.md'):
+        assert files[P + name] == base[B + name].replace(b'PPSA50011', b'PPSA83600'), name
+        assert b'PPSA83600/' in files[P + name] and b'PPSA50011' not in files[P + name], name
+    assert P + 'AUTOLOG.md' not in files
+    # No other file names the official title id.
+    assert package.official_id_problems(files, VERSION) == []
+    for name, data in files.items():
+        if b'PPSA50011' in data:
+            assert name[len(P):] in {'INSTALLATION.md', 'RELEASE_NOTES.md', 'RELEASE.json',
+                                     f'licenses/PS5X360-{VERSION}-NOTICE.txt'}, name
+
+    # The PS5X360Reloaded art (variant A3), never the official images.
+    readme = (REPO / 'tools/source-1.0.2/package-art/README.md').read_text(encoding='utf-8')
+    for name, (size, digest) in ART.items():
+        data = files[P + 'sce_sys/' + name]
+        assert data == (REPO / 'tools/source-1.0.2/package-art' / name).read_bytes(), name
+        assert sha(data) == digest and data != base[B + 'sce_sys/' + name], name
+        assert data[:8] == b'\x89PNG\r\n\x1a\n' and data[12:16] == b'IHDR', name
+        assert (int.from_bytes(data[16:20], 'big'), int.from_bytes(data[20:24], 'big')) == size, name
+        assert data[24:26] == b'\x08\x02', name  # 8-bit RGB, as the official files
+        assert f'`{name}`' in readme and digest in readme, name
+    assert [(n, s, d) for n, _, s, d in package.ART] == [(n, s, d) for n, (s, d) in ART.items()]
     # English-keyed language files, as built; nothing Portuguese-keyed merged in.
     for name, data in LANG.items():
         assert files[P + 'assets/lang/' + name] == data, name
@@ -156,6 +282,7 @@ def check_files(files, base_sha=package.BASE_ZIP_SHA256):
     assert files[P + 'VERSION'] == b'1.0.3\n'
     release = json.loads(files[P + 'RELEASE.json'])
     assert release['version'] == VERSION
+    assert release['title_id'] == 'PPSA83600' and release['title_name'] == 'PS5X360Reloaded'
     assert release['executable_sha256'] == sha(eboot())
     assert release['candidate'] is False and release['published'] is True
     assert release['candidate_id'] == 'src-' + sha(eboot())[:8]
@@ -189,7 +316,13 @@ def check_files(files, base_sha=package.BASE_ZIP_SHA256):
                    'Apache-2.0', base_sha,
                    # The toolchain parts linked into eboot.bin are named, with where their source is.
                    'RADV', 'app_crt.cpp', 'payload SDK runtime', 'ps5-native-tool',
-                   'at the commits listed under Toolchain'):
+                   'at the commits listed under Toolchain',
+                   # The new identity, and the upstream attribution kept as it is.
+                   'PS5X360Reloaded 1.0.3 (PPSA83600)', 'UP9000-PPSA83600_00-PS5X360RELOADED0',
+                   'moved from PPSA50011/ to PPSA83600/', 'tools/source-1.0.2/package-art',
+                   'tools/source-1.0.2/package-docs', 'AUTOLOG.md is left out',
+                   'This is a modified version of PS5X360 1.0.2 by BrinooTk (https://github.com/BrinooTk/PS5X360/releases)',
+                   'Source drops (BrinooTk/PS5X360 releases)', 'the PS5X360\n    code is MIT (LICENSE)'):
         assert needle in text, needle
     assert 'complete source tree' not in text
     assert 'candidate' not in text.lower()
@@ -214,7 +347,7 @@ def check_files(files, base_sha=package.BASE_ZIP_SHA256):
 
 
 def check_output(out, files):
-    out_zip = out / 'PPSA50011.zip'
+    out_zip = out / 'PPSA83600.zip'
     with zipfile.ZipFile(out_zip) as z:
         assert z.testzip() is None
         infos = z.infolist()
@@ -226,9 +359,11 @@ def check_output(out, files):
     stage = out / 'stage'
     staged = {p.relative_to(stage).as_posix(): p.read_bytes() for p in stage.rglob('*') if p.is_file()}
     assert staged == files
-    assert (stage / 'PPSA50011' / 'eboot.bin').is_file()
-    assert (out / 'PPSA50011.zip.sha256').read_text(encoding='utf-8') == \
-        f'{sha(out_zip.read_bytes())}  PPSA50011.zip\n'
+    assert (stage / 'PPSA83600' / 'eboot.bin').is_file() and not (stage / 'PPSA50011').exists()
+    assert sorted(p.name for p in stage.iterdir()) == ['PPSA83600']
+    assert (out / 'PPSA83600.zip.sha256').read_text(encoding='utf-8') == \
+        f'{sha(out_zip.read_bytes())}  PPSA83600.zip\n'
+    assert not (out / 'PPSA50011.zip').exists() and not (out / 'PPSA50011.zip.sha256').exists()
 
 
 def main():
@@ -242,7 +377,7 @@ def main():
         second = package.write_package(build(), tmp / 'b')
         check_output(tmp / 'a', files)
         assert first == second
-        assert (tmp / 'a/PPSA50011.zip').read_bytes() == (tmp / 'b/PPSA50011.zip').read_bytes()
+        assert (tmp / 'a/PPSA83600.zip').read_bytes() == (tmp / 'b/PPSA83600.zip').read_bytes()
         print('[OK] deterministic zip, stage and .sha256')
 
         # The command line, end to end, with the fixture's hash in place of the official one.
@@ -279,15 +414,20 @@ def main():
                      for p in (tmp / 'cli/stage').rglob('*') if p.is_file()}
         check_files(cli_files, base_sha=digest)
         check_output(tmp / 'cli', cli_files)
-        assert (tmp / 'cli/PPSA50011.zip').read_bytes() == (tmp / 'cli2/PPSA50011.zip').read_bytes()
+        assert (tmp / 'cli/PPSA83600.zip').read_bytes() == (tmp / 'cli2/PPSA83600.zip').read_bytes()
         assert summary['version'] == VERSION and summary['eboot_sha256'] == sha(eboot())
+        assert summary['title_id'] == 'PPSA83600' and summary['package'].endswith('PPSA83600.zip')
         print('[OK] command line: official zip gate, package, same zip twice')
 
     for version in ('1.0.3_candidate_37', '', 'v1.0.3', '1.0', '1.0.3.1', '1.0.3 '):
         refused('is not X.Y.Z', version=version)
     refused('carries a candidate label', eboot=eboot(extra=b'1.0.3_candidate_37\0'))
-    refused("label 'PS5X360 v1.0.3'", eboot=eboot('1.0.3_candidate_37'))
-    refused("label 'PS5X360 v1.0.3'", eboot=eboot('1.0.30'))
+    refused("label 'PS5X360Reloaded v1.0.3'", eboot=eboot('1.0.3_candidate_37'))
+    refused("label 'PS5X360Reloaded v1.0.3'", eboot=eboot('1.0.30'))
+    # Built without the rename: the official app's label, alone or next to the new one.
+    refused("label 'PS5X360Reloaded v1.0.3'", eboot=eboot().replace(b'PS5X360Reloaded v', b'PS5X360 v'))
+    refused("official app's label", eboot=eboot(extra=b'PS5X360 v1.0.3\0'))
+    refused("official app's label", eboot=eboot(extra=b'PS5X360 v1.0.2\0'))
     refused("label 'BOOT version 1.0.3'", eboot=eboot().replace(b'BOOT version', b'BOOT versio_'))
     refused('not a signed PS5 SELF', eboot=b'\x7fELF' + eboot()[4:])
     refused('lists skipped fixes', sources=dict(SOURCES, fixes_skipped=['tools/source-1.0.2/fixes/01-x.patch']))
@@ -298,13 +438,76 @@ def main():
     refused('has no fixes_skipped list', sources={k: v for k, v in SOURCES.items() if k != 'fixes_skipped'})
     refused('lists skipped fixes', sources=dict(SOURCES, fixes_skipped=None))
     refused("has no 'fixes'", sources=dict(SOURCES, fixes=[]))
-    refused('no English-keyed file for PPSA50011/assets/lang/pl.txt',
+    refused('no English-keyed file for PPSA83600/assets/lang/pl.txt',
             lang={k: v for k, v in LANG.items() if k != 'pl.txt'})
     refused('pl.txt is not an English-keyed', lang=dict(LANG, **{'pl.txt': PORTUGUESE['pl.txt']}))
     refused('de.txt is not an English-keyed', lang=dict(LANG, **{'de.txt': english('pl')}))
     refused('no language files', lang={})
     refused('pl.txt is not an English-keyed', lang=dict(LANG, **{'pl.txt': b'\xff\xfe#\0 \0P\0'}))
-    refused('base package VERSION is not 1.0.2', base_files=dict(base_files(), **{P + 'VERSION': b'1.0.3\n'}))
+    refused('base package VERSION is not 1.0.2', base_files=dict(base_files(), **{B + 'VERSION': b'1.0.3\n'}))
+    # The base is read under PPSA50011/ only: a stage already moved, or a stray file, is refused.
+    refused('base package files outside PPSA50011/: PPSA83600/VERSION',
+            base_files=dict(base_files(), **{P + 'VERSION': b'1.0.2\n'}))
+    refused('base package files outside PPSA50011/: README.txt', base_files=dict(base_files(), **{'README.txt': b'x'}))
+    refused('base package has no sce_sys/param.json',
+            base_files={k: v for k, v in base_files().items() if k != B + 'sce_sys/param.json'})
+    # param.json must be the official app's: a param of another title (e.g. a package made by
+    # this script) or a malformed one stops the packaging.
+    for param, message in ((RELOADED_PARAM, "titleId 'PPSA83600' is not PPSA50011"),
+                           (b'{"titleId": "PPSA50011"', 'is not JSON'),
+                           (b'[]', 'is not a JSON object'),
+                           (OFFICIAL_PARAM.replace(b'  "conceptId": "50011",\r\n', b''), 'has no conceptId'),
+                           (OFFICIAL_PARAM.replace(b'"defaultLanguage": "en-US"', b'"defaultLanguage": "fr-FR"'),
+                            'no localizedParameters entry for its defaultLanguage'),
+                           (b'{"titleId": "PPSA50011", "conceptId": "50011", "contentId": "x"}',
+                            'no localizedParameters entry')):
+        refused(message, base_files=dict(base_files(), **{B + 'sce_sys/param.json': param}))
+    # Every language entry gets the new name; LF files stay LF, other fields stay as they are.
+    several = {'titleId': 'PPSA50011', 'conceptId': '50011', 'contentId': 'UP9000-PPSA50011_00-XBOX360PS5M80001',
+               'localizedParameters': {'defaultLanguage': 'en-US', 'en-US': {'titleName': 'PS5X360'},
+                                       'pl-PL': {'titleName': 'PS5X360', 'titleNameSort': 'x'}, 'ja-JP': {}},
+               'downloadDataSize': 256}
+    made = package.param_json(json.dumps(several, indent=2).encode() + b'\n')
+    assert b'\r' not in made and made.endswith(b'}\n'), made
+    made = json.loads(made)
+    assert made['localizedParameters'] == {
+        'defaultLanguage': 'en-US', 'en-US': {'titleName': 'PS5X360Reloaded'},
+        'pl-PL': {'titleName': 'PS5X360Reloaded', 'titleNameSort': 'x'}, 'ja-JP': {'titleName': 'PS5X360Reloaded'}}
+    assert made['downloadDataSize'] == 256 and made['titleId'] == 'PPSA83600'
+    assert package.param_json(OFFICIAL_PARAM) == RELOADED_PARAM
+    # The official docs: a changed text (the folder named another number of times) or a missing
+    # one stops the packaging, and so does any other text file still naming PPSA50011.
+    dlc = OFFICIAL_DOCS[B + 'dlc/README.md']
+    refused('dlc/README.md names PPSA50011 2 times, not 1',
+            base_files=dict(base_files(), **{B + 'dlc/README.md': dlc + b'See PPSA50011/dlc.\n'}))
+    refused('base package has no updates/README.md',
+            base_files={k: v for k, v in base_files().items() if k != B + 'updates/README.md'})
+    refused('still name the official title id PPSA50011: MULTI-DISC.md',
+            base_files=dict(base_files(), **{B + 'MULTI-DISC.md': b'Copy discs to PPSA50011/assets/roms.\n'}))
+    refused('still name the official title id PPSA50011: assets/lang/pl.txt (English-keyed language files',
+            lang=dict(LANG, **{'pl.txt': english('pl', 'Copy to PPSA50011/dlc = Kopiuj do PPSA50011/dlc\n')}))
+    with tempfile.TemporaryDirectory() as other:
+        other = Path(other)
+        (other / 'assets').mkdir()
+        (other / 'assets/presets.txt').write_bytes(b'presets\n')
+        refused('no release notes docs/release-notes/v1.0.3.md', repo_root=other)
+        (other / 'docs/release-notes').mkdir(parents=True)
+        (other / 'docs/release-notes/v1.0.3.md').write_bytes(b'## PS5X360Reloaded v1.0.3\n')
+        assert build(repo_root=other)[P + 'RELEASE_NOTES.md'] == b'## PS5X360Reloaded v1.0.3\n'
+        (other / 'assets/presets.txt').write_bytes(b'# /data/homebrew/PPSA50011/assets/roms\n')
+        refused('still name the official title id PPSA50011: assets/presets.txt', repo_root=other)
+    # Art that is not the reviewed files (here: wrong pinned digest or size) stops the packaging.
+    art = package.ART
+    try:
+        package.ART = [(n, t, s, '0' * 64 if n == 'pic0.png' else d) for n, t, s, d in art]
+        refused('package-art/pic0.png is not the reviewed file')
+        package.ART = [(n, t, (256, 256) if n == 'icon0.png' else s, d) for n, t, s, d in art]
+        refused('package-art/icon0.png is not a 256x256 PNG')
+    finally:
+        package.ART = art
+    # The label package.py wants is the one check_release_elf.py checks after the link.
+    assert package.HOME_LABEL == check_release_elf.LABELS[0] == b'PS5X360Reloaded v'
+    assert check_release_elf.OFFICIAL_LABEL == b'PS5X360 v'
     for url in ('https://github.com/example/PS5X360Reloaded', 'https://github.com/example/repo/tree/main',
                 f'https://github.com/example/repo/tree/{COMMIT[:7]}', ''):
         refused('is not https://', source_url=url)
