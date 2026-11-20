@@ -14,6 +14,8 @@
 # step), tools/check-source-package.py (package.py), tools/check-release-images.py
 # (make_images.sh's title id and the release workflows' image names), tools/check-release-guard.py
 # (release-source.yml's decisions) and tools/check-core-commit.py (build.sh's core commit).
+# tools/check-docs-reloaded.py checks the user docs for the PS5X360Reloaded name and title id
+# (PPSA83600, next to the official PPSA50011).
 # check-game-info.cpp reads a committed excerpt of the official package's assets/gameinfo.txt, and
 # the whole file too when PS5X360_GAMEINFO names it (fix 43). check-guest-crash.cpp (fix 45) runs
 # threads that time XmaDecoder's pause handshake (100 ms as a rule and 1 s at most with the fix; 1.0.2's
@@ -204,6 +206,13 @@ elif "$python" -I "$repo/tools/check-title-id.py" --tree "$tree"; then
   echo "pass check-title-id.py"
 else
   echo "FAIL check-title-id.py"
+  status=1
+fi
+echo "=== check-docs-reloaded.py"
+if "$python" -I "$repo/tools/check-docs-reloaded.py"; then
+  echo "pass check-docs-reloaded.py"
+else
+  echo "FAIL check-docs-reloaded.py"
   status=1
 fi
 echo "=== check-kinect-fake-relay.py"

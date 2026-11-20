@@ -1,12 +1,17 @@
 # Starting a game from the PS5 home screen (forwarders)
 
 A **forwarder** is a small extra app with its own home screen tile: its own name, icon and
-title ID. Opening it starts PS5X360 (`PPSA50011`) with launch arguments, and PS5X360 goes
-straight into that game instead of opening the library.
+title ID. Opening it starts PS5X360Reloaded (`PPSA83600`) with launch arguments, and
+PS5X360Reloaded goes straight into that game instead of opening the library.
+
+Since v1.0.3 this fork's app is PS5X360Reloaded with the title ID **`PPSA83600`**. The official
+PS5X360 keeps `PPSA50011`, and so do this fork's earlier builds (`v1.0.2-opt`, r2 and the
+`1.0.3_candidate_N` test builds made before the rename). A tile starts whichever title ID its
+`forwarder.json` names in `target`.
 
 Forwarders use the [PS5 Forwarder Format](https://github.com/heydemoura/ps5-forwarder-format).
 The tile cannot start another app by itself, so it asks a small resident launcher (which it
-starts through `elfldr` when needed) to call `sceSystemServiceLaunchApp("PPSA50011", args)`.
+starts through `elfldr` when needed) to call `sceSystemServiceLaunchApp("PPSA83600", args)`.
 The arguments are the ones in the tile's `forwarder.json`.
 
 Supported from the source build `1.0.3_candidate_34` (fix 21,
@@ -17,22 +22,31 @@ full path to a file.
 
 - A jailbroken PS5 with `elfldr` listening on port 9021.
 - [ShadowMountPlus](https://github.com/drakmor/ShadowMountPlus), which registers the new tiles.
-- PS5X360 installed as `PPSA50011` (this build or newer).
+- PS5X360Reloaded installed as `PPSA83600` (v1.0.3 or newer).
 - **Forwarder Manager** (`PPSA99930`), release
   [00.001.006](https://github.com/heydemoura/ps5-forwarder-manager/releases/tag/00.001.006) or newer:
   asset `PPSA99930.zip` (SHA-256 `986eb9bce653f4cc30864d897b9da151030f41423ba7d9b870a97d8155c89a1d`).
-  Its PS5X360 target lists PS5X360's games (the darkxex fork's work, merged; the fork itself
-  publishes no release).
+  Its `PS5X360` target lists PS5X360's games (the darkxex fork's work, merged; the fork itself
+  publishes no release), but it starts the **official** app, `PPSA50011`. Forwarder Manager has
+  no PS5X360Reloaded target yet, so a tile for it gets the target `PPSA83600` either from the
+  **Generic** target or by editing `forwarder.json` (below).
 
 ## Making a tile for one game
 
 1. Install Forwarder Manager: unzip `PPSA99930.zip`, copy the `PPSA99930` folder to
    `/data/homebrew/PPSA99930` on the console (FTP is fine), let ShadowMountPlus register it.
 2. Start **Forwarder Manager** from the home screen and create a new forwarder.
-3. **Target app**: `PS5X360` (`PPSA50011`).
-4. **Game**: pick it from the list (games in PS5X360's default folders: `/data/xbox360`, `xbox360`
-   on USB and extended storage, `assets/roms`), or pick the file or folder with the file browser
-   (a game in a folder added in PS5X360's own settings). Any of these works:
+3. **Target app**, one of:
+   - `PS5X360`: you can pick the game from a list, and Forwarder Manager writes its full path.
+     The tile's target is then `PPSA50011` (the official app); change it in step 6.
+   - `Generic (enter a title ID)`, with **Target title ID** `PPSA83600`. There is no game list:
+     the **ROM file** row's file browser writes `--rom` with the file's **name only**, which finds
+     the game only when the file lies directly in one of the game folders (`Halo 3.iso` in
+     `/data/xbox360`). For anything else, write the full path in step 6.
+4. **Game** (with the `PS5X360` target): pick it from the list (games in the default folders:
+   `/data/xbox360`, `xbox360` on USB and extended storage, `assets/roms`), or pick the file or
+   folder with the file browser (a game in a folder added in the emulator's own settings). Any of
+   these works:
    - an `.iso` file;
    - an extracted game's folder or its `default.xex`;
    - an XBLA or Games on Demand title's folder (`Limbo`, the one with `584109D1/000D0000/...`
@@ -40,31 +54,39 @@ full path to a file.
    - a multi-disc game's folder (`Mass Effect 2` with `Disc1`, `Disc2` inside): it starts at disc 1,
      as in the library.
 5. Give the tile a name and an icon (the manager can use the game's cover), generate it, and let
-   ShadowMountPlus register it. The tile passes the game's full path as its only argument.
-6. Optional, to go back to the PS5 home screen when you close the game: Forwarder Manager has no
-   switch for this on PS5X360 tiles, so add the argument by hand. Over FTP, open the tile's
-   `/data/homebrew/PPSA992xx/forwarder.json` (its folder is named after the tile's title ID) and
-   add `"--exit-after-game"` to `args`:
+   ShadowMountPlus register it. With the `PS5X360` target the tile passes the game's full path as
+   its only argument.
+6. Over FTP, open the tile's `/data/homebrew/PPSA992xx/forwarder.json` (its folder is named after
+   the tile's title ID) and make `target` and `args` say:
 
    ```json
-   "args": ["/data/xbox360/Halo 3.iso", "--exit-after-game"]
+   "target": "PPSA83600",
+   "args": ["--rom", "/data/xbox360/Halo 3.iso", "--exit-after-game"]
    ```
 
+   - `target` must be `PPSA83600`. A tile made with the `PS5X360` target has `PPSA50011` here
+     and would start the official app.
+   - `args` names the game (`--rom` and a full path, as in the table below; a bare full path also
+     works). `"--exit-after-game"` is optional: it returns to the PS5 home screen when you close
+     the game. Forwarder Manager has no switch for it on these tiles.
+
    The file is read each time the tile is opened; nothing needs registering again. Saving the tile
-   again in Forwarder Manager may rewrite `args`; check the file afterwards.
-7. **Close PS5X360 before using a tile** if it is running. Arguments reach only a new PS5X360
+   again in Forwarder Manager may rewrite `target` or `args`; check the file afterwards. The same
+   edit moves an existing tile from the official PS5X360 to PS5X360Reloaded; tiles left with
+   `PPSA50011` keep starting the official app.
+7. **Close PS5X360Reloaded before using a tile** if it is running. Arguments reach only a new
    process: if it is already open, the console brings it to the front as it was (library or
    running game) and the tile's game does not start.
 
-Opening the tile now shows PS5X360's start screen and then the game.
+Opening the tile now shows PS5X360Reloaded's start screen and then the game.
 
-## Arguments PS5X360 accepts
+## Arguments PS5X360Reloaded accepts
 
 | Argument | Meaning |
 | --- | --- |
 | `--rom <game>` or `--rom=<game>` | The game. A full path (`/mnt/usb0/xbox360/Halo 3.iso`), a path inside the library's game folders (Settings; by default `/app0/assets/roms`, `/data/xbox360` and `xbox360` on USB and extended storage), tried in their order (`Halo 3.iso`, `RPG/Fable 2`), or a **title ID** of a game the library lists (`4D5307E6`; with several copies, the most recently played). A folder stands for the game in it, as the library lists it. A relative path may not contain `..`. |
-| `<full path>` | A bare full path, without `--rom` (what Forwarder Manager writes for PS5X360). Same meaning as `--rom`. |
-| `--exit-after-game` | *Close the game* in the guide closes PS5X360 too, so the console goes back to the home screen. Without it the library opens, as usual. |
+| `<full path>` | A bare full path, without `--rom` (what Forwarder Manager writes for its `PS5X360` target). Same meaning as `--rom`. |
+| `--exit-after-game` | *Close the game* in the guide closes PS5X360Reloaded too, so the console goes back to the home screen. Without it the library opens, as usual. |
 
 Other arguments are ignored. `--rom` wins over a bare path. Examples of `forwarder.json`
 `args`:
@@ -82,18 +104,18 @@ Other arguments are ignored. `--rom` wins over a bare path. Examples of `forward
   chosen there: its own options apply, its cover and name are the library's, and it becomes
   the most recently played game.
 - A game whose own options are only read as the emulator starts (start options, the FSI
-  render-target choice) makes PS5X360 restart once, straight into it. It is still the tile's
+  render-target choice) makes PS5X360Reloaded restart once, straight into it. It is still the tile's
   game after that restart, `--exit-after-game` included.
 - If the game is not found (wrong path, a folder with several games, an unknown title ID),
   the library opens and says *Could not launch the game:* and why.
-- If the game is found but does not start, PS5X360 starts again into the library, which says
+- If the game is found but does not start, PS5X360Reloaded starts again into the library, which says
   why (even with `--exit-after-game`).
-- *Close the emulator* in the guide closes PS5X360 either way. Choosing another game from the
+- *Close the emulator* in the guide closes PS5X360Reloaded either way. Choosing another game from the
   library over the running game starts that one normally (no longer the tile's game).
 - A game that switches to another executable (a collection's menu, a second disc) restarts
-  PS5X360 from Canary's launch data; `--exit-after-game` no longer applies after that.
-- Every restart PS5X360 makes of itself runs without arguments, so the tile's game never
-  starts twice. `game.txt` is not read when a tile started PS5X360.
+  PS5X360Reloaded from Canary's launch data; `--exit-after-game` no longer applies after that.
+- Every restart PS5X360Reloaded makes of itself runs without arguments, so the tile's game never
+  starts twice. `game.txt` is not read when a tile started PS5X360Reloaded.
 - The log (stream on TCP 9100 and the session log) shows `Start argument N: ...` and
   `Forwarder: ...` lines saying what was asked for and what was started.
 
@@ -102,14 +124,15 @@ Other arguments are ignored. `--rom` wins over a bare path. Examples of `forward
 ### "Error in the game or application" right after opening the tile
 
 The system's error screen (Polish: *Wystąpił błąd w grze lub aplikacji*) names the **tile's** title
-ID, not PPSA50011, and its **Debug** box says:
+ID, not the emulator's, and its **Debug** box says (captured with a test build that still used
+`PPSA50011`; with PS5X360Reloaded the messages name `PPSA83600`):
 
 ```
 signal: 12 (SIGSYS)  thread name: eboot.bin  RIP: 0x00000008000003ac
 Forwarder: could not start PPSA50011: the system refused to start the app (0x80940033, 0x80940033)
 ```
 
-PS5X360 never started, so its own logs have nothing new. The SIGSYS is not a second fault: the
+The emulator never started, so its own logs have nothing new. The SIGSYS is not a second fault: the
 forwarder program ends with `exit()` after the refusal, and the system reports that as a crash.
 
 `0x80940033` is the system's launcher refusing a homebrew title. To see why, read
@@ -125,8 +148,8 @@ debug.log:        [GAME] started: PPSA99758 ...                                 
 This is ShadowMount+ bug [drakmor/ShadowMountPlus#196](https://github.com/drakmor/ShadowMountPlus/issues/196)
 (open): ShadowMount+ refuses a launch that another managed app (the tile) requests **within about a
 second of its own start**. The same request about 6 s later goes through ("game switch prepared:
-outgoing=<tile> incoming=PPSA50011"). It does not depend on PS5X360, the game, its path or the
-arguments, and it happens for folder installs too, so moving PS5X360 out of its `.ffpkg` or
+outgoing=<tile> incoming=PPSA50011"). It does not depend on the emulator, the game, its path or the
+arguments, and it happens for folder installs too, so moving the emulator out of its `.ffpkg` or
 `persistent_image_mounts=1` do not fix it.
 
 The tile asks at once when the forwarder launcher is already running (Forwarder Manager starts it
@@ -138,16 +161,21 @@ ShadowMount+ is fixed:
   payloads, without opening Forwarder Manager first; the first tile then usually works;
 - after that the launcher stays resident, and later tile opens in the same session are refused
   again: restart the console (there is no command to stop the launcher);
-- or start the game from PS5X360's library.
+- or start the game from the emulator's library.
 
 Other `Forwarder: ...` texts: *no launcher is running, and it could not be started through elfldr*
 (elfldr not listening on 9021); *nobody is signed in*; *the launcher did not answer* or *refused
 the request* (another or an old launcher on port 10199, see `launcher.log`).
 
-### PS5X360 opens, but in the library
+### The official PS5X360 opens instead
 
-- PS5X360 was already open: the system brings it to the front and the arguments are lost. Close
-  it first.
+The tile's `forwarder.json` still has `"target": "PPSA50011"` (the `PS5X360` target of Forwarder
+Manager). Change it to `PPSA83600` (step 6 above).
+
+### PS5X360Reloaded opens, but in the library
+
+- PS5X360Reloaded was already open: the system brings it to the front and the arguments are lost.
+  Close it first.
 - The game was not found: the library says *Could not launch the game:* and why. The log has
   `Start argument N: ...` and `Forwarder: ...` lines.
 
