@@ -46,8 +46,6 @@ READERS = {
     ('src/canary_game_main.cpp',
      'const auto imported = xbox360ps5::official_import::Run(xbox360ps5::app_identity::kOfficialDataRoot,'):
         'the first start\'s import: its folder is the source, only read (official_import.hpp)',
-    ('src/canary_game_main.cpp', 'xbox360ps5::app_identity::kOfficialDataRoot, xbox360ps5::app_identity::kDataRoot,'):
-        'the import\'s log line',
     ('platform/ps5/web_settings.cpp',
      'official_key = web_key::Read(fs::path(app_identity::kOfficialDataRoot) / "web-settings.key");'):
         'the official Kinect tracker\'s key, read (web_key.hpp)',

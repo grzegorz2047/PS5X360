@@ -213,10 +213,12 @@ USB drive usb7 = Unidade USB usb7
 # Fix 45: the overlay's notice after a guest crash (the same two keys in every section).
 The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = O jogo travou e o emulador o pausou. Touchpad: guia, depois Fechar o jogo e voltar ao menu
 The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = O jogo travou e o emulador o pausou. OPTIONS + touchpad: guia, depois Fechar o jogo e voltar ao menu
-# Fix 46: the notices after the first start's copy from the official PS5X360 (the same three keys in every section).
+# Fix 46: the notices after the first start's copy from the official PS5X360 (the same five keys in every section).
 Saves and settings were copied from PS5X360. Its own files were not changed. = Os salvamentos e as configurações foram copiados do PS5X360. Os arquivos dele não foram alterados.
 Saves and settings were not copied from PS5X360: not enough free space. = Os salvamentos e as configurações não foram copiados do PS5X360: falta espaço livre.
 Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed. = Alguns salvamentos ou configurações não puderam ser copiados do PS5X360 (o log os lista). Os arquivos dele não foram alterados.
+Saves were not copied from PS5X360: this app already has saves of its own. = Os salvamentos não foram copiados do PS5X360: este app já tem salvamentos próprios.
+Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Os salvamentos e as configurações não foram copiados do PS5X360: uma pasta não pôde ser verificada (o log diz o motivo). A próxima inicialização tenta de novo.
 
 [added pt]
 Console storage = Armazenamento da consola
@@ -249,6 +251,8 @@ The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Clo
 Saves and settings were copied from PS5X360. Its own files were not changed. = Os jogos guardados e as definições foram copiados do PS5X360. Os ficheiros dele não foram alterados.
 Saves and settings were not copied from PS5X360: not enough free space. = Os jogos guardados e as definições não foram copiados do PS5X360: não há espaço livre suficiente.
 Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed. = Alguns jogos guardados ou definições não puderam ser copiados do PS5X360 (o registo indica quais). Os ficheiros dele não foram alterados.
+Saves were not copied from PS5X360: this app already has saves of its own. = Os jogos guardados não foram copiados do PS5X360: esta aplicação já tem jogos guardados próprios.
+Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Os jogos guardados e as definições não foram copiados do PS5X360: não foi possível verificar uma pasta (o registo indica o motivo). O próximo arranque tenta novamente.
 
 [added es]
 Console storage = Almacenamiento de la consola
@@ -281,6 +285,8 @@ The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Clo
 Saves and settings were copied from PS5X360. Its own files were not changed. = Las partidas guardadas y los ajustes se han copiado de PS5X360. Sus propios archivos no se han modificado.
 Saves and settings were not copied from PS5X360: not enough free space. = Las partidas guardadas y los ajustes no se han copiado de PS5X360: no hay suficiente espacio libre.
 Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed. = Algunas partidas guardadas o ajustes no se han podido copiar de PS5X360 (el registro los indica). Sus propios archivos no se han modificado.
+Saves were not copied from PS5X360: this app already has saves of its own. = Las partidas guardadas no se han copiado de PS5X360: esta aplicación ya tiene sus propias partidas guardadas.
+Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Las partidas guardadas y los ajustes no se han copiado de PS5X360: no se ha podido comprobar una carpeta (el registro indica el motivo). El próximo inicio lo intentará de nuevo.
 
 [added es-419]
 Console storage = Almacenamiento de la consola
@@ -313,6 +319,8 @@ The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Clo
 Saves and settings were copied from PS5X360. Its own files were not changed. = Las partidas guardadas y la configuración se copiaron de PS5X360. Sus propios archivos no se modificaron.
 Saves and settings were not copied from PS5X360: not enough free space. = Las partidas guardadas y la configuración no se copiaron de PS5X360: no hay suficiente espacio libre.
 Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed. = Algunas partidas guardadas o parte de la configuración no se pudieron copiar de PS5X360 (el registro las indica). Sus propios archivos no se modificaron.
+Saves were not copied from PS5X360: this app already has saves of its own. = Las partidas guardadas no se copiaron de PS5X360: esta aplicación ya tiene sus propias partidas guardadas.
+Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Las partidas guardadas y la configuración no se copiaron de PS5X360: no se pudo comprobar una carpeta (el registro indica el motivo). El próximo inicio lo intentará de nuevo.
 
 [added de]
 Console storage = Konsolenspeicher
@@ -345,6 +353,8 @@ The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Clo
 Saves and settings were copied from PS5X360. Its own files were not changed. = Spielstände und Einstellungen wurden aus PS5X360 kopiert. Dessen eigene Dateien wurden nicht geändert.
 Saves and settings were not copied from PS5X360: not enough free space. = Spielstände und Einstellungen wurden nicht aus PS5X360 kopiert: nicht genügend freier Speicherplatz.
 Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed. = Einige Spielstände oder Einstellungen konnten nicht aus PS5X360 kopiert werden (das Protokoll nennt sie). Dessen eigene Dateien wurden nicht geändert.
+Saves were not copied from PS5X360: this app already has saves of its own. = Spielstände wurden nicht aus PS5X360 kopiert: Diese App hat bereits eigene Spielstände.
+Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Spielstände und Einstellungen wurden nicht aus PS5X360 kopiert: Ein Ordner konnte nicht geprüft werden (das Protokoll nennt den Grund). Der nächste Start versucht es erneut.
 
 [added fr]
 Console storage = Stockage de la console
@@ -377,6 +387,8 @@ The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Clo
 Saves and settings were copied from PS5X360. Its own files were not changed. = Les sauvegardes et les réglages ont été copiés depuis PS5X360. Ses propres fichiers n'ont pas été modifiés.
 Saves and settings were not copied from PS5X360: not enough free space. = Les sauvegardes et les réglages n'ont pas été copiés depuis PS5X360 : espace libre insuffisant.
 Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed. = Certaines sauvegardes ou certains réglages n'ont pas pu être copiés depuis PS5X360 (le journal les indique). Ses propres fichiers n'ont pas été modifiés.
+Saves were not copied from PS5X360: this app already has saves of its own. = Les sauvegardes n'ont pas été copiées depuis PS5X360 : cette application a déjà ses propres sauvegardes.
+Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Les sauvegardes et les réglages n'ont pas été copiés depuis PS5X360 : un dossier n'a pas pu être vérifié (le journal indique pourquoi). Le prochain démarrage réessaiera.
 
 [added it]
 Console storage = Memoria della console
@@ -409,6 +421,8 @@ The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Clo
 Saves and settings were copied from PS5X360. Its own files were not changed. = Salvataggi e impostazioni sono stati copiati da PS5X360. I suoi file non sono stati modificati.
 Saves and settings were not copied from PS5X360: not enough free space. = Salvataggi e impostazioni non sono stati copiati da PS5X360: spazio libero insufficiente.
 Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed. = Alcuni salvataggi o impostazioni non sono stati copiati da PS5X360 (il registro li elenca). I suoi file non sono stati modificati.
+Saves were not copied from PS5X360: this app already has saves of its own. = I salvataggi non sono stati copiati da PS5X360: questa app ha già salvataggi propri.
+Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Salvataggi e impostazioni non sono stati copiati da PS5X360: non è stato possibile controllare una cartella (il registro indica il motivo). Il prossimo avvio riproverà.
 
 [added ja]
 Console storage = 本体ストレージ
@@ -441,6 +455,8 @@ The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Clo
 Saves and settings were copied from PS5X360. Its own files were not changed. = PS5X360 からセーブデータと設定をコピーしました。PS5X360 のファイルは変更されていません。
 Saves and settings were not copied from PS5X360: not enough free space. = PS5X360 からセーブデータと設定をコピーできませんでした：空き容量が足りません。
 Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed. = PS5X360 から一部のセーブデータまたは設定をコピーできませんでした（ログに記録されています）。PS5X360 のファイルは変更されていません。
+Saves were not copied from PS5X360: this app already has saves of its own. = PS5X360 からセーブデータをコピーしませんでした：このアプリにはすでに独自のセーブデータがあります。
+Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = PS5X360 からセーブデータと設定をコピーできませんでした：フォルダーを確認できませんでした（理由はログに記録されています）。次回の起動時に再試行します。
 
 [added ko]
 Console storage = 본체 저장 공간
@@ -473,6 +489,8 @@ The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Clo
 Saves and settings were copied from PS5X360. Its own files were not changed. = PS5X360에서 저장 데이터와 설정을 복사했습니다. PS5X360의 파일은 변경되지 않았습니다.
 Saves and settings were not copied from PS5X360: not enough free space. = PS5X360에서 저장 데이터와 설정을 복사하지 못했습니다: 여유 공간이 부족합니다.
 Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed. = PS5X360에서 일부 저장 데이터 또는 설정을 복사하지 못했습니다(로그에 기록됨). PS5X360의 파일은 변경되지 않았습니다.
+Saves were not copied from PS5X360: this app already has saves of its own. = PS5X360에서 저장 데이터를 복사하지 않았습니다: 이 앱에 이미 자체 저장 데이터가 있습니다.
+Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = PS5X360에서 저장 데이터와 설정을 복사하지 못했습니다: 폴더를 확인할 수 없었습니다(로그에 이유가 기록됨). 다음 시작 시 다시 시도합니다.
 
 [added nl]
 Console storage = Consoleopslag
@@ -505,6 +523,8 @@ The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Clo
 Saves and settings were copied from PS5X360. Its own files were not changed. = Opgeslagen spellen en instellingen zijn gekopieerd uit PS5X360. De eigen bestanden daarvan zijn niet gewijzigd.
 Saves and settings were not copied from PS5X360: not enough free space. = Opgeslagen spellen en instellingen zijn niet gekopieerd uit PS5X360: onvoldoende vrije ruimte.
 Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed. = Sommige opgeslagen spellen of instellingen konden niet uit PS5X360 worden gekopieerd (het logboek noemt ze). De eigen bestanden daarvan zijn niet gewijzigd.
+Saves were not copied from PS5X360: this app already has saves of its own. = Opgeslagen spellen zijn niet gekopieerd uit PS5X360: deze app heeft al eigen opgeslagen spellen.
+Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Opgeslagen spellen en instellingen zijn niet gekopieerd uit PS5X360: een map kon niet worden gecontroleerd (het logboek noemt de reden). De volgende start probeert het opnieuw.
 
 [added pl]
 Console storage = Pamięć konsoli
@@ -537,6 +557,8 @@ The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Clo
 Saves and settings were copied from PS5X360. Its own files were not changed. = Zapisy i ustawienia zostały skopiowane z PS5X360. Jego własne pliki nie zostały zmienione.
 Saves and settings were not copied from PS5X360: not enough free space. = Zapisy i ustawienia nie zostały skopiowane z PS5X360: za mało wolnego miejsca.
 Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed. = Części zapisów lub ustawień nie udało się skopiować z PS5X360 (log je wymienia). Jego własne pliki nie zostały zmienione.
+Saves were not copied from PS5X360: this app already has saves of its own. = Zapisy nie zostały skopiowane z PS5X360: ta aplikacja ma już własne zapisy.
+Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Zapisy i ustawienia nie zostały skopiowane z PS5X360: nie udało się sprawdzić folderu (log podaje powód). Następne uruchomienie spróbuje ponownie.
 
 [added ru]
 Console storage = Память консоли
@@ -569,6 +591,8 @@ The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Clo
 Saves and settings were copied from PS5X360. Its own files were not changed. = Сохранения и настройки скопированы из PS5X360. Его собственные файлы не изменены.
 Saves and settings were not copied from PS5X360: not enough free space. = Сохранения и настройки не скопированы из PS5X360: недостаточно свободного места.
 Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed. = Некоторые сохранения или настройки не удалось скопировать из PS5X360 (они указаны в журнале). Его собственные файлы не изменены.
+Saves were not copied from PS5X360: this app already has saves of its own. = Сохранения не скопированы из PS5X360: у этого приложения уже есть собственные сохранения.
+Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Сохранения и настройки не скопированы из PS5X360: не удалось проверить папку (причина указана в журнале). При следующем запуске будет новая попытка.
 
 [added tr]
 Console storage = Konsol depolama alanı
@@ -601,6 +625,8 @@ The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Clo
 Saves and settings were copied from PS5X360. Its own files were not changed. = Kayıtlar ve ayarlar PS5X360'tan kopyalandı. Onun kendi dosyaları değiştirilmedi.
 Saves and settings were not copied from PS5X360: not enough free space. = Kayıtlar ve ayarlar PS5X360'tan kopyalanmadı: yeterli boş alan yok.
 Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed. = Bazı kayıtlar veya ayarlar PS5X360'tan kopyalanamadı (günlükte listelenir). Onun kendi dosyaları değiştirilmedi.
+Saves were not copied from PS5X360: this app already has saves of its own. = Kayıtlar PS5X360'tan kopyalanmadı: bu uygulamanın zaten kendi kayıtları var.
+Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Kayıtlar ve ayarlar PS5X360'tan kopyalanmadı: bir klasör denetlenemedi (nedeni günlükte yazıyor). Bir sonraki başlatmada yeniden denenecek.
 
 [added zh-Hans]
 Console storage = 主机存储空间
@@ -633,6 +659,8 @@ The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Clo
 Saves and settings were copied from PS5X360. Its own files were not changed. = 已从 PS5X360 复制存档和设置。PS5X360 自身的文件未被更改。
 Saves and settings were not copied from PS5X360: not enough free space. = 未从 PS5X360 复制存档和设置：可用空间不足。
 Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed. = 部分存档或设置未能从 PS5X360 复制（日志中列出）。PS5X360 自身的文件未被更改。
+Saves were not copied from PS5X360: this app already has saves of its own. = 未从 PS5X360 复制存档：此应用已有自己的存档。
+Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = 未从 PS5X360 复制存档和设置：无法检查某个文件夹（原因见日志）。下次启动时将重试。
 
 [added zh-Hant]
 Console storage = 主機儲存空間
@@ -665,3 +693,5 @@ The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Clo
 Saves and settings were copied from PS5X360. Its own files were not changed. = 已從 PS5X360 複製存檔和設定。PS5X360 本身的檔案未被變更。
 Saves and settings were not copied from PS5X360: not enough free space. = 未從 PS5X360 複製存檔和設定：可用空間不足。
 Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed. = 部分存檔或設定未能從 PS5X360 複製（記錄中列出）。PS5X360 本身的檔案未被變更。
+Saves were not copied from PS5X360: this app already has saves of its own. = 未從 PS5X360 複製存檔：此應用程式已有自己的存檔。
+Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = 未從 PS5X360 複製存檔和設定：無法檢查某個資料夾（原因見記錄）。下次啟動時將重試。

@@ -163,10 +163,10 @@ index 5c091ab..a17468a 100644
  //
 diff --git a/include/xbox360ps5/official_import.hpp b/include/xbox360ps5/official_import.hpp
 new file mode 100644
-index 0000000..efc6c4a
+index 0000000..0533e0c
 --- /dev/null
 +++ b/include/xbox360ps5/official_import.hpp
-@@ -0,0 +1,404 @@
+@@ -0,0 +1,763 @@
 +// SPDX-License-Identifier: MIT
 +// Fix 46 (tools/source-1.0.2/fixes/46-ps5x360reloaded-identity.patch): the first start of
 +// PS5X360Reloaded copies the official PS5X360's saves and small settings files from its folder
@@ -181,24 +181,53 @@ index 0000000..efc6c4a
 +//   * only when the folder holding <target> has room for all of it plus kMargin; otherwise
 +//     nothing is copied;
 +//   * each entry that cannot be read, a link, or anything else than a file or folder is left out
-+//     and counted (the log names the first ones); copies are copies, never links, since saves
-+//     are rewritten in place.
++//     and counted (the log names the first ones, with the reason); copies are copies, never
++//     links, since saves are rewritten in place.
 +// The marker <target>/.official-import records the outcome, so this runs once: after an import,
 +// when the official folder is absent, and when the room is short (the start then makes empty
-+// saves, and the notice says so; the files can still be copied by FTP).
++// saves, and the notice says so; the files can still be copied by FTP). No marker, so that the
++// next start tries again, when the folders overlap or when a path the decision rests on (the
++// marker, the official folder, its saves, the title's saves) could not be looked at for another
++// reason than "not found"; the log and the notice say so, the log with the error.
 +// Nothing is ever written, created, renamed or removed in the official folder: it is only
 +// opened for reading and listed, and every path written to is checked to be inside <target>
 +// and outside <source> first. Not copied: cache/ (shaders and modules, made again), logs/ (with
 +// web-settings.key and phone-camera/: this title makes its own key and its own camera
 +// certificate) and the official app's own files.
++//
++// How paths are looked at. Candidate 53 on the console found no official folder although it was
++// there (drwxrwxrwx) and wrote no marker: every check went through lstat
++// (std::filesystem::symlink_status) and the write gate through realpath (weakly_canonical, which
++// turns a realpath failure into an empty path without an error), neither of which the title had
++// used on the console before. What the title's working code uses there is stat and directory
++// listings (fix 27's PosixFs: ::stat of a folder and of its "..", std::filesystem::is_directory,
++// statvfs, directory_iterator; ::open to probe a drive). So here:
++//   * a path's type comes from stat (std::filesystem::status); lstat is asked too, and when it
++//     answers a link is a link (never followed); when it fails only stat counts (Look);
++//   * an entry of a listing takes its type from the listing (d_type), stat only when the listing
++//     does not say (LookEntry); a link the listing names is left out;
++//   * the write gate compares the paths lexically (both are absolute) and, with stat alone, that
++//     each existing folder on the way has the one above it as its ".." (Copier::Contained), so a
++//     link in the title's folder that leads elsewhere is not written through; the folders overlap
++//     also when stat finds one inside the other by walking ".." (InsideByStat);
++//   * files are copied with open(O_CREAT | O_EXCL), which never replaces a file and never writes
++//     through a link, a dangling one included, without asking lstat;
++//   * an error other than "not found" is kept with its message and errno for the log.
 +// Header only and free of the rest of the title, so that tools/check-official-import.cpp
-+// drives the same code on a temporary folder.
++// drives the same code on a temporary folder, with lstat, stat and realpath made to fail as the
++// console's did.
 +#pragma once
++#include <fcntl.h>
++#include <sys/types.h>
++#include <unistd.h>
++
 +#include <algorithm>
++#include <cerrno>
 +#include <cstdint>
++#include <cstdio>
 +#include <filesystem>
-+#include <fstream>
 +#include <functional>
++#include <set>
 +#include <string>
 +#include <system_error>
 +#include <vector>
@@ -223,6 +252,20 @@ index 0000000..efc6c4a
 +// Lines naming left-out entries, at most.
 +inline constexpr size_t kMaxNamed = 32;
 +
++// How a path is looked at (test hook: the check makes these fail as the console's did).
++struct Probe {
++  // Follows links (stat): what the title's working code on the console uses.
++  std::function<fs::file_status(const fs::path&, std::error_code&)> status;
++  // Does not follow links (lstat): asked only to see a link as a link; its failure is ignored.
++  std::function<fs::file_status(const fs::path&, std::error_code&)> link_status;
++};
++inline Probe RealProbe() {
++  Probe probe;
++  probe.status = [](const fs::path& path, std::error_code& error) { return fs::status(path, error); };
++  probe.link_status = [](const fs::path& path, std::error_code& error) { return fs::symlink_status(path, error); };
++  return probe;
++}
++
 +// What the decision needs to know, gathered by Gather (or made up by the check).
 +struct Facts {
 +  bool marker = false;        // <target>/.official-import exists: decided at an earlier start
@@ -230,15 +273,19 @@ index 0000000..efc6c4a
 +  bool source = false;        // the official folder is a folder (not a link)
 +  bool source_saves = false;  // <source>/saves is a folder (not a link)
 +  bool target_saves = false;  // <target>/saves exists, whatever it is
-+  uint64_t saves_bytes = 0;   // the files of <source>/saves
-+  uint64_t small_bytes = 0;   // kFiles and kFolders' files the title does not have yet
++  fs::file_type source_type = fs::file_type::none;  // what the official folder is (not_found: absent)
++  std::string error;      // "<path> could not be checked: <reason>": a path the decision rests on
++  std::string link_note;  // lstat's error on the official folder, when stat answered alone
++  uint64_t saves_bytes = 0;  // the files of <source>/saves
++  uint64_t small_bytes = 0;  // kFiles and kFolders' files the title does not have yet
 +  bool space_known = false;
-+  uint64_t free = 0;          // room where <target> is
++  uint64_t free = 0;  // room where <target> is
 +};
 +
 +enum class Decision {
 +  kAlreadyDone,      // the marker: nothing at all
 +  kUnsafe,           // nothing at all, no marker
++  kCannotCheck,      // a path could not be looked at: nothing at all, no marker (the next start tries again)
 +  kNothingToImport,  // no official folder: the marker only
 +  kNoSpace,          // not enough room (or not known): the marker only
 +  kImport,           // copy (saves when copy_saves), then the marker
@@ -258,6 +305,10 @@ index 0000000..efc6c4a
 +  if (facts.marker) return plan;
 +  if (facts.unsafe) {
 +    plan.decision = Decision::kUnsafe;
++    return plan;
++  }
++  if (!facts.error.empty()) {
++    plan.decision = Decision::kCannotCheck;
 +    return plan;
 +  }
 +  plan.write_marker = true;
@@ -281,6 +332,7 @@ index 0000000..efc6c4a
 +  switch (decision) {
 +    case Decision::kAlreadyDone: return "already done";
 +    case Decision::kUnsafe: return "refused (the folders overlap or the title's folder is a link)";
++    case Decision::kCannotCheck: return "not imported yet (a folder could not be checked)";
 +    case Decision::kNothingToImport: return "nothing to import (no official folder)";
 +    case Decision::kNoSpace: return "not enough free space";
 +    case Decision::kImport: return "imported";
@@ -290,6 +342,8 @@ index 0000000..efc6c4a
 +
 +struct Result {
 +  Plan plan;
++  Facts facts;
++  std::string source, target;  // the two folders, for the summary
 +  bool saves_copied = false;
 +  uint64_t files = 0;    // files copied
 +  uint64_t bytes = 0;    // their bytes
@@ -297,6 +351,7 @@ index 0000000..efc6c4a
 +  uint64_t skipped = 0;  // entries left out: unreadable, links, other types, failed copies
 +  uint64_t free = 0;
 +  bool marker_written = false;
++  std::string marker_error;        // why the marker was not written, when it was not
 +  std::string error;               // why the saves were not put in place, when they were not
 +  std::vector<std::string> lines;  // what was left out (kMaxNamed at most), for the log
 +};
@@ -305,25 +360,64 @@ index 0000000..efc6c4a
 +using FreeSpace = std::function<bool(const fs::path& path, uint64_t* free)>;
 +inline bool RealFreeSpace(const fs::path& path, uint64_t* free) {
 +  std::error_code error;
-+  const auto info = fs::space(path, error);
++  const auto info = fs::space(path, error);  // libc's statvfs, as fix 27 on the console
 +  if (error) return false;
 +  *free = info.available;
 +  return true;
 +}
 +
 +namespace detail {
-+inline bool IsFolder(const fs::path& path) {
-+  std::error_code error;
-+  return fs::symlink_status(path, error).type() == fs::file_type::directory;
++inline std::string Errno(int number) {
++  return std::generic_category().message(number) + " (errno " + std::to_string(number) + ")";
 +}
-+inline bool IsFile(const fs::path& path) {
-+  std::error_code error;
-+  return fs::symlink_status(path, error).type() == fs::file_type::regular;
++inline std::string Reason(const std::error_code& error) {
++  return error.message() + " (errno " + std::to_string(error.value()) + ")";
 +}
-+inline bool Exists(const fs::path& path) {
++inline bool NotFound(const std::error_code& error) {
++  return error == std::errc::no_such_file_or_directory || error == std::errc::not_a_directory;
++}
++
++// What a path is: its type (not_found when absent), or why it could not be told.
++struct Kind {
++  fs::file_type type = fs::file_type::none;
++  std::string error;       // set only when the type could not be told
++  std::string link_error;  // lstat's error when it did not answer (stat was used alone)
++  bool Absent() const { return type == fs::file_type::not_found; }
++  bool Failed() const { return !error.empty(); }
++  bool Present() const { return !Absent() && !Failed(); }
++  bool Folder() const { return type == fs::file_type::directory; }
++  bool File() const { return type == fs::file_type::regular; }
++};
++inline Kind Look(const Probe& probe, const fs::path& path) {
++  Kind kind;
++  std::error_code link_error;
++  const fs::file_status link = probe.link_status(path, link_error);
++  if (!link_error && link.type() == fs::file_type::symlink) {
++    kind.type = fs::file_type::symlink;
++    return kind;
++  }
++  if (link_error && !NotFound(link_error)) kind.link_error = Reason(link_error);
 +  std::error_code error;
-+  const auto type = fs::symlink_status(path, error).type();
-+  return type != fs::file_type::not_found && type != fs::file_type::none;
++  const fs::file_status status = probe.status(path, error);
++  if (status.type() == fs::file_type::not_found || (error && NotFound(error))) {
++    kind.type = fs::file_type::not_found;
++  } else if (error || status.type() == fs::file_type::none) {
++    kind.error = error ? Reason(error) : std::string("its type could not be read");
++  } else {
++    kind.type = status.type();
++  }
++  return kind;
++}
++// An entry of a listing: its type from the listing when the listing gives one, else Look.
++inline Kind LookEntry(const Probe& probe, const fs::directory_entry& entry) {
++  std::error_code error;
++  const fs::file_type type = entry.symlink_status(error).type();
++  if (!error && type != fs::file_type::none && type != fs::file_type::not_found) {
++    Kind kind;
++    kind.type = type;
++    return kind;
++  }
++  return Look(probe, entry.path());
 +}
 +// Whether `inner` is `outer` or inside it, by path components (both made absolute and normal).
 +inline bool Within(const fs::path& inner, const fs::path& outer) {
@@ -334,58 +428,143 @@ index 0000000..efc6c4a
 +    if (!part.empty()) b.push_back(part);
 +  return !b.empty() && b.size() <= a.size() && std::equal(b.begin(), b.end(), a.begin());
 +}
-+inline fs::path Normal(const fs::path& path) {
++// Absolute and normal, lexically (no realpath: see the top).
++inline fs::path Lexical(const fs::path& path) {
++  if (path.is_absolute()) return path.lexically_normal();
 +  std::error_code error;
-+  fs::path full = fs::weakly_canonical(path, error);
-+  if (error) full = fs::absolute(path, error).lexically_normal();
-+  return full;
++  return fs::absolute(path, error).lexically_normal();
++}
++// Whether `inner` is `outer` or inside it as stat sees the folders: `outer` is `inner` or one of
++// the folders its ".." chain reaches. Finds a link that lstat could not show. False when stat
++// cannot tell (a folder missing, or not to be looked at).
++inline bool InsideByStat(const fs::path& inner, const fs::path& outer) {
++  fs::path at = inner;
++  for (int level = 0; level < 4 * kMaxDepth; ++level) {
++    std::error_code error;
++    if (fs::equivalent(at, outer, error) && !error) return true;
++    if (error) return false;
++    const fs::path up = at / "..";
++    std::error_code up_error;
++    if (fs::equivalent(up, at, up_error) || up_error) return false;  // the root (its own parent)
++    at = up;
++  }
++  return false;
++}
++// `path`, or its nearest folder above that exists (where it would be made).
++inline fs::path Existing(const Probe& probe, const fs::path& path) {
++  fs::path at = path;
++  for (int level = 0; level < 4 * kMaxDepth && Look(probe, at).Absent() && at.has_relative_path(); ++level)
++    at = at.parent_path();
++  return at;
++}
++// Whether the title's folder is the official one, inside it or holds it, or is a link. A title's
++// folder still to be made counts where it would be made (a link above it is followed by stat).
++inline bool Overlap(const Probe& probe, const fs::path& source, const fs::path& target) {
++  if (Look(probe, target).type == fs::file_type::symlink) return true;
++  const fs::path s = Lexical(source), t = Lexical(target);
++  if (Within(s, t) || Within(t, s)) return true;
++  return InsideByStat(Existing(probe, t), s) || InsideByStat(s, t);
++}
++
++enum class Copied { kYes, kThere, kFailed };
++// One file's bytes into a new file: open(O_CREAT | O_EXCL) fails on anything of that name, a
++// link (dangling or not) included, so nothing is replaced and nothing is written through a link.
++inline Copied CopyBytes(const fs::path& from, const fs::path& to, uint64_t* size, std::string* why) {
++  const int in = ::open(from.c_str(), O_RDONLY);
++  if (in < 0) {
++    *why = "not readable: " + Errno(errno);
++    return Copied::kFailed;
++  }
++  const int out = ::open(to.c_str(), O_WRONLY | O_CREAT | O_EXCL, 0666);
++  if (out < 0) {
++    const int number = errno;
++    ::close(in);
++    if (number == EEXIST) return Copied::kThere;
++    *why = "its copy could not be made: " + Errno(number);
++    return Copied::kFailed;
++  }
++  std::vector<char> buffer(size_t(1) << 16);
++  uint64_t total = 0;
++  std::string error;
++  for (;;) {
++    const ssize_t got = ::read(in, buffer.data(), buffer.size());
++    if (got < 0) {
++      if (errno == EINTR) continue;
++      error = "not read: " + Errno(errno);
++      break;
++    }
++    if (got == 0) break;
++    for (ssize_t done = 0; done < got && error.empty();) {
++      const ssize_t put = ::write(out, buffer.data() + done, size_t(got - done));
++      if (put < 0) {
++        if (errno != EINTR) error = "not written: " + Errno(errno);
++        continue;
++      }
++      done += put;
++    }
++    if (!error.empty()) break;
++    total += uint64_t(got);
++  }
++  ::close(in);
++  if (::close(out) != 0 && error.empty()) error = "not written: " + Errno(errno);
++  if (!error.empty()) {
++    ::unlink(to.c_str());  // the partial copy this call made
++    *why = error;
++    return Copied::kFailed;
++  }
++  *size = total;
++  return Copied::kYes;
 +}
 +
 +class Copier {
 + public:
-+  Copier(const fs::path& source, const fs::path& target, Result& result)
-+      : source_(Normal(source)), target_(Normal(target)), result_(result) {}
++  Copier(const fs::path& source, const fs::path& target, const Probe& probe, Result& result)
++      : source_(Lexical(source)), target_(Lexical(target)), probe_(probe), result_(result) {}
 +
 +  // The only gate to writing: inside the title's folder, never inside the official one.
 +  bool MayWrite(const fs::path& path) const {
-+    const fs::path full = Normal(path);
-+    return Within(full, target_) && !Within(full, source_);
++    const fs::path full = Lexical(path);
++    return Within(full, target_) && !Within(full, source_) && Contained(full);
 +  }
 +  void LeaveOut(const fs::path& path, const std::string& why) {
 +    ++result_.skipped;
 +    if (result_.lines.size() < kMaxNamed) result_.lines.push_back(path.string() + ": " + why);
 +  }
-+  // One file, never over an existing one (copy_options::none fails when `to` exists).
++  // One file, never over an existing one (then counted as kept).
 +  bool CopyFile(const fs::path& from, const fs::path& to) {
 +    if (!MayWrite(to)) {
-+      LeaveOut(from, "not copied (destination outside the title's folder)");
++      LeaveOut(from, "not copied (its copy would not be inside the title's folder)");
 +      return false;
 +    }
-+    std::error_code error;
-+    const uint64_t size = fs::file_size(from, error);
-+    if (error) {
-+      LeaveOut(from, error.message());
-+      return false;
++    uint64_t size = 0;
++    std::string why;
++    switch (CopyBytes(from, to, &size, &why)) {
++      case Copied::kYes:
++        ++result_.files;
++        result_.bytes += size;
++        return true;
++      case Copied::kThere:
++        ++result_.kept;
++        return false;
++      case Copied::kFailed:
++        LeaveOut(from, why);
++        return false;
 +    }
-+    if (!fs::copy_file(from, to, fs::copy_options::none, error) || error) {
-+      LeaveOut(from, error ? error.message() : "not copied");
-+      std::error_code remove_error;
-+      if (error && error != std::errc::file_exists) fs::remove(to, remove_error);  // a partial copy
-+      return false;
-+    }
-+    // copy_file gives the copy the source's mode: a save the game rewrites in place must stay
-+    // writable for this title (its owner) even when the official file was read-only.
-+    std::error_code mode_error;
-+    fs::permissions(to, fs::perms::owner_read | fs::perms::owner_write, fs::perm_options::add, mode_error);
-+    ++result_.files;
-+    result_.bytes += size;
-+    return true;
++    return false;
 +  }
-+  bool MakeFolder(const fs::path& path) {
-+    if (!MayWrite(path)) return false;
-+    std::error_code error;
-+    fs::create_directories(path, error);
-+    return !error && IsFolder(path);
++  bool MakeFolder(const fs::path& path, std::string* why = nullptr) {
++    std::string reason;
++    if (!MayWrite(path)) {
++      reason = "not inside the title's folder";
++    } else {
++      std::error_code error;
++      fs::create_directories(path, error);
++      const Kind kind = Look(probe_, path);
++      if (kind.Folder() && MayWrite(path)) return true;  // made, and not a link that leads elsewhere
++      reason = error ? Reason(error) : kind.Failed() ? kind.error : "not a folder of the title's";
++    }
++    if (why) *why = reason;
++    return false;
 +  }
 +  // Every file under `from` into `to`. only_missing: kept when `to` has one of that name
 +  // (small folders); otherwise `to` is a fresh staging folder.
@@ -397,103 +576,239 @@ index 0000000..efc6c4a
 +    std::error_code error;
 +    fs::directory_iterator it(from, error), end;
 +    if (error) {
-+      LeaveOut(from, error.message());
++      LeaveOut(from, "not listed: " + Reason(error));
 +      return;
 +    }
 +    for (; !error && it != end; it.increment(error)) {
 +      const fs::path entry = it->path();
 +      const fs::path dest = to / entry.filename();
-+      std::error_code type_error;
-+      const auto type = fs::symlink_status(entry, type_error).type();
-+      if (type == fs::file_type::directory) {
-+        if (!MakeFolder(dest)) {
-+          LeaveOut(entry, "folder not made");
++      const Kind kind = LookEntry(probe_, *it);
++      if (kind.Failed()) {
++        LeaveOut(entry, kind.error);
++      } else if (kind.Folder()) {
++        std::string why;
++        if (!MakeFolder(dest, &why)) {
++          LeaveOut(entry, "its folder not made: " + why);
 +          continue;
 +        }
 +        Tree(entry, dest, only_missing, depth + 1);
-+      } else if (type == fs::file_type::regular) {
-+        if (only_missing && Exists(dest)) {
-+          ++result_.kept;
-+          continue;
++      } else if (kind.File()) {
++        if (only_missing) {
++          const Kind there = Look(probe_, dest);
++          if (there.Failed()) {
++            LeaveOut(entry, "its copy's place could not be checked: " + there.error);
++            continue;
++          }
++          if (!there.Absent()) {
++            ++result_.kept;
++            continue;
++          }
 +        }
 +        CopyFile(entry, dest);
 +      } else {
-+        LeaveOut(entry, type == fs::file_type::symlink ? "a link (not followed)" : "not a file or folder");
++        LeaveOut(entry, kind.type == fs::file_type::symlink ? "a link (not followed)" : "not a file or folder");
 +      }
 +    }
-+    if (error) LeaveOut(from, "listing stopped: " + error.message());
++    if (error) LeaveOut(from, "listing stopped: " + Reason(error));
 +  }
 +
 + private:
++  // stat's view of the way from the title's folder to `path`: each folder on it that exists has
++  // the one above it as its "..", so none of them is a link that leads elsewhere (no lstat). A
++  // missing part ends the walk (nothing below it exists yet); a file ends it too (the last part,
++  // which open(O_EXCL) never replaces, or a part nothing can be made under).
++  bool Contained(const fs::path& full) const {
++    const fs::path rel = full.lexically_relative(target_);
++    fs::path above = target_, here = target_;
++    for (const auto& part : rel) {
++      if (part.empty() || part == ".") continue;
++      if (part == "..") return false;
++      here /= part;
++      if (verified_.count(here.string())) {
++        above = here;
++        continue;
++      }
++      const Kind kind = Look(probe_, here);
++      if (kind.Absent()) return true;
++      if (kind.Failed() || kind.type == fs::file_type::symlink) return false;
++      if (!kind.Folder()) return true;
++      std::error_code error;
++      if (!fs::equivalent(here / "..", above, error) || error) return false;
++      verified_.insert(here.string());
++      above = here;
++    }
++    return true;
++  }
++
 +  fs::path source_, target_;
++  const Probe& probe_;
 +  Result& result_;
++  mutable std::set<std::string> verified_;  // folders found inside the title's folder
 +};
 +
-+// Whether the title's folder is the official one, inside it or holds it, or is a link.
-+inline bool Overlap(const fs::path& source, const fs::path& target) {
-+  std::error_code error;
-+  if (fs::symlink_status(target, error).type() == fs::file_type::symlink) return true;
-+  const fs::path s = Normal(source), t = Normal(target);
-+  return Within(s, t) || Within(t, s);
-+}
 +// Bytes of the files under a folder (links not followed; what cannot be read counts nothing).
-+inline uint64_t Bytes(const fs::path& folder, int depth = 0) {
++inline uint64_t Bytes(const Probe& probe, const fs::path& folder, int depth = 0) {
 +  uint64_t total = 0;
 +  if (depth > kMaxDepth) return total;
 +  std::error_code error;
 +  fs::directory_iterator it(folder, error), end;
 +  for (; !error && it != end; it.increment(error)) {
-+    std::error_code entry_error;
-+    const auto type = it->symlink_status(entry_error).type();
-+    if (type == fs::file_type::directory) {
-+      total += Bytes(it->path(), depth + 1);
-+    } else if (type == fs::file_type::regular) {
-+      const uint64_t size = it->file_size(entry_error);
-+      if (!entry_error) total += size;
++    const Kind kind = LookEntry(probe, *it);
++    if (kind.Folder()) {
++      total += Bytes(probe, it->path(), depth + 1);
++    } else if (kind.File()) {
++      std::error_code size_error;
++      const uint64_t size = fs::file_size(it->path(), size_error);
++      if (!size_error) total += size;
 +    }
 +  }
 +  return total;
 +}
 +// Bytes of the files under `from` that `to` lacks.
-+inline uint64_t MissingBytes(const fs::path& from, const fs::path& to, int depth = 0) {
++inline uint64_t MissingBytes(const Probe& probe, const fs::path& from, const fs::path& to, int depth = 0) {
 +  uint64_t total = 0;
 +  if (depth > kMaxDepth) return total;
 +  std::error_code error;
 +  fs::directory_iterator it(from, error), end;
 +  for (; !error && it != end; it.increment(error)) {
-+    std::error_code entry_error;
-+    const auto type = it->symlink_status(entry_error).type();
++    const Kind kind = LookEntry(probe, *it);
 +    const fs::path dest = to / it->path().filename();
-+    if (type == fs::file_type::directory) {
-+      total += MissingBytes(it->path(), dest, depth + 1);
-+    } else if (type == fs::file_type::regular && !Exists(dest)) {
-+      const uint64_t size = it->file_size(entry_error);
-+      if (!entry_error) total += size;
++    if (kind.Folder()) {
++      total += MissingBytes(probe, it->path(), dest, depth + 1);
++    } else if (kind.File() && Look(probe, dest).Absent()) {
++      std::error_code size_error;
++      const uint64_t size = fs::file_size(it->path(), size_error);
++      if (!size_error) total += size;
 +    }
 +  }
 +  return total;
 +}
++
++// "1.5 MiB" and the like.
++inline std::string Size(uint64_t bytes) {
++  char text[48];
++  if (bytes < 1024) {
++    std::snprintf(text, sizeof(text), "%llu bytes", static_cast<unsigned long long>(bytes));
++  } else {
++    const char* unit = "KiB";
++    double value = double(bytes) / 1024;
++    if (value >= 1024) value /= 1024, unit = "MiB";
++    if (value >= 1024) value /= 1024, unit = "GiB";
++    std::snprintf(text, sizeof(text), "%.1f %s", value, unit);
++  }
++  return text;
++}
++// What the import did, in words (the marker's and the log's), without the marker's own outcome.
++inline std::string Outcome(const Result& result) {
++  const Plan& plan = result.plan;
++  std::string text;
++  switch (plan.decision) {
++    case Decision::kAlreadyDone:
++      return "already done at an earlier start (" + (fs::path(result.target) / kMarker).string() + ")";
++    case Decision::kUnsafe:
++      return "not imported: " + result.source + " and " + result.target +
++             " are the same folder, one is inside the other, or the second is a link; nothing was written";
++    case Decision::kCannotCheck:
++      return "not imported yet: " + result.facts.error + "; nothing was copied";
++    case Decision::kNothingToImport: {
++      const fs::file_type type = result.facts.source_type;
++      return "nothing to import: PS5X360's folder " + result.source +
++             (type == fs::file_type::not_found || type == fs::file_type::none ? " does not exist"
++              : type == fs::file_type::symlink                                ? " is a link (not followed)"
++                                                                              : " is not a folder");
++    }
++    case Decision::kNoSpace:
++      return "not imported: not enough free space in " + result.target + " (" + Size(plan.needed) + " needed, " +
++             (result.facts.space_known ? Size(result.free) + " free" : std::string("the free space could not be read")) +
++             "); nothing was copied";
++    case Decision::kImport:
++      text = "imported from " + result.source + " to " + result.target + ": ";
++      if (result.saves_copied) {
++        text += "saves copied";
++      } else if (plan.copy_saves) {
++        text += "saves not copied (" + result.error + ")";
++      } else if (result.facts.source_saves) {
++        text += "saves not copied (this title has saves of its own, which are never merged)";
++      } else {
++        text += "PS5X360 has no saves";
++      }
++      text += "; " + std::to_string(result.files) + " files (" + Size(result.bytes) + ") copied, " +
++              std::to_string(result.kept) + " already here and kept, " + std::to_string(result.skipped) +
++              " left out" + (result.skipped ? " (listed below)" : "");
++      return text;
++  }
++  return text;
++}
 +}  // namespace detail
 +
++// The import's summary for the log: what it did, and whether the marker was written and why not.
++inline std::string Summary(const Result& result) {
++  std::string text = detail::Outcome(result);
++  if (result.plan.decision == Decision::kAlreadyDone) return text;
++  if (!result.facts.link_note.empty())
++    text += "; lstat did not answer for " + result.source + " (" + result.facts.link_note + "), stat was used";
++  if (result.marker_written) return text + "; marker written";
++  return text + "; marker not written: " + result.marker_error + " (the next start tries again)";
++}
++
++// The launcher's notice after the import, if any (the log has the details).
++enum class Notice {
++  kNone,
++  kCopied,       // "Saves and settings were copied from PS5X360. ..."
++  kSomeLeftOut,  // "Some saves or settings could not be copied from PS5X360 (the log lists them). ..."
++  kOwnSaves,     // "Saves were not copied from PS5X360: this app already has saves of its own."
++  kNoSpace,      // "Saves and settings were not copied from PS5X360: not enough free space."
++  kCannotCheck,  // "Saves and settings were not copied from PS5X360: a folder could not be checked ..."
++};
++inline Notice NoticeFor(const Result& result) {
++  switch (result.plan.decision) {
++    case Decision::kCannotCheck: return Notice::kCannotCheck;
++    case Decision::kNoSpace: return Notice::kNoSpace;
++    case Decision::kImport:
++      if (result.skipped || !result.error.empty()) return Notice::kSomeLeftOut;
++      if (!result.plan.copy_saves && result.facts.source_saves && result.facts.target_saves) return Notice::kOwnSaves;
++      return result.files ? Notice::kCopied : Notice::kNone;
++    default: return Notice::kNone;
++  }
++}
++
 +// The facts, read from the two folders (the official one is only listed and its sizes read).
-+inline Facts Gather(const fs::path& source, const fs::path& target, const FreeSpace& free_space) {
++inline Facts Gather(const fs::path& source, const fs::path& target, const FreeSpace& free_space,
++                    const Probe& probe = RealProbe()) {
 +  Facts facts;
-+  facts.marker = detail::Exists(target / kMarker);
-+  facts.unsafe = detail::Overlap(source, target);
-+  facts.source = detail::IsFolder(source);
-+  facts.source_saves = facts.source && detail::IsFolder(source / kSaves);
-+  facts.target_saves = detail::Exists(target / kSaves);
-+  if (facts.source && !facts.marker && !facts.unsafe) {
-+    if (facts.source_saves && !facts.target_saves) facts.saves_bytes = detail::Bytes(source / kSaves);
++  const auto look = [&](const fs::path& path) {
++    detail::Kind kind = detail::Look(probe, path);
++    if (kind.Failed() && facts.error.empty()) facts.error = path.string() + " could not be checked: " + kind.error;
++    return kind;
++  };
++  facts.marker = look(target / kMarker).Present();
++  facts.unsafe = detail::Overlap(probe, source, target);
++  const detail::Kind folder = look(source);
++  facts.source_type = folder.type;
++  facts.source = folder.Folder();
++  facts.link_note = folder.link_error;
++  if (folder.Absent()) {
++    // stat says there is no official folder: a listing of it must fail too. When it opens, the
++    // answer is not trusted (no marker, the next start tries again) and the log says so.
++    std::error_code error;
++    fs::directory_iterator listing(source, error);
++    if (!error && facts.error.empty())
++      facts.error = source.string() + " could not be checked: stat says it does not exist, yet it can be listed";
++  }
++  facts.source_saves = facts.source && look(source / kSaves).Folder();
++  facts.target_saves = look(target / kSaves).Present();
++  if (facts.source && !facts.marker && !facts.unsafe && facts.error.empty()) {
++    if (facts.source_saves && !facts.target_saves) facts.saves_bytes = detail::Bytes(probe, source / kSaves);
 +    for (const char* name : kFiles) {
 +      std::error_code error;
-+      if (detail::IsFile(source / name) && !detail::Exists(target / name)) {
++      if (detail::Look(probe, source / name).File() && detail::Look(probe, target / name).Absent()) {
 +        const uint64_t size = fs::file_size(source / name, error);
 +        if (!error) facts.small_bytes += size;
 +      }
 +    }
 +    for (const char* name : kFolders)
-+      if (detail::IsFolder(source / name)) facts.small_bytes += detail::MissingBytes(source / name, target / name);
++      if (detail::Look(probe, source / name).Folder())
++        facts.small_bytes += detail::MissingBytes(probe, source / name, target / name);
 +    facts.space_known = free_space && free_space(target, &facts.free);
 +  }
 +  return facts;
@@ -501,35 +816,53 @@ index 0000000..efc6c4a
 +
 +// Decides and, when the plan says so, copies and writes the marker. `target` is made when it is
 +// missing (it is the title's own folder), unless the two folders overlap: then nothing is done.
-+inline Result Run(const fs::path& source, const fs::path& target, const FreeSpace& free_space = RealFreeSpace) {
++inline Result Run(const fs::path& source, const fs::path& target, const FreeSpace& free_space = RealFreeSpace,
++                  const Probe& probe = RealProbe()) {
 +  Result result;
-+  if (detail::Overlap(source, target)) {
++  result.source = source.string();
++  result.target = target.string();
++  if (detail::Overlap(probe, source, target)) {
 +    result.plan.decision = Decision::kUnsafe;
++    result.facts.unsafe = true;
++    result.marker_error = "the folders overlap";
 +    return result;
 +  }
-+  {
++  if (detail::Look(probe, target).Absent()) {
 +    std::error_code error;
-+    if (!detail::Exists(target)) fs::create_directories(target, error);
++    fs::create_directories(target, error);
 +  }
-+  const Facts facts = Gather(source, target, free_space);
-+  result.plan = Decide(facts);
-+  result.free = facts.free;
-+  if (result.plan.decision == Decision::kAlreadyDone || result.plan.decision == Decision::kUnsafe) return result;
-+  detail::Copier copier(source, target, result);
++  result.facts = Gather(source, target, free_space, probe);
++  result.plan = Decide(result.facts);
++  result.free = result.facts.free;
++  switch (result.plan.decision) {
++    case Decision::kAlreadyDone: return result;
++    case Decision::kUnsafe: result.marker_error = "the folders overlap"; return result;
++    case Decision::kCannotCheck: result.marker_error = "a folder could not be checked"; return result;
++    default: break;
++  }
++  detail::Copier copier(source, target, probe, result);
 +  if (result.plan.copy_saves) {
 +    const fs::path staging = target / kStaging, saves = target / kSaves;
 +    std::error_code error;
 +    if (copier.MayWrite(staging)) fs::remove_all(staging, error);  // an interrupted start's
-+    error.clear();
-+    if (!copier.MakeFolder(staging)) {
-+      result.error = "the staging folder could not be made";
++    std::string why;
++    const detail::Kind left = detail::Look(probe, staging);
++    if (!left.Absent()) {
++      result.error = "the staging folder of an earlier start could not be removed: " +
++                     (error ? detail::Reason(error) : left.Failed() ? left.error : std::string("it is still there"));
++    } else if (!copier.MakeFolder(staging, &why)) {
++      result.error = "the staging folder could not be made: " + why;
 +    } else {
 +      copier.Tree(source / kSaves, staging, false);
-+      if (detail::Exists(saves)) {
-+        result.error = "the title has saves now";
-+      } else if (copier.MayWrite(saves)) {
++      const detail::Kind own = detail::Look(probe, saves);
++      if (!own.Absent()) {
++        result.error = own.Failed() ? "the title's saves could not be checked: " + own.error : "the title has saves now";
++      } else if (!copier.MayWrite(saves)) {
++        result.error = "the saves folder would not be inside the title's folder";
++      } else {
++        error.clear();
 +        fs::rename(staging, saves, error);
-+        if (error) result.error = error.message();
++        if (error) result.error = "the copy was not put in place: " + detail::Reason(error);
 +        else result.saves_copied = true;
 +      }
 +      if (!result.saves_copied) fs::remove_all(staging, error);
@@ -538,36 +871,62 @@ index 0000000..efc6c4a
 +  if (result.plan.copy_small) {
 +    for (const char* name : kFiles) {
 +      const fs::path from = source / name, to = target / name;
-+      if (!detail::Exists(from)) continue;
-+      if (!detail::IsFile(from)) {
-+        copier.LeaveOut(from, "not a file");
-+      } else if (detail::Exists(to)) {
-+        ++result.kept;
++      const detail::Kind kind = detail::Look(probe, from);
++      if (kind.Absent()) continue;
++      if (kind.Failed()) {
++        copier.LeaveOut(from, kind.error);
++      } else if (!kind.File()) {
++        copier.LeaveOut(from, kind.type == fs::file_type::symlink ? "a link (not followed)" : "not a file");
 +      } else {
-+        copier.CopyFile(from, to);
++        const detail::Kind there = detail::Look(probe, to);
++        if (there.Failed()) copier.LeaveOut(from, "its copy's place could not be checked: " + there.error);
++        else if (!there.Absent()) ++result.kept;
++        else copier.CopyFile(from, to);
 +      }
 +    }
 +    for (const char* name : kFolders) {
 +      const fs::path from = source / name;
-+      if (!detail::Exists(from)) continue;
-+      if (!detail::IsFolder(from)) {
-+        copier.LeaveOut(from, "not a folder");
-+      } else if (copier.MakeFolder(target / name)) {
++      const detail::Kind kind = detail::Look(probe, from);
++      if (kind.Absent()) continue;
++      std::string why;
++      if (kind.Failed()) {
++        copier.LeaveOut(from, kind.error);
++      } else if (!kind.Folder()) {
++        copier.LeaveOut(from, kind.type == fs::file_type::symlink ? "a link (not followed)" : "not a folder");
++      } else if (copier.MakeFolder(target / name, &why)) {
 +        copier.Tree(from, target / name, true);
 +      } else {
-+        copier.LeaveOut(from, "folder not made");
++        copier.LeaveOut(from, "its folder not made: " + why);
 +      }
 +    }
 +  }
-+  if (result.plan.write_marker && copier.MayWrite(target / kMarker)) {
-+    std::ofstream marker(target / kMarker, std::ios::trunc);
-+    marker << "from " << source.string() << "\n" << DecisionName(result.plan.decision) << "\n"
-+           << "saves " << (result.saves_copied ? "copied" : result.plan.copy_saves ? "not copied: " + result.error : "not copied")
-+           << "\nfiles " << result.files << " (" << result.bytes << " bytes), kept " << result.kept << ", left out "
-+           << result.skipped << "\nneeded " << result.plan.needed << " bytes, free " << result.free << "\n";
-+    marker.flush();
-+    result.marker_written = bool(marker);
++  // The marker: a new file (O_EXCL: the check above found none, and nothing is written through a link).
++  const fs::path marker = target / kMarker;
++  if (!copier.MayWrite(marker)) {
++    result.marker_error = "its path is not inside the title's folder";
++  } else {
++    const std::string text = "from " + result.source + "\n" + DecisionName(result.plan.decision) + "\n" +
++                             detail::Outcome(result) + "\n";
++    const int file = ::open(marker.c_str(), O_WRONLY | O_CREAT | O_EXCL, 0666);
++    if (file < 0) {
++      result.marker_error = "it could not be made: " + detail::Errno(errno);
++    } else {
++      size_t done = 0;
++      while (done < text.size()) {
++        const ssize_t put = ::write(file, text.data() + done, text.size() - done);
++        if (put < 0 && errno == EINTR) continue;
++        if (put <= 0) {
++          result.marker_error = "it could not be written: " + detail::Errno(errno);
++          break;
++        }
++        done += size_t(put);
++      }
++      if (::close(file) != 0 && result.marker_error.empty())
++        result.marker_error = "it could not be written: " + detail::Errno(errno);
++      if (!result.marker_error.empty()) ::unlink(marker.c_str());
++    }
 +  }
++  result.marker_written = result.marker_error.empty();
 +  return result;
 +}
 +}  // namespace xbox360ps5::official_import
@@ -1032,7 +1391,7 @@ index 1004f30..917bbf4 100644
  
  inline bool Present() {
 diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
-index 66005a0..1609e3a 100644
+index 66005a0..66ca51e 100644
 --- a/src/canary_game_main.cpp
 +++ b/src/canary_game_main.cpp
 @@ -13,6 +13,8 @@
@@ -1135,7 +1494,7 @@ index 66005a0..1609e3a 100644
                                  std::filesystem::path("/app0/logs"), storage / "LOGS"}) {
      if (game_log->session.Begin(candidate, "Launcher", "", "library", XBOX360PS5_VERSION)) {
        log_root = candidate;
-@@ -1790,10 +1799,20 @@ int main(int argc, char** argv) {
+@@ -1790,10 +1799,15 @@ int main(int argc, char** argv) {
    // for a profile (Bayonetta: "No active profile" -> Sign in) asked again forever and its title
    // screen never took Start.
    cvars::headless = false;
@@ -1145,19 +1504,14 @@ index 66005a0..1609e3a 100644
    xe::AddLogSink(std::make_unique<ConsoleLogSink>());
    if (log_ready) XELOGW("Logs: {}", game_log->session.Path().string());
 +  if (imported.plan.decision != xbox360ps5::official_import::Decision::kAlreadyDone) {
-+    XELOGW("Import from PS5X360 ({} to {}): {}; saves {}{}; {} files ({} bytes) copied, {} kept, {} left out; "
-+           "{} bytes needed, {} free; marker {}",
-+           xbox360ps5::app_identity::kOfficialDataRoot, xbox360ps5::app_identity::kDataRoot,
-+           xbox360ps5::official_import::DecisionName(imported.plan.decision),
-+           imported.saves_copied ? "copied" : "not copied", imported.error.empty() ? "" : " (" + imported.error + ")",
-+           imported.files, imported.bytes, imported.kept, imported.skipped, imported.plan.needed, imported.free,
-+           imported.marker_written ? "written" : "not written");
++    // What it did, why a folder could not be checked (the error and errno) and why no marker.
++    XELOGW("Import from PS5X360: {}", xbox360ps5::official_import::Summary(imported));
 +    for (const auto& line : imported.lines) XELOGW("Import from PS5X360: left out {}", line);
 +  }
    XELOGW("Graphics renderer requested: {}", xbox360ps5::RendererName(started.renderer));
    if (!xbox360ps5::RendererAvailable(started.renderer)) {
      XELOGE("Requested OpenGL game backend is not linked in this executable; launch cancelled");
-@@ -1808,7 +1827,7 @@ int main(int argc, char** argv) {
+@@ -1808,7 +1822,7 @@ int main(int argc, char** argv) {
    if (global.web_page && log_ready)
      XELOGW("Web settings: {}", xbox360ps5::StartWebSettings(log_root) ? "page server started" : "the page server could not start");
    if (log_ready && log_root == storage / "LOGS")
@@ -1166,23 +1520,36 @@ index 66005a0..1609e3a 100644
    std::filesystem::path game;
    // A home screen forwarder's game (fix 21, forward.hpp, docs/FORWARDER.md):
    // --rom <game> [--exit-after-game], or a bare full path. It is looked for
-@@ -1865,6 +1884,15 @@ int main(int argc, char** argv) {
+@@ -1865,6 +1879,28 @@ int main(int argc, char** argv) {
      web_hint = plain.empty() ? std::string() : std::string(Tr("Phone: ")) + plain + "    " + Tr("Code: ") + key;
    };
    show_web_address();
-+  // Fix 46: what the first start's import did (a launch failure's note below wins). Something left
-+  // out (unreadable, a link, a failed copy) or saves not put in place: said so, not "copied".
-+  if (imported.plan.decision == xbox360ps5::official_import::Decision::kImport &&
-+      (imported.skipped || !imported.error.empty()))
-+    launcher.SetMessage(Tr("Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed."));
-+  else if (imported.plan.decision == xbox360ps5::official_import::Decision::kImport && imported.files)
-+    launcher.SetMessage(Tr("Saves and settings were copied from PS5X360. Its own files were not changed."));
-+  else if (imported.plan.decision == xbox360ps5::official_import::Decision::kNoSpace)
-+    launcher.SetMessage(Tr("Saves and settings were not copied from PS5X360: not enough free space."));
++  // Fix 46: what the first start's import did, in plain words (a launch failure's note below
++  // wins; official_import::NoticeFor picks it, the log has the details). Something left out
++  // (unreadable, a link, a failed copy) or saves not put in place: said so, not "copied".
++  switch (xbox360ps5::official_import::NoticeFor(imported)) {
++    case xbox360ps5::official_import::Notice::kCopied:
++      launcher.SetMessage(Tr("Saves and settings were copied from PS5X360. Its own files were not changed."));
++      break;
++    case xbox360ps5::official_import::Notice::kSomeLeftOut:
++      launcher.SetMessage(Tr("Some saves or settings could not be copied from PS5X360 (the log lists them). Its own files were not changed."));
++      break;
++    case xbox360ps5::official_import::Notice::kOwnSaves:
++      launcher.SetMessage(Tr("Saves were not copied from PS5X360: this app already has saves of its own."));
++      break;
++    case xbox360ps5::official_import::Notice::kNoSpace:
++      launcher.SetMessage(Tr("Saves and settings were not copied from PS5X360: not enough free space."));
++      break;
++    case xbox360ps5::official_import::Notice::kCannotCheck:
++      launcher.SetMessage(Tr("Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again."));
++      break;
++    case xbox360ps5::official_import::Notice::kNone:
++      break;
++  }
    if (driver_test_withdrawn)
      launcher.SetMessage(Tr("The second-thread video driver test was switched off: the emulator did not start with it."));
    // Why the previous run could not start a game, when it left a note.
-@@ -1910,7 +1938,7 @@ int main(int argc, char** argv) {
+@@ -1910,7 +1946,7 @@ int main(int argc, char** argv) {
        // /app0 is read-only on a .ffpkg installation, so the caches stayed in
        // the save storage and filled it (Halo: Reach's utility cache alone).
        bool writable = false;
@@ -1191,7 +1558,7 @@ index 66005a0..1609e3a 100644
          const std::filesystem::path candidate = path;
          bulk_error.clear();
          std::filesystem::create_directories(candidate, bulk_error);
-@@ -1940,7 +1968,7 @@ int main(int argc, char** argv) {
+@@ -1940,7 +1976,7 @@ int main(int argc, char** argv) {
      }
      Stage("BOOT emulator constructor");
      Stage("BOOT preparing homebrew saves (original content retained)");
@@ -1200,7 +1567,7 @@ index 66005a0..1609e3a 100644
      if (saves.root == storage / "content") {
        XELOGW("Saves: {}; trying installation mount /app0/saves", saves.notice);
        saves = xbox360ps5::PrepareSaveStorage(storage / "content", "/app0/saves");
-@@ -2047,7 +2075,7 @@ int main(int argc, char** argv) {
+@@ -2047,7 +2083,7 @@ int main(int argc, char** argv) {
          // A notification without earning anything: a file put in the title's folder asks for one.
          std::error_code test_error;
          if (std::filesystem::remove("/app0/notify-test.txt", test_error))
@@ -1209,7 +1576,7 @@ index 66005a0..1609e3a 100644
        }
        int toasts_were = global.achievement_toasts;
        // The settings page: what it shows, and the changes it asked for. A change
-@@ -2199,7 +2227,7 @@ int main(int argc, char** argv) {
+@@ -2199,7 +2235,7 @@ int main(int argc, char** argv) {
              const auto* profile = profiles->GetProfile(uint8_t(slot));
              const std::string name = profile ? profile->name() : "Player " + std::to_string(slot + 1);
              XELOGW("Local player {}: {} ({})", slot + 1, sample.connected ? "connected" : "disconnected", name);
@@ -1218,7 +1585,7 @@ index 66005a0..1609e3a 100644
            }
          }
        };
-@@ -2419,7 +2447,7 @@ int main(int argc, char** argv) {
+@@ -2419,7 +2455,7 @@ int main(int argc, char** argv) {
              else if (pressed & 0xCF0) xbox360ps5::PlayUiSound(xbox360ps5::UiSound::move);
              // Switching the achievement notifications on shows what one looks like.
              if (global.achievement_toasts && !toasts_were)

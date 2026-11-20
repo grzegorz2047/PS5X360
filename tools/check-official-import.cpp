@@ -13,6 +13,16 @@
 //     kept; short of room nothing but the marker is written; a staging folder left by an
 //     interrupted start is cleared; a link in the title's folder that leads into the official one
 //     is not written through; overlapping folders are refused without a marker.
+//   * the console's failures (candidate 53: the official folder read as missing, no marker), on
+//     the same temporary folder with the lookups made to fail (Probe): with lstat answering
+//     nothing, stat alone finds the official folder, its saves and files, the import and the
+//     marker are done, links are still not followed (the listing's types), a planted link into the
+//     official folder and a dangling one are not written through, a link above the title's folder
+//     is still an overlap; a stat that fails with another error than "not found" (the official
+//     folder, its saves, the title's saves, the marker), or a folder stat calls missing that can be
+//     listed, gives no copy and no marker, the error and errno in the summary ("marker not
+//     written: ..."), and the next start imports; a marker that cannot be made says why;
+//   * the summary (Summary) and the launcher's notice (NoticeFor) of each outcome.
 // Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh).
 #undef NDEBUG
 #include "../include/xbox360ps5/official_import.hpp"
@@ -21,6 +31,7 @@
 #include <unistd.h>
 
 #include <cassert>
+#include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -28,6 +39,7 @@
 #include <map>
 #include <sstream>
 #include <string>
+#include <system_error>
 
 namespace {
 namespace fs = std::filesystem;
@@ -81,7 +93,105 @@ void Decisions() {
   facts.free = kBig;
   plan = oi::Decide(facts);
   assert(plan.decision == Decision::kImport && !plan.copy_saves && plan.copy_small && plan.needed == 300 + oi::kMargin);
-  std::printf("  decisions: once, refused on overlap, room for all of it or nothing, saves only when the title has none\n");
+  // A path that could not be looked at: nothing, and no marker (the next start tries again);
+  // the marker of an earlier start still wins.
+  facts.error = "/official could not be checked: Permission denied (errno 13)";
+  plan = oi::Decide(facts);
+  assert(plan.decision == Decision::kCannotCheck && !plan.write_marker && !plan.copy_saves && !plan.copy_small);
+  none.error = facts.error;
+  assert(oi::Decide(none).decision == Decision::kCannotCheck && !oi::Decide(none).write_marker);
+  facts.marker = true;
+  assert(oi::Decide(facts).decision == Decision::kAlreadyDone);
+  std::printf("  decisions: once, refused on overlap, nothing and no marker when a folder could not be checked, "
+              "room for all of it or nothing, saves only when the title has none\n");
+}
+
+bool Has(const std::string& text, const std::string& part) { return text.find(part) != std::string::npos; }
+
+// The summary and the notice of each outcome, from made-up results.
+void Words() {
+  oi::Result result;
+  result.source = "/official";
+  result.target = "/reloaded";
+  result.plan.decision = Decision::kImport;
+  result.plan.copy_saves = true;
+  result.plan.copy_small = result.plan.write_marker = true;
+  result.facts.source_saves = true;
+  result.saves_copied = true;
+  result.files = 3;
+  result.bytes = 3 * 1024 * 1024 / 2;
+  result.kept = 2;
+  result.marker_written = true;
+  std::string text = oi::Summary(result);
+  assert(text == "imported from /official to /reloaded: saves copied; 3 files (1.5 MiB) copied, 2 already here and "
+                 "kept, 0 left out; marker written");
+  assert(oi::NoticeFor(result) == oi::Notice::kCopied);
+  result.skipped = 1;
+  assert(Has(oi::Summary(result), "1 left out (listed below)") && oi::NoticeFor(result) == oi::Notice::kSomeLeftOut);
+  result.skipped = 0;
+  result.saves_copied = false;
+  result.error = "the title has saves now";
+  assert(Has(oi::Summary(result), "saves not copied (the title has saves now)"));
+  assert(oi::NoticeFor(result) == oi::Notice::kSomeLeftOut);
+  // The title had saves of its own (a start without the import made them): said so.
+  result.error.clear();
+  result.plan.copy_saves = false;
+  result.facts.target_saves = true;
+  assert(Has(oi::Summary(result), "saves not copied (this title has saves of its own"));
+  assert(oi::NoticeFor(result) == oi::Notice::kOwnSaves);
+  result.facts.source_saves = result.facts.target_saves = false;
+  assert(Has(oi::Summary(result), "PS5X360 has no saves") && oi::NoticeFor(result) == oi::Notice::kCopied);
+  result.files = 0;
+  assert(oi::NoticeFor(result) == oi::Notice::kNone);
+  // No official folder, a link or a file in its place.
+  result = oi::Result();
+  result.source = "/official";
+  result.target = "/reloaded";
+  result.plan.decision = Decision::kNothingToImport;
+  result.facts.source_type = fs::file_type::not_found;
+  result.marker_written = true;
+  assert(oi::Summary(result) == "nothing to import: PS5X360's folder /official does not exist; marker written");
+  assert(oi::NoticeFor(result) == oi::Notice::kNone);
+  result.facts.source_type = fs::file_type::symlink;
+  assert(Has(oi::Summary(result), "/official is a link (not followed)"));
+  result.facts.source_type = fs::file_type::regular;
+  assert(Has(oi::Summary(result), "/official is not a folder"));
+  // The marker not written: why, and that the next start tries again.
+  result.marker_written = false;
+  result.marker_error = "it could not be made: Permission denied (errno 13)";
+  assert(Has(oi::Summary(result),
+             "; marker not written: it could not be made: Permission denied (errno 13) (the next start tries again)"));
+  // lstat that did not answer is named.
+  result.facts.link_note = "Function not implemented (errno 38)";
+  assert(Has(oi::Summary(result), "lstat did not answer for /official (Function not implemented (errno 38)), stat was used"));
+  // Room.
+  result = oi::Result();
+  result.target = "/reloaded";
+  result.plan.decision = Decision::kNoSpace;
+  result.plan.needed = 3ull << 30;
+  result.facts.space_known = true;
+  result.free = 1000;
+  result.marker_written = true;
+  assert(oi::Summary(result) == "not imported: not enough free space in /reloaded (3.0 GiB needed, 1000 bytes free); "
+                                "nothing was copied; marker written");
+  assert(oi::NoticeFor(result) == oi::Notice::kNoSpace);
+  result.facts.space_known = false;
+  assert(Has(oi::Summary(result), "(3.0 GiB needed, the free space could not be read)"));
+  // A folder that could not be checked.
+  result = oi::Result();
+  result.plan.decision = Decision::kCannotCheck;
+  result.facts.error = "/official could not be checked: Permission denied (errno 13)";
+  result.marker_error = "a folder could not be checked";
+  assert(oi::Summary(result) == "not imported yet: /official could not be checked: Permission denied (errno 13); "
+                                "nothing was copied; marker not written: a folder could not be checked (the next "
+                                "start tries again)");
+  assert(oi::NoticeFor(result) == oi::Notice::kCannotCheck);
+  result.plan.decision = Decision::kUnsafe;
+  assert(oi::NoticeFor(result) == oi::Notice::kNone);
+  result.plan.decision = Decision::kAlreadyDone;
+  assert(oi::NoticeFor(result) == oi::Notice::kNone && !Has(oi::Summary(result), "marker"));
+  std::printf("  words: the summary of each outcome (sizes, the marker's reason, lstat that did not answer) and "
+              "the notice it picks\n");
 }
 
 // --- a temporary console --------------------------------------------------------------------
@@ -228,6 +338,9 @@ void FirstStart(const fs::path& root) {
   assert(result.skipped == 2u + (unreadable ? 1u : 0u));  // the two links (and the locked file)
   assert(result.marker_written && Exists(own / oi::kMarker));
   assert(Read(own / oi::kMarker).find("imported") != std::string::npos);
+  assert(Has(oi::Summary(result), ": saves copied; 10 files (") && Has(oi::Summary(result), "; marker written"));
+  assert(!Has(oi::Summary(result), "lstat did not answer"));
+  assert(oi::NoticeFor(result) == oi::Notice::kSomeLeftOut);  // the links (and the locked file)
   // The second start: nothing at all.
   const auto mine = Snapshot(own);
   const auto again = oi::Run(official, own, Room(kBig));
@@ -262,6 +375,8 @@ void NoRoom(const fs::path& root) {
   }
   assert(entries == 1);
   assert(Read(own / oi::kMarker).find("not enough free space") != std::string::npos);
+  assert(Has(oi::Summary(result), "1000 bytes free); nothing was copied; marker written"));
+  assert(oi::NoticeFor(result) == oi::Notice::kNoSpace);
   assert(Snapshot(official) == before);
   // Decided: the next start does not ask again.
   assert(oi::Run(official, own, Room(kBig)).plan.decision == Decision::kAlreadyDone);
@@ -283,6 +398,9 @@ void NoOfficial(const fs::path& root) {
   const fs::path own = root / "alone";
   const auto result = oi::Run(root / "nowhere", own, Room(kBig));
   assert(result.plan.decision == Decision::kNothingToImport && result.marker_written);
+  assert(oi::Summary(result) == "nothing to import: PS5X360's folder " + (root / "nowhere").string() +
+                                    " does not exist; marker written");
+  assert(oi::NoticeFor(result) == oi::Notice::kNone);
   assert(!Exists(root / "nowhere") && !Exists(own / "saves"));
   std::printf("  no official folder: the marker only (the official folder is not made)\n");
 }
@@ -296,6 +414,7 @@ void Unsafe(const fs::path& root) {
     if (own == root / "linked") fs::create_directory_symlink(official, own);
     const auto result = oi::Run(official, own, Room(kBig));
     assert(result.plan.decision == Decision::kUnsafe && !result.marker_written && result.files == 0);
+    assert(Has(oi::Summary(result), "; marker not written: the folders overlap (the next start tries again)"));
   }
   // Refused before anything is made: not even the missing title folder inside the official one.
   assert(!Exists(official / "inside") && Snapshot(official) == before);
@@ -313,16 +432,157 @@ void Unsafe(const fs::path& root) {
   std::printf("  overlapping folders refused without a marker; a planted link into the official folder "
               "not written through\n");
 }
+
+// --- the console's failures, simulated -----------------------------------------------------------
+// lstat answers nothing (std::filesystem::symlink_status fails); stat and listings work: what
+// candidate 53's log points to, and what the title's working code on the console uses.
+oi::Probe NoLstat() {
+  oi::Probe probe = oi::RealProbe();
+  probe.link_status = [](const fs::path&, std::error_code& error) {
+    error = std::make_error_code(std::errc::function_not_supported);
+    return fs::file_status(fs::file_type::none);
+  };
+  return probe;
+}
+// As NoLstat, and stat of `bad` fails with `why`.
+oi::Probe StatFails(const fs::path& bad, std::errc why) {
+  oi::Probe probe = NoLstat();
+  probe.status = [bad, why](const fs::path& path, std::error_code& error) {
+    if (path == bad) {
+      error = std::make_error_code(why);
+      return fs::file_status(fs::file_type::none);
+    }
+    return fs::status(path, error);
+  };
+  return probe;
+}
+
+void WithoutLstat(const fs::path& root, bool unreadable) {
+  const fs::path official = root / "official", own = root / "console";
+  const auto before = Snapshot(official);
+  const auto facts = oi::Gather(official, own, Room(kBig), NoLstat());
+  assert(facts.source && facts.source_saves && !facts.target_saves && !facts.marker && !facts.unsafe);
+  assert(facts.error.empty() && !facts.link_note.empty());
+  const auto result = oi::Run(official, own, Room(kBig), NoLstat());
+  assert(result.plan.decision == Decision::kImport && result.saves_copied && result.error.empty());
+  assert(Read(own / kSave) == std::string(4096, 's') && Read(own / kProfile) == "profile" &&
+         Read(own / kDlc) == std::string(10000, 'd'));
+  assert(Read(own / "network.conf") == "mode=online\nserver=http://192.168.1.10:36000\n");
+  assert(Read(own / "skin/sub/tile.png") == "tile" && Read(own / "cache/achievements/4D5307E6-1.png") == "icon");
+  // The listing names the links: still left out.
+  assert(!Exists(own / "saves/E000ABCDEF012345/escape") && !Exists(own / "skin/link.png"));
+  assert((fs::status(own / kSave).permissions() & fs::perms::owner_write) == fs::perms::owner_write);
+  // Files: 3 saves, network.conf, vibration.conf, ui-dark.on, 2 skin, game art, dash.xex, the icon.
+  assert(result.files == 11 && result.kept == 0 && result.skipped == 2u + (unreadable ? 1u : 0u));
+  assert(result.marker_written && Exists(own / oi::kMarker) && Snapshot(official) == before);
+  const std::string summary = oi::Summary(result);
+  assert(Has(summary, "imported from " + official.string() + " to " + own.string() + ": saves copied; 11 files ("));
+  assert(Has(summary, "lstat did not answer for " + official.string() + " (") && Has(summary, "stat was used"));
+  assert(Has(summary, "; marker written") && !Has(summary, "marker not written"));
+  assert(oi::NoticeFor(result) == oi::Notice::kSomeLeftOut);  // the links
+  // The second start: nothing.
+  assert(oi::Run(official, own, Room(kBig), NoLstat()).plan.decision == Decision::kAlreadyDone);
+
+  // A planted link into the official folder and a dangling one in the title's folder: lstat
+  // cannot show them; stat (each folder's "..") and open(O_EXCL) keep them from being written
+  // through.
+  const fs::path planted = root / "planted-console";
+  fs::create_directories(planted);
+  fs::create_directory_symlink(official / "skin", planted / "skin");
+  fs::create_directory_symlink(official / "cache", planted / "cache");
+  fs::create_symlink(official / "ui-dark.made", planted / "ui-dark.on");
+  const auto planted_result = oi::Run(official, planted, Room(kBig), NoLstat());
+  assert(planted_result.plan.decision == Decision::kImport && planted_result.saves_copied);
+  assert(Snapshot(official) == before && !Exists(official / "ui-dark.made") && !Exists(official / "skin/skin") &&
+         !Exists(official / "cache/achievements/achievements"));
+  assert(fs::read_symlink(planted / "ui-dark.on") == official / "ui-dark.made");
+  // A link above the title's folder that leads into the official one: an overlap, found by stat,
+  // and the title's folder is not made there.
+  fs::create_directory_symlink(official, root / "via");
+  const auto via = oi::Run(official, root / "via" / "inside", Room(kBig), NoLstat());
+  assert(via.plan.decision == Decision::kUnsafe && !via.marker_written && !Exists(official / "inside"));
+  assert(Has(oi::Summary(via), "marker not written: the folders overlap"));
+  // The title's folder a link to the official one.
+  assert(oi::Run(official, root / "linked", Room(kBig), NoLstat()).plan.decision == Decision::kUnsafe);
+  assert(Snapshot(official) == before);
+  std::printf("  without lstat: stat finds the official folder, %llu files and the saves copied, the marker "
+              "written, links left out; planted and dangling links not written through; a link above the "
+              "title's folder refused\n",
+              static_cast<unsigned long long>(result.files));
+}
+
+void CannotCheck(const fs::path& root) {
+  const fs::path official = root / "official", own = root / "denied";
+  const auto before = Snapshot(official);
+  // stat of the official folder refused: nothing copied, no marker, the reason in the summary.
+  auto result = oi::Run(official, own, Room(kBig), StatFails(official, std::errc::permission_denied));
+  assert(result.plan.decision == Decision::kCannotCheck && !result.plan.write_marker && !result.marker_written);
+  assert(result.files == 0 && !result.saves_copied && !Exists(own / oi::kMarker) && !Exists(own / "saves"));
+  std::string summary = oi::Summary(result);
+  assert(Has(summary, "not imported yet: " + official.string() + " could not be checked: Permission denied (errno " +
+                          std::to_string(EACCES) + ")"));
+  assert(Has(summary, "; marker not written: a folder could not be checked (the next start tries again)"));
+  assert(oi::NoticeFor(result) == oi::Notice::kCannotCheck);
+  assert(Snapshot(official) == before);
+  // The next start, where stat answers: imported, and the marker written.
+  result = oi::Run(official, own, Room(kBig), NoLstat());
+  assert(result.plan.decision == Decision::kImport && result.saves_copied && result.marker_written);
+  assert(Read(own / kSave) == std::string(4096, 's'));
+  // The marker, the official saves and the title's saves, each failing (an I/O error): the same.
+  int n = 0;
+  for (const char* which : {"marker", "official saves", "own saves"}) {
+    const fs::path mine = root / ("denied-" + std::to_string(++n));
+    const fs::path bad = n == 1 ? mine / oi::kMarker : n == 2 ? official / oi::kSaves : mine / oi::kSaves;
+    const auto failed = oi::Run(official, mine, Room(kBig), StatFails(bad, std::errc::io_error));
+    assert(failed.plan.decision == Decision::kCannotCheck && !failed.marker_written && failed.files == 0);
+    assert(!Exists(mine / oi::kMarker) && !Exists(mine / "saves"));
+    assert(Has(oi::Summary(failed), bad.string() + " could not be checked: "));
+    assert(Has(oi::Summary(failed), "(errno " + std::to_string(EIO) + ")"));
+    const auto again = oi::Run(official, mine, Room(kBig), NoLstat());
+    assert(again.plan.decision == Decision::kImport && again.marker_written);
+    (void)which;
+  }
+  // stat calls the official folder missing, but it can be listed: not trusted, no marker.
+  const fs::path listed = root / "listed";
+  result = oi::Run(official, listed, Room(kBig), StatFails(official, std::errc::no_such_file_or_directory));
+  assert(result.plan.decision == Decision::kCannotCheck && !result.marker_written && !Exists(listed / oi::kMarker));
+  assert(Has(oi::Summary(result), "stat says it does not exist, yet it can be listed"));
+  assert(Snapshot(official) == before);
+  std::printf("  a folder that could not be checked (official folder, its saves, the title's saves, the marker; "
+              "a folder stat calls missing that can be listed): nothing copied, no marker, the error and errno "
+              "in the summary; the next start imports\n");
+}
+
+void MarkerRefused(const fs::path& root) {
+  if (geteuid() == 0) {
+    std::printf("  a marker that cannot be made: not checked as root\n");
+    return;
+  }
+  const fs::path own = root / "read-only";
+  fs::create_directories(own);
+  fs::permissions(own, fs::perms::owner_read | fs::perms::owner_exec);
+  const auto result = oi::Run(root / "nowhere", own, Room(kBig));
+  assert(result.plan.decision == Decision::kNothingToImport && result.plan.write_marker && !result.marker_written);
+  assert(Has(result.marker_error, "it could not be made: Permission denied (errno " + std::to_string(EACCES) + ")"));
+  assert(Has(oi::Summary(result), "; marker not written: it could not be made: Permission denied"));
+  fs::permissions(own, fs::perms::owner_all);
+  assert(oi::Run(root / "nowhere", own, Room(kBig)).marker_written);
+  std::printf("  a marker that cannot be made: the summary says why, the next start writes it\n");
+}
 }  // namespace
 
 int main() {
   Decisions();
+  Words();
   const fs::path root = Temp();
   FirstStart(root);
   NoRoom(root);
   Interrupted(root);
   NoOfficial(root);
   Unsafe(root);
+  WithoutLstat(root, geteuid() != 0);
+  CannotCheck(root);
+  MarkerRefused(root);
   {
     uint64_t free = 0;
     assert(oi::RealFreeSpace(root, &free) && free > 0);
