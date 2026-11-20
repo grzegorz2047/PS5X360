@@ -73,6 +73,7 @@ file, a handful of reconstructed headers, and no OpenGL renderer.
 | Xenia Canary netplay | `AdrianCassar/xenia-canary` `netplay_canary_experimental` | commit `d2cf527aa` |
 | wolfSSL 5.9.4, libcurl 8.23.0-DEV, miniupnpc | netplay's submodules | `3c5eead`, `3163ec0`, `b91c025` (the commits 1.0.0's notice names) |
 | Mbed TLS 3.6.7 | GitHub release archive | SHA-256 `a7e8bcbe…` (the archive the author's Helper build records) |
+| `PPSA50011.zip` (official package) and its `KINECT-source-and-licenses.zip` (fix 44) | release `v1.0.2` | SHA-256 `230359c2…` (as `tools/binary-release`) and `8cff3386…`; the 1.0.x Kinect headers no drop has (`KINECT_LAYERS` in `assemble.py`) |
 | PS5 toolchain, RADV, payload SDK | `mihawk-99/PS5_Vulkan`, `PS5_Mesa`, `PS5_PayloadSDK` | the commits `build-ps5.yml` pins |
 
 ## What came from which drop
@@ -136,7 +137,7 @@ From this repository (build glue no drop contains): `platform/ps5/compat/`,
 | `disc_relay.hpp` (client of `disc-helper.elf`, port 9302; protocol unknown) | core `mapped_memory_posix.cc` | reconstructed: never connects | discs the title cannot open directly are refused |
 | `xbox360ps5/game_info.hpp` (x360db reader) | `launcher.cpp` | reconstructed: reads the official package's own `/app0/assets/gameinfo.txt` (INI by title id); host-tested by `check-game-info.cpp` (fix 43) on a committed excerpt of that file, and on the whole file when `PS5X360_GAMEINFO` names it | game information tab should work like the official one; untested on hardware |
 | 1.0.x `i18n.hpp` (17 interface languages) | `launcher.cpp` | 0.5.9's `i18n.hpp` (pt/en/es table) + reconstructed `i18n_ui.hpp` reading the package's `assets/lang/<code>.txt`, hooked in by three recorded edits; fix 25 keys the interface by English, so the rebuild reads the English-keyed files of [`tools/source-1.0.2/english/lang`](../tools/source-1.0.2/fixes/README.md#language-files-fix-25) instead of the package's (keyed by Portuguese). Fix 43 adds the official loader's second load (0x1c1a50): `/app0/lang/<code>.txt` is read after the package's file into the same table, adding or replacing texts (the package has no `lang/` folder, so nothing changes until one is added) | language codes host-tested against the official tables (0x1e63e48, 0x1e63e90) and every language file parsed by `check-ui-lang-overlay.cpp` (fix 43); untested on hardware |
-| 1.0.x `virtual_depth_camera.hpp` (physical USB Kinect and its relay: `build/kinect-usb-20261014`, `kinect-relay-20261015`) | core `xboxkrnl_pscam.cc` | 0.5.9's virtual camera + one recorded edit (`VirtualDepthCalibration::valid`, always true) | only the phone/virtual Kinect; the official's `Kinect USB: …` paths are absent |
+| `usb_kinect.hpp` (physical USB Kinect and its relay, `build/kinect-relay-20261015`) | the package's 1.0.x `virtual_depth_camera.hpp`, used by core `xboxkrnl_pscam.cc` | fix 44: the 1.0.x `virtual_depth_camera.hpp`, `factory_calibration.hpp` and `virtual_skeleton.hpp` come from the official package's `KINECT-source-and-licenses.zip` (pinned in `assemble.py`); [`usb_kinect.hpp`](../tools/source-1.0.2/reconstructed/xbox360ps5/usb_kinect.hpp) is reconstructed from the official executable (va 0x746510-0x7481e4) and the package's `kinect_tracker.c`: the relay client (127.0.0.1:9301, `KNCT`), the direct `/dev/ugen` camera (VID 045e, PID 02ae/02bf), `/data/kinect-tracker/calibration.bin`, the official 12 `Kinect USB: …` lines | relay and calibration switching checked on the host against a fake relay, the direct camera against a simulated ugen device; not yet tried with a real Kinect. The `kinect-relay-20261015` folder may have held a newer `virtual_depth_camera.hpp` than the package's (the official build put it first on the include path); the official image's layout matches the package's |
 | 1.0.x `canary_audio.hpp` | `canary_audio.cpp`, `launcher.cpp` | 0.5.9's, with `override` dropped from `DestroyDriver` (no longer virtual in the netplay core; it did the same as the base) | none expected |
 | 1.0.2 dark home theme (`ui-dark.on`, `assets/skin-dark`) | the home and the Settings sheet | reconstructed from the official executable's code ([`dark_theme.hpp`](../tools/source-1.0.2/reconstructed/dark_theme.hpp) and recorded edits to `launcher.cpp`, `kinect_home.inc`, `kinect_state.inc`, `kinect_press.inc`): read once at start; picture folders `/data/homebrew/PPSA50011/skin`, `/app0/assets/skin-dark`, `/app0/assets/skin`; graphite panel colours (`ApplyTheme(NxeUi() && !dark)`); slot type `#eef0f2`/`#a3a9ae` instead of `#282828`/`#8c8c8c`; a "Tema: CLARO/ESCURO" slot after System Link (message, restart) and a "Tema" Settings row before "Reiniciar o emulador" (rows 40 px apart, as in the official) that remove the marker or write `1\n` to it | the console test of run 44497867041 found it missing; the slot's icon (`kSettings`) is our choice |
 | `__wrap_sceKernelDebugOutText` | 1.0.2 link (`--wrap`) | the wrap is left out: it belongs to the OpenGL renderer (glvk, issue #6), whose code is the only reader of the driver message it saves | debug output goes to the system unchanged; nothing without glvk |
@@ -207,9 +208,9 @@ What the 18,106 official-only strings are:
   patterns outright; most of the other ~8,100 are the same compiler's text (ASTC/BCn decoder
   shaders, SoftFloat, lexer errors).
 - **Port features from unpublished sources, about 40 log lines**: `DISC …` (games on the
-  drive, 9), `Kinect USB: …` (physical camera and relay, 8), `Network test: …` (6),
+  drive, 9), `Kinect USB: …` (physical camera and relay, 12; in the rebuild since fix 44), `Network test: …` (6),
   `InputDiag …` (2), `Cover {} downloaded`, `/app0/assets/skin-dark`, `ui-dark.on`,
-  `/data/kinect-tracker/calibration.bin`, `/app0/lang/`.
+  `/data/kinect-tracker/calibration.bin` (in the rebuild since fix 44), `/app0/lang/`.
 - `/app0/assets/gameinfo.txt` was also official-only in run 44497867041; the reconstructed
   reader added after it reads that file.
 
@@ -227,7 +228,8 @@ Feature markers (`compare.py`; a marker string present, not proof the feature wo
 | title updates / DLC manager | yes | yes |
 | per-game accurate render targets (FSI) | yes | yes |
 | OpenGL game renderer | yes | **no** |
-| disc drive games, physical USB Kinect | yes | **no** (see gaps) |
+| disc drive games | yes | **no** (see gaps) |
+| physical USB Kinect and its relay | yes | yes since fix 44 (reconstructed client, see gaps) |
 
 A byte-identical rebuild is not possible: the official image was linked from objects compiled
 at different times with different trees and flags, and part of its sources is unpublished.

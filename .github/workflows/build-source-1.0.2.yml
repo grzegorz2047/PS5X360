@@ -210,6 +210,17 @@ jobs:
           --elf build/src102-out/eboot.elf --bin build/src102-out/eboot.bin
           --sources-json build/src102/SOURCES.json
 
+      # Fix 44: a TEST payload that serves made-up Kinect camera frames on the relay port
+      # (tools/source-1.0.2/kinect-fake-relay), for trying the relay path on a console without a
+      # Kinect. Not part of the package.
+      - name: Build the fake Kinect relay test payload
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          sdk=.deps/references/PS5_Vulkan/.deps/native/ps5-payload-sdk
+          mkdir -p build/src102-out
+          "$sdk/bin/prospero-clang" -O2 -Wall tools/source-1.0.2/kinect-fake-relay/kinect_fake_relay.c -o build/src102-out/kinect-fake-relay.elf
+
       - name: Save compiler cache
         if: always()
         uses: actions/cache/save@v4
@@ -303,6 +314,7 @@ jobs:
           path: |
             build/src102-out/eboot.bin
             build/src102-out/eboot.elf
+            build/src102-out/kinect-fake-relay.elf
             build/src102-out/lang/*.txt
             build/src102/SOURCES.json
             build/src102-build.log

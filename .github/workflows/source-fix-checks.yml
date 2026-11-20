@@ -34,6 +34,8 @@ on:
       - 'tools/check-network-self-test.cpp'
       - 'tools/check-ui-lang-overlay.cpp'
       - 'tools/check-game-info.cpp'
+      - 'tools/check-kinect-usb.cpp'
+      - 'tools/check-kinect-fake-relay.py'
       - 'tools/check-english-source.py'
       - 'tools/check-release-version.py'
       - 'tools/check-source-package.py'

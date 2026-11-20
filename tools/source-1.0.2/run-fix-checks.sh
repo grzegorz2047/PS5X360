@@ -6,7 +6,8 @@
 # tree's include/ and reconstructed/ and the core's include roots), then run with its arguments.
 # check-wait-wakeups.cpp (fix 31) is built four ways (see below).
 # Then tools/check-assemble-skip.py (the switch that leaves fixes out) and tools/check-english-source.py
-# (fix 25, English keys) run with python3, and tools/check-gdfx-names.sh (fix 26: GDFX names and
+# (fix 25, English keys) and tools/check-kinect-fake-relay.py (fix 44's test payload, built with the
+# host's C compiler) run with python3, and tools/check-gdfx-names.sh (fix 26: GDFX names and
 # guest paths, linked with the tree's xenia/base and disc image device) with bash.
 # The source release's checks run with python3 too: tools/check-release-version.py (the version
 # label in the tree's VERSION and SOURCES.json, the release eboot check, the GPL source tarball
@@ -38,6 +39,7 @@ checks=(
   check-network-self-test.cpp      # fix 42
   check-ui-lang-overlay.cpp        # fix 43
   check-game-info.cpp              # fix 43
+  check-kinect-usb.cpp             # fix 44
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -146,6 +148,13 @@ if "$python" -I "$repo/tools/check-core-commit.py"; then
   echo "pass check-core-commit.py"
 else
   echo "FAIL check-core-commit.py"
+  status=1
+fi
+echo "=== check-kinect-fake-relay.py"
+if "$python" -I "$repo/tools/check-kinect-fake-relay.py"; then
+  echo "pass check-kinect-fake-relay.py"
+else
+  echo "FAIL check-kinect-fake-relay.py"
   status=1
 fi
 echo "=== check-gdfx-names.sh"

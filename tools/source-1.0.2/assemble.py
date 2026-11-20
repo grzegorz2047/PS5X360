@@ -15,6 +15,8 @@ Inputs (all public; every archive is checked against its SHA-256 below):
   * AdrianCassar/xenia-canary netplay_canary_experimental d2cf527aa (the core's base, with its
     submodules; wolfSSL, libcurl and miniupnpc are the commits the author names)
   * Mbed TLS 3.6.7 (phone-camera TLS server; the archive the author records)
+  * the official v1.0.2 package PPSA50011.zip (BrinooTk/PS5X360 release v1.0.2), for its
+    KINECT-source-and-licenses.zip: the 1.0.x Kinect headers no source drop has (fix 44)
 
 Output (--out): a project root laid out like this repository, so the repository's toolchain
 steps can build it:
@@ -25,6 +27,8 @@ steps can build it:
   port/                 loose port files the author built from build/ folders (framegen, disc
                         library, update and DLC managers, phone camera, title files of 1.0.0/1.0.2)
   reconstructed/        headers no drop contains, rebuilt from their uses (marked as such)
+  include/xbox360ps5/{virtual_skeleton,virtual_depth_camera,factory_calibration}.hpp
+                        the 1.0.x Kinect headers from the package's KINECT-source-and-licenses.zip
   online/               net-libs/CMakeLists.txt of 1.0.0 with deps/ (wolfSSL, libcurl, miniupnp)
   mbedtls/              Mbed TLS 3.6.7
   SOURCES.json          where every file came from, and every core hunk's fate
@@ -72,6 +76,14 @@ NET_LIBS = {'third_party/wolfssl': '3c5eead44904df64e6a5a1f4ebdce377d35a849a',
             'third_party/miniupnp': 'b91c025446d3ec3d9161cd56c91e200484af7906'}
 MBEDTLS = ('https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.7/mbedtls-3.6.7.tar.bz2',
            'a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6')
+
+# The official package (tools/binary-release/build_package.py's BASE_ZIP_SHA256) and the Kinect
+# sources inside it (fix 44): the author shipped them with the release, not in a source drop.
+OFFICIAL_PACKAGE = ('v1.0.2', 'PPSA50011.zip',
+                    '230359c2638f99add3972147e1690e62d8984a37c00181501680bdda7c1096c8')
+KINECT_ZIP = ('PPSA50011/KINECT-source-and-licenses.zip',
+              '8cff3386817fcfbc04d2c2dd7620ab61e5f4e9319592465050e8bd9a8a4d67c9')
+KINECT = 'kinect-1.0.2'  # where the Kinect zip is extracted, next to the drops
 
 S59 = 'v0.5.9-fix1/source'
 O59 = S59 + '/release-overlays/build'
@@ -140,6 +152,21 @@ RELEASE_VERSION = re.compile(r'[0-9]+\.[0-9]+\.[0-9]+')
 # Any version: it becomes a C string literal and a CMake compile definition, so no quotes,
 # backslashes, spaces or semicolons (a test build's 1.0.3_candidate_37 is fine).
 ANY_VERSION = re.compile(r'[0-9A-Za-z][0-9A-Za-z._+-]{0,63}')
+
+# Fix 44: the 1.0.x Kinect headers over the 0.5.9 ones (unified-20261012 is the folder the
+# official build_online.py builds the core from; kinect-usb-20261014's virtual_depth_camera.hpp uses
+# the real camera through reconstructed/xbox360ps5/usb_kinect.hpp), and the licences with them.
+KINECT_LAYERS = [
+    ('include/xbox360ps5/virtual_skeleton.hpp',
+     f'{KINECT}/build/unified-20261012/port-include/xbox360ps5/virtual_skeleton.hpp'),
+    ('include/xbox360ps5/factory_calibration.hpp',
+     f'{KINECT}/build/kinect-usb-20261014/emu-include/xbox360ps5/factory_calibration.hpp'),
+    ('include/xbox360ps5/virtual_depth_camera.hpp',
+     f'{KINECT}/build/kinect-usb-20261014/emu-include/xbox360ps5/virtual_depth_camera.hpp'),
+    ('licenses/kinect-1.0.2/LICENSE', f'{KINECT}/LICENSE'),
+    ('licenses/kinect-1.0.2/OPENKINECT-APACHE20', f'{KINECT}/native/kinect/OPENKINECT-APACHE20'),
+    ('licenses/kinect-1.0.2/OPENKINECT-CONTRIB', f'{KINECT}/native/kinect/OPENKINECT-CONTRIB'),
+]
 # Not taken from the layers: kinect-update-20261008/native/include/xenia is a frozen copy of the
 # older Canary core's headers (for that overlay's isolated compiles); on the include path it
 # would hide the netplay core's own headers.
@@ -169,14 +196,6 @@ EDITS = [
      '  void DestroyDriver(xe::apu::AudioDriver* driver);  // not virtual in the netplay core',
      'netplay\'s AudioSystem::DestroyDriver is no longer virtual (it shuts down and deletes the '
      'driver, as this one does); 1.0.x\'s adapted header is not published'),
-    ('include/xbox360ps5/virtual_depth_camera.hpp',
-     '  uint16_t const_shift=200;\n};',
-     '  uint16_t const_shift=200;\n'
-     '  // 1.0.x core (xboxkrnl_pscam.cc) asks whether the calibration is real; the virtual camera\'s\n'
-     '  // built-in calibration always is (the USB/helper camera of 1.0.x is not published).\n'
-     '  bool valid=true;\n};',
-     '1.0.0 core reads VirtualDepthCalibration::valid (physical-camera metadata); 1.0.x header '
-     'not published'),
     # 1.0.2's dark home theme (reconstructed/dark_theme.hpp has what the official executable does).
     ('src/launcher.cpp',
      '#include "game_art.hpp"\n',
@@ -321,14 +340,42 @@ def extract_drops(cache):
         if target.exists():
             shutil.rmtree(target)
         with zipfile.ZipFile(archive) as z:
-            for info in z.infolist():
-                # Untrusted archive: no absolute paths or parent references.
-                parts = Path(info.filename).parts
-                if info.filename.startswith(('/', '\\')) or '..' in parts:
-                    sys.exit(f'{name}: unsafe member {info.filename}')
+            safe_members(z, name)
             z.extractall(target)
         stamp.write_text(digest)
     return root
+
+
+def safe_members(z, name):
+    """Untrusted archive: no absolute paths or parent references."""
+    for info in z.infolist():
+        parts = Path(info.filename).parts
+        if info.filename.startswith(('/', '\\')) or '..' in parts:
+            sys.exit(f'{name}: unsafe member {info.filename}')
+
+
+def extract_kinect(cache, root):
+    """The official package's KINECT-source-and-licenses.zip, checked and extracted to
+    <root>/kinect-1.0.2 (the package is downloaded once into the cache)."""
+    tag, name, digest = OFFICIAL_PACKAGE
+    member, member_digest = KINECT_ZIP
+    target = root / KINECT
+    stamp = target / '.sha256'
+    if stamp.exists() and stamp.read_text() == member_digest:
+        return
+    package = fetch(f'{RELEASES}/{tag}/{name}', cache / tag / name, digest)
+    inner = cache / tag / Path(member).name
+    with zipfile.ZipFile(package) as z:
+        inner.write_bytes(z.read(member))
+    actual = sha256(inner)
+    if actual != member_digest:
+        sys.exit(f'{member}: SHA-256 {actual}, expected {member_digest}')
+    if target.exists():
+        shutil.rmtree(target)
+    with zipfile.ZipFile(inner) as z:
+        safe_members(z, member)
+        z.extractall(target)
+    stamp.write_text(member_digest)
 
 
 def build_core(out, drops, report):
@@ -397,6 +444,9 @@ def build_title(out, drops, report):
     manifest = report['files']
     for dest, source in TITLE_LAYERS + NOTICES:
         copy_entry(drops / source, out / dest, 'drop:' + source, manifest, out)
+    for dest, source in KINECT_LAYERS:
+        copy_entry(drops / source, out / dest,
+                   f'package:{KINECT_ZIP[0]}:{source[len(KINECT) + 1:]}', manifest, out)
     for rel in FROM_REPO:
         copy_entry(REPO / rel, out / rel, 'repo:' + rel, manifest, out)
     copy_entry(HERE / 'reconstructed', out / 'reconstructed', 'reconstructed (this repository)', manifest, out)
@@ -560,7 +610,12 @@ def main():
             shutil.rmtree(out / sub)
     out.mkdir(parents=True, exist_ok=True)
     drops = extract_drops(cache)
+    extract_kinect(cache, drops)
     report = {'drops': {t: {'asset': n, 'sha256': d} for t, (n, d) in DROPS.items()},
+              'official_package': {'asset': f'{OFFICIAL_PACKAGE[0]}/{OFFICIAL_PACKAGE[1]}',
+                                   'sha256': OFFICIAL_PACKAGE[2],
+                                   'kinect_sources': {'member': KINECT_ZIP[0],
+                                                      'sha256': KINECT_ZIP[1]}},
               'core_layers': {}, 'files': {}}
     if not args.skip_core:
         core = build_core(out, drops, report)
