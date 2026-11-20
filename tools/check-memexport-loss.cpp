@@ -15,6 +15,11 @@
 //      only for fix 30's own readbacks (the option, small exports): on a learned readback of
 //      Black Ops' 0.7-1.4 MB export ranges it threw away resolved textures there (candidate 2:
 //      blocky corrupted textures, while the hair was right).
+//  (e) 1.0.4_candidate_7: learning by exporting shader as well (candidate 5: Black Ops' exports move
+//      through a ring, every loss at a new unit, the hair wrong again outside the bar): the shader
+//      that exported to each unit, the shader of a lost unit learned once, a learned shader's
+//      exports read back wherever they go, other shaders unaffected, the learned shader in the
+//      summary.
 //  (c) the assembled tree has the hooks: SharedMemory's bitmaps and NoteUpload before
 //      UploadRanges, the Vulkan command processor's decision, ClearGpuOnly before the readback's
 //      refresh and before an exporting draw requests its own ranges (it writes them again: an
@@ -132,9 +137,37 @@ void ExpectIn(const std::string& path, const std::vector<std::string>& parts) {
   for (const auto& part : parts) Expect(text.find(part) != std::string::npos, path + " has: " + part);
 }
 
+void CheckShaders() {
+  std::vector<uint64_t> gpu_only(64, 0), lossy(64, 0), exporters(4096, 0);
+  constexpr uint64_t kSkin = 0xA4827826E2589916ull, kOther = 0x1111222233334444ull;
+  Expect(!ml::ShaderLearned(kSkin), "nothing learned at first");
+  // Frame 1: the skinning shader exports to units 100-129 (not read back), another to 200-209.
+  ml::SetUnits(gpu_only, 100, 129);
+  ml::SetExporter(exporters, 100, 129, kSkin);
+  ml::SetUnits(gpu_only, 200, 209);
+  ml::SetExporter(exporters, 200, 209, kOther);
+  // The CPU writes into unit 110: the upload loses the skinning shader's data.
+  Expect(ml::NoteUpload(gpu_only, lossy, 110, 1, 12, &exporters) == 1, "a loss");
+  Expect(ml::ShaderLearned(kSkin) && !ml::ShaderLearned(kOther), "the shader of the lost unit is learned, not the other");
+  // Frame 2: the ring moved on: the same shader exports to units 900-929, never lost before.
+  Expect(!ml::AnyUnits(lossy, 900, 929), "no loss there by address");
+  Expect(ml::Decide(false, 120 * 1024, 65536, ml::AnyUnits(lossy, 900, 929) || ml::ShaderLearned(kSkin)) ==
+             ml::Reason::kLearned,
+         "the learned shader's export is read back wherever it goes");
+  Expect(ml::Decide(false, 120 * 1024, 65536, ml::AnyUnits(lossy, 300, 329) || ml::ShaderLearned(kOther)) ==
+             ml::Reason::kNone,
+         "another shader's large export is not");
+  Expect(!ml::LearnShader(kSkin), "learned once");
+  ml::Reporter reporter;
+  const auto lines = reporter.Lines(30);
+  for (const auto& line : lines) std::printf("   %s\n", line.c_str());
+  Expect(Has(lines, "shader A4827826E2589916 learned (its exported data was lost at physical 0006E000)"),
+         "the learned shader in the summary");
+}
+
 void CheckTree() {
   const std::string gpu = ".deps/xenia-canary/src/xenia/gpu/";
-  ExpectIn(gpu + "shared_memory.h", {"void MarkGpuOnly(uint32_t start, uint32_t length);",
+  ExpectIn(gpu + "shared_memory.h", {"void MarkGpuOnly(uint32_t start, uint32_t length, uint64_t exporter = 0);",
                                      "bool AnyLossy(uint32_t start, uint32_t length) const;",
                                      "std::vector<uint64_t> gpu_only_bits_;"});
   const std::string shared = Read((gpu + "shared_memory.cc").c_str());
@@ -163,6 +196,15 @@ void CheckTree() {
              vk.find("if (!memexport_readback) {", written) < mark,
          "GPU-only marked with RangeWrittenByGpu, only when not read back");
   ExpectIn("src/canary_game_main.cpp", {"static xbox360ps5::memexport_loss::Reporter memexport_reporter;"});
+  // Candidate 7.
+  ExpectIn(gpu + "shared_memory.cc", {"unit_exporter_.assign(kBufferSize >> page_size_log2_, 0);",
+                                      "page_size_log2_, &unit_exporter_);",
+                                      "xbox360ps5::memexport_loss::SetExporter(unit_exporter_, first, last,"});
+  Expect(vk.find("memexport_range.size_bytes,\n                                  vertex_shader->ucode_data_hash());") !=
+             std::string::npos,
+         "MarkGpuOnly records the exporting shader");
+  const size_t learned = vk.find("xbox360ps5::memexport_loss::ShaderLearned(");
+  Expect(learned != std::string::npos && learned < decide, "the learned shader feeds the decision");
 }
 
 }  // namespace
@@ -171,6 +213,7 @@ int main() {
   CheckDecide();
   CheckBits();
   CheckModel();
+  CheckShaders();
   CheckTree();
   if (failures) {
     std::printf("check-memexport-loss: %d failure(s)\n", failures);

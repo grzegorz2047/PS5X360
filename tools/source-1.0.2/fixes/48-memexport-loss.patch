@@ -2,7 +2,7 @@ diff --git a/include/xbox360ps5/memexport_loss.hpp b/include/xbox360ps5/memexpor
 new file mode 100644
 --- /dev/null
 +++ b/include/xbox360ps5/memexport_loss.hpp
-@@ -0,0 +1,202 @@
+@@ -0,0 +1,259 @@
 +// SPDX-License-Identifier: MIT
 +// Fix 48 of the source rebuild (tools/source-1.0.2/fixes/48-memexport-loss.patch): data a
 +// vertex shader exports to memory (memexport) and that is not read back lives only in the GPU's
@@ -38,7 +38,7 @@ new file mode 100644
 +  switch (reason) {
 +    case Reason::kOption: return "read back (option)";
 +    case Reason::kSmall: return "read back (small export)";
-+    case Reason::kLearned: return "read back (exported data was lost here before)";
++    case Reason::kLearned: return "read back (exported data was lost here, or this shader's, before)";
 +    default: return "not read back";
 +  }
 +}
@@ -109,15 +109,54 @@ new file mode 100644
 +inline constexpr size_t kLosses = 16;
 +inline std::array<std::atomic<uint64_t>, kLosses> losses{};  // address << 32 | units, 0 = none
 +inline std::atomic<uint32_t> losses_recorded{0};
++// Shaders learned, for the summary: hash and the address of the loss that taught it.
++inline std::array<std::atomic<uint64_t>, 8> shader_events{};
++inline std::array<std::atomic<uint32_t>, 8> shader_event_addresses{};
++inline std::atomic<uint32_t> shader_events_recorded{0};
++inline void RecordShader(uint64_t hash, uint32_t address) {
++  const uint32_t index = shader_events_recorded.fetch_add(1, std::memory_order_relaxed);
++  if (index >= shader_events.size()) return;
++  shader_event_addresses[index].store(address, std::memory_order_relaxed);
++  shader_events[index].store(hash, std::memory_order_release);
++}
 +inline void RecordLoss(uint32_t address, uint32_t units) {
 +  const uint32_t index = losses_recorded.fetch_add(1, std::memory_order_relaxed);
 +  if (index < kLosses) losses[index].store((uint64_t(address) << 32) | units, std::memory_order_release);
 +}
 +
++// 1.0.4_candidate_7: exporting vertex shaders whose exported data was lost somewhere. Black Ops'
++// skinning exports move through a ring of tens of megabytes (candidate 5: every loss at a unit never
++// seen before, 87-114 exports a second still not read back, the hair wrong again outside the bar),
++// so learning by address never catches up; every export of a learned shader is read back.
++inline constexpr size_t kLearnedShaders = 32;
++inline std::array<std::atomic<uint64_t>, kLearnedShaders> learned_shaders{};
++inline std::atomic<uint32_t> learned_shader_count{0};
++inline bool ShaderLearned(uint64_t hash) {
++  if (!hash) return false;
++  const uint32_t known = std::min<uint32_t>(learned_shader_count.load(std::memory_order_acquire), uint32_t(kLearnedShaders));
++  for (uint32_t n = 0; n < known; ++n)
++    if (learned_shaders[n].load(std::memory_order_relaxed) == hash) return true;
++  return false;
++}
++// Returns true when `hash` is new to the list (GPU thread only writes it).
++inline bool LearnShader(uint64_t hash) {
++  if (!hash || ShaderLearned(hash)) return false;
++  const uint32_t index = learned_shader_count.load(std::memory_order_relaxed);
++  if (index >= kLearnedShaders) return false;
++  learned_shaders[index].store(hash, std::memory_order_relaxed);
++  learned_shader_count.store(index + 1, std::memory_order_release);
++  return true;
++}
++// The shader that last exported to each unit not read back (MarkGpuOnly), by unit.
++inline void SetExporter(std::vector<uint64_t>& exporters, uint32_t first, uint32_t last, uint64_t hash) {
++  for (uint32_t unit = first; unit <= last && unit < exporters.size(); ++unit) exporters[unit] = hash;
++}
++
 +// An upload of units [first, first + count) over the GPU's copy: the units holding exported data
-+// guest memory lacks lose it. They are marked lossy and no longer GPU-only. Returns the units lost.
++// guest memory lacks lose it. They are marked lossy and no longer GPU-only, and the shaders that
++// exported to them (from `exporters`, when given) are learned. Returns the units lost.
 +inline uint32_t NoteUpload(std::vector<uint64_t>& gpu_only, std::vector<uint64_t>& lossy, uint32_t first,
-+                           uint32_t count, uint32_t unit_log2) {
++                           uint32_t count, uint32_t unit_log2, const std::vector<uint64_t>* exporters = nullptr) {
 +  if (!count) return 0;
 +  const uint32_t last = first + count - 1;
 +  uint32_t lost = 0, run_first = UINT32_MAX, run_units = 0, learned = 0;
@@ -128,6 +167,12 @@ new file mode 100644
 +    const uint64_t was = __atomic_fetch_or(&lossy[word], hit, __ATOMIC_RELAXED);
 +    learned += uint32_t(std::popcount(hit & ~was));
 +    lost += uint32_t(std::popcount(hit));
++    if (exporters) {
++      for (uint64_t bits = hit; bits; bits &= bits - 1) {
++        const uint32_t unit = word * 64 + uint32_t(std::countr_zero(bits));
++        if (unit < exporters->size() && LearnShader((*exporters)[unit])) RecordShader((*exporters)[unit], unit << unit_log2);
++      }
++    }
 +    if (run_first == UINT32_MAX) run_first = word * 64 + uint32_t(std::countr_zero(hit));
 +    run_units += uint32_t(std::popcount(hit));
 +  }
@@ -178,6 +223,18 @@ new file mode 100644
 +      lines.push_back(text);
 +      losses_shown_ = n + 1;
 +    }
++    const uint32_t shaders = std::min<uint32_t>(shader_events_recorded.load(), uint32_t(shader_events.size()));
++    for (uint32_t n = shaders_shown_; n < shaders; ++n) {
++      const uint64_t hash = shader_events[n].load(std::memory_order_acquire);
++      if (!hash) break;
++      char text[200];
++      std::snprintf(text, sizeof(text),
++                    "Memexport: shader %016llX learned (its exported data was lost at physical %08X): every export "
++                    "it makes is read back from now on",
++                    (unsigned long long)hash, shader_event_addresses[n].load(std::memory_order_relaxed));
++      lines.push_back(text);
++      shaders_shown_ = n + 1;
++    }
 +    draws_ = draws; bytes_ = bytes; option_ = option; small_ = small; learned_ = learned; not_read_ = not_read;
 +    not_read_bytes_ = not_read_bytes; lost_ = lost; lost_uploads_ = lost_uploads; learned_units_ = learned_units;
 +    return lines;
@@ -186,7 +243,7 @@ new file mode 100644
 + private:
 +  uint64_t draws_ = 0, bytes_ = 0, option_ = 0, small_ = 0, learned_ = 0, not_read_ = 0, not_read_bytes_ = 0;
 +  uint64_t lost_ = 0, lost_uploads_ = 0, learned_units_ = 0;
-+  uint32_t losses_shown_ = 0;
++  uint32_t losses_shown_ = 0, shaders_shown_ = 0;
 +};
 +
 +// Exporting vertex shaders seen, logged once each (the first 32) with their decision.
@@ -216,20 +273,21 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/shared_memory.h b/.deps/xenia-cana
 +  // Fix 48 (xbox360ps5/memexport_loss.hpp): a memory export's range whose data guest memory
 +  // does not have (not read back), one whose data guest memory gets (read back), and whether
 +  // exported data was lost in a range before (an upload replaced it). GPU thread only.
-+  void MarkGpuOnly(uint32_t start, uint32_t length);
++  void MarkGpuOnly(uint32_t start, uint32_t length, uint64_t exporter = 0);
 +  void ClearGpuOnly(uint32_t start, uint32_t length);
 +  bool AnyLossy(uint32_t start, uint32_t length) const;
 +#endif
  
   protected:
    SharedMemory(Memory& memory);
-@@ -270,6 +278,11 @@ class SharedMemory {
+@@ -270,6 +278,12 @@ class SharedMemory {
    std::vector<std::pair<uint32_t, uint32_t>> unwatched_filtered_;
    bool request_allows_unwatched_ = false;  // GPU thread: the request served.
    uint64_t unwatched_skips_ = 0, unwatched_uploads_ = 0;
 +  // Fix 48: a bit per unit, like the validity bitmaps.
 +  std::vector<uint64_t> gpu_only_bits_;  // Exported data guest memory lacks.
 +  std::vector<uint64_t> lossy_bits_;     // Exported data was lost here.
++  std::vector<uint64_t> unit_exporter_;  // Candidate 7: the shader that exported there.
 +  bool UnitRange(uint32_t start, uint32_t length, uint32_t& first,
 +                 uint32_t& last) const;
    std::atomic<uint64_t> unwatched_heated_{0}, unwatched_cooled_{0};
@@ -246,16 +304,17 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/shared_memory.cc b/.deps/xenia-can
  #endif
  
  #include <cstdlib>
-@@ -151,6 +152,8 @@ bool SharedMemory::InitializeCommon() {
+@@ -151,6 +152,9 @@ bool SharedMemory::InitializeCommon() {
    unwatched_bits_.assign(num_system_page_flags_, 0);
    unwatched_seen_bits_.assign(num_system_page_flags_, 0);
    pinned_bits_.assign(num_system_page_flags_, 0);
 +  gpu_only_bits_.assign(num_system_page_flags_, 0);  // fix 48
 +  lossy_bits_.assign(num_system_page_flags_, 0);
++  unit_exporter_.assign(kBufferSize >> page_size_log2_, 0);
    {
      // Kept GPU-written units (see the top of this file). Off unless
      // "keep-gpu-data.on" is in the title's folder: with it, MW2 and MW3 stopped
-@@ -674,6 +677,37 @@ void SharedMemory::RangeWrittenByGpu(uint32_t start, uint32_t length) {
+@@ -674,6 +678,40 @@ void SharedMemory::RangeWrittenByGpu(uint32_t start, uint32_t length) {
    MakeRangeValid(start, length, true);
  }
  
@@ -271,10 +330,13 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/shared_memory.cc b/.deps/xenia-can
 +  last = (start + length - 1) >> page_size_log2_;
 +  return true;
 +}
-+void SharedMemory::MarkGpuOnly(uint32_t start, uint32_t length) {
++void SharedMemory::MarkGpuOnly(uint32_t start, uint32_t length,
++                               uint64_t exporter) {
 +  uint32_t first, last;
 +  if (UnitRange(start, length, first, last)) {
 +    xbox360ps5::memexport_loss::SetUnits(gpu_only_bits_, first, last);
++    xbox360ps5::memexport_loss::SetExporter(unit_exporter_, first, last,
++                                            exporter);
 +  }
 +}
 +void SharedMemory::ClearGpuOnly(uint32_t start, uint32_t length) {
@@ -293,7 +355,7 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/shared_memory.cc b/.deps/xenia-can
  bool SharedMemory::AllocateSparseHostGpuMemoryRange(
      uint32_t offset_allocations, uint32_t length_allocations) {
    assert_always(
-@@ -942,6 +976,15 @@ bool SharedMemory::RequestRange(uint32_t start, uint32_t length,
+@@ -942,6 +980,15 @@ bool SharedMemory::RequestRange(uint32_t start, uint32_t length,
                        found != current_upload_range;
      }
    }
@@ -304,7 +366,7 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/shared_memory.cc b/.deps/xenia-can
 +  for (unsigned int i = 0; i < current_upload_range; ++i) {
 +    xbox360ps5::memexport_loss::NoteUpload(gpu_only_bits_, lossy_bits_,
 +                                           uploads[i].first, uploads[i].second,
-+                                           page_size_log2_);
++                                           page_size_log2_, &unit_exporter_);
 +  }
  #endif
    bool usable = !current_upload_range || UploadRanges(uploads, current_upload_range);
@@ -320,7 +382,7 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
  #endif
  
  #include <utility>
-@@ -3323,10 +3324,48 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+@@ -3323,10 +3324,51 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
    for (const draw_util::MemExportRange& memexport_range : memexport_ranges_) {
      memexport_total_bytes += memexport_range.size_bytes;
    }
@@ -331,7 +393,10 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
 +  // Fix 48 (xbox360ps5/memexport_loss.hpp): and the exports into units where
 +  // exported data guest memory lacked was lost to an upload before. Decide
 +  // gives fix 30's answer first (the option, a small export), then this one.
-+  bool memexport_lossy = false;
++  // Candidate 7: or by its shader, once data that shader exported was lost.
++  bool memexport_lossy = memexport_total_bytes &&
++                         xbox360ps5::memexport_loss::ShaderLearned(
++                             vertex_shader->ucode_data_hash());
 +  for (const draw_util::MemExportRange& memexport_range : memexport_ranges_) {
 +    memexport_lossy = memexport_lossy ||
 +                      shared_memory_->AnyLossy(
@@ -370,7 +435,7 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
      // The GPU's copy of the ranges refreshed from guest memory before the
      // draw (see RefreshRanges).
      std::vector<xbox360ps5::memexport_merge::Range> ranges;
-@@ -3335,7 +3374,16 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+@@ -3335,7 +3377,16 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
        ranges.push_back({memexport_range.base_address_dwords << 2,
                          memexport_range.size_bytes});
      }
@@ -388,7 +453,7 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
      // Candidate 36: the exporting vertex shader of Battlefield 3's small
      // exports (its microcode, stream and vertex fetch constants), once each.
      namespace mm = xbox360ps5::memexport_merge;
-@@ -3387,6 +3435,10 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+@@ -3387,6 +3438,10 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
    for (const draw_util::MemExportRange& memexport_range : memexport_ranges_) {
      uint32_t memexport_range_base_bytes = memexport_range.base_address_dwords
                                            << 2;
@@ -399,14 +464,15 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
      if (!shared_memory_->RequestRange(memexport_range_base_bytes,
                                        memexport_range.size_bytes)) {
        XELOGE(
-@@ -3521,6 +3573,11 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+@@ -3521,6 +3576,12 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
    for (const draw_util::MemExportRange& memexport_range : memexport_ranges_) {
      shared_memory_->RangeWrittenByGpu(memexport_range.base_address_dwords << 2,
                                        memexport_range.size_bytes);
 +    // Fix 48: data guest memory will not have unless it is read back.
 +    if (!memexport_readback) {
 +      shared_memory_->MarkGpuOnly(memexport_range.base_address_dwords << 2,
-+                                  memexport_range.size_bytes);
++                                  memexport_range.size_bytes,
++                                  vertex_shader->ucode_data_hash());
 +    }
    }
  
