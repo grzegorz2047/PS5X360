@@ -140,22 +140,22 @@ diff --git a/.deps/xenia-canary/src/xenia/memory.cc b/.deps/xenia-canary/src/xen
 diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
 --- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
 +++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
-@@ -3406,6 +3406,7 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
-           global_critical_region::Acquire();
- #endif
+@@ -3408,6 +3408,7 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
  
-+      xbox360ps5::frame_cost::ArmKindScope frame_cost_kind(xbox360ps5::frame_cost::kArmVertex);  // fix 78
        for (uint32_t i = 0; i < vfetch_current_queued; ++i) {
          // Xbox360PS5: vertex data is used for this draw only.
++        xbox360ps5::frame_cost::ArmKindScope frame_cost_kind(xbox360ps5::frame_cost::kArmVertex);  // fix 78
          if (!shared_memory_->RequestRange(vfetch_addresses[i] << 2,
-@@ -3546,6 +3547,7 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+                                           vfetch_sizes[i] << 2, true)) {
+           XELOGE(
+@@ -3544,6 +3545,7 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+                                           << 2;
+     // Fix 48: this draw writes these ranges again; an upload of them for it
      // loses nothing an earlier export left there that anything still reads.
++    xbox360ps5::frame_cost::ArmKindScope frame_cost_kind(xbox360ps5::frame_cost::kArmMemexport);  // fix 78
      shared_memory_->ClearGpuOnly(memexport_range_base_bytes,
                                   memexport_range.size_bytes);
-+    xbox360ps5::frame_cost::ArmKindScope frame_cost_kind(xbox360ps5::frame_cost::kArmMemexport);  // fix 78
      if (!shared_memory_->RequestRange(memexport_range_base_bytes,
-                                       memexport_range.size_bytes)) {
-       XELOGE(
 diff --git a/.deps/xenia-canary/src/xenia/gpu/texture_cache.cc b/.deps/xenia-canary/src/xenia/gpu/texture_cache.cc
 --- a/.deps/xenia-canary/src/xenia/gpu/texture_cache.cc
 +++ b/.deps/xenia-canary/src/xenia/gpu/texture_cache.cc
