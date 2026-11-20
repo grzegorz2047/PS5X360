@@ -212,6 +212,7 @@ also listed here.
 | 76 (`76-alloc-failure-lines`) | Fable II stopped at start on the v1.0.4 draft: fix 47 wrote a hang-watch line (write and fsync) for each of the thousands of failed reserves Fable II makes while it looks for room; now a line for the first 16 only, the rest counted; the stall capture's log of every system call takes at most 1,000 lines (33,000 in under 2 s on the draft, over a minute for the log writer) | host-checked (`tools/check-alloc-failure-lines.cpp`); console: Fable II starts |
 | 77 (`77-wait-reg-and-sampling`) | a diagnostic for 1.0.5: draws and packets sampled at random (a repeating ring fooled the every-n-th counter: Tekken's `WAIT_REG_MEM` over 1,000 ms/s, Battlefield 3's packets near 0); how long the GPU thread polls and sleeps in `WAIT_REG_MEM` | host-checked (`tools/check-wait-reg.cpp`); console: next 1.0.5 perf candidate |
 | 78 (`78-hot-memory`) | a diagnostic for 1.0.5: the 64 KiB blocks of memory the write watches are armed on most (Modern Warfare 2: 6,000 protection calls a second), their write notices and the kind of GPU request (vertex data, memexport, textures, other) | host-checked (`tools/check-hot-memory.cpp`); console: next 1.0.5 perf candidate |
+| 79 (`79-system-heap-holders`) | a diagnostic: which emulator code keeps allocating in the guest's 4 KiB heap (Battlefield 3 runs out of it after about 14 minutes on 1.0.4-based builds) | host-checked (`tools/check-system-heap.cpp`); console: next 1.0.5 candidate, Battlefield 3 |
 
 ## Comparison with the official executable
 
