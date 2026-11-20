@@ -351,6 +351,30 @@ void CheckGuestAllocations() {
   hw::raw_sink.store(nullptr);
 }
 
+// Candidate 21: the guest's kernel calls in the beat (shim_utils.h notes every export call).
+void CheckGuestCalls() {
+  const uint64_t before = hw::guest_calls.load();
+  const char* const names[] = {"NtCreateFile", "NtReadFile", "KeWaitForSingleObject", "XamLoaderGetLaunchData",
+                               "NtClose", "RtlEnterCriticalSection", "RtlLeaveCriticalSection", "KeSetEvent",
+                               "NtQueryFullAttributesFile", "XexGetModuleHandle"};
+  for (const char* name : names) hw::NoteGuestCall(name);
+  const std::string line = hw::GuestLine(9.75, before, 0.25);
+  std::printf("   %s\n", line.c_str());
+  Expect(line.rfind("HANG guest +9.75 s: ", 0) == 0, "guest line: time");
+  Expect(line.find(" kernel calls (40/s), last: XexGetModuleHandle, NtQueryFullAttributesFile, KeSetEvent, "
+                   "RtlLeaveCriticalSection, RtlEnterCriticalSection, NtClose, XamLoaderGetLaunchData, "
+                   "KeWaitForSingleObject") != std::string::npos,
+         "guest line: the rate and the last 8 calls, newest first");
+  Expect(line.find("NtCreateFile") == std::string::npos, "guest line: older calls drop out");
+  const std::string shim = Read(".deps/xenia-canary/src/xenia/kernel/util/shim_utils.h");
+  Expect(shim.find("xbox360ps5::hang_watch::NoteGuestCall(export_entry->name);") != std::string::npos,
+         "every export's trampoline notes its call");
+  const std::string main_text = Read("src/canary_game_main.cpp");
+  Expect(main_text.find("Emit(hw::GuestLine(double(now - start) / 1000.0, guest_calls_before_, 0.25));") !=
+             std::string::npos,
+         "the beat writes the guest line");
+}
+
 void CheckRawSink() {
   static std::string got;
   hw::raw_sink.store(nullptr);
@@ -521,6 +545,7 @@ int main() {
   CheckWork();
   CheckHeartbeat();
   CheckRawSink();
+  CheckGuestCalls();
   CheckGuestAllocations();
   CheckWatcher();
   CheckTree();
