@@ -132,6 +132,7 @@ Description\s(from\sthe\sx360db\sarchive) = Descripción\s(en\singlés,\sdel\sar
 Destination\sexists\sor\scannot\sbe\spublished. = El\sdestino\sya\sexiste\so\sno\spermite\sfinalizar\sla\sinstalación.
 Detailed\slogs = Registros\sdetallados
 Developer = Desarrolladora
+Disc\s%u = Disco\s%u
 Disconnected\sor\sunavailable = Desconectada\so\sno\sdisponible
 Dithers\sthe\soutput\sso\sskies\sand\sshadows\sdo\snot\sshow\sbands. = Mezcla\slos\scolores\sen\sla\ssalida\spara\sque\sel\scielo\sy\slas\ssombras\sno\sformen\sfranjas.
 Does\snot\swork = No\sfunciona
