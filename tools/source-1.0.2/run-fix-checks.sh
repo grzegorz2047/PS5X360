@@ -48,6 +48,7 @@ checks=(
   check-net-log-drain.cpp          # fix 39
   check-review-fix30.cpp           # fixes 35-37 with fix 30
   check-guest-crash.cpp            # fix 45
+  check-frame-cost.cpp             # fix 49
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -63,6 +64,7 @@ declare -A fix_of=(
   [check-media-voice.cpp]=32 [check-switch-title.cpp]=33 [check-pipeline-claim.cpp]=34
   [check-readback-slots.cpp]=35 [check-unwatched-policy.cpp]=36 [check-exact-unwatch.cpp]=37
   [check-jit-backports.cpp]=38 [check-net-log-drain.cpp]=39 [check-review-fix30.cpp]="35 36 37"
+  [check-frame-cost.cpp]=49
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
