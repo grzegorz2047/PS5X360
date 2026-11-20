@@ -271,6 +271,19 @@ void CheckBodyScale() {
     for (int n = 0; n < 60; ++n) m::ObserveBody(s2, punch);
     const m::Frame kept = m::NormalizeBody(s2, punch);
     CHECK(kept.joints[11].z - kept.joints[8].z > 0.45f);
+    // 1.0.5_candidate_1's recording "hands on the shoulders": the hand by its shoulder in the
+    // picture, the elbow 0.15 m forward and the forearm another 0.2 m forward (the phone cannot
+    // tell which way a forearm points). The bent arm's forearm turns back: the hand ends by
+    // the shoulder, in depth too.
+    m::Frame charge = Body(1.0f, false);
+    charge.joints[9] = {-0.22f, 0.32f, 0.15f, 0.9f};   // elbow forward and down
+    charge.joints[10] = {-0.19f, 0.45f, 0.33f, 0.9f};  // the wrist forward again (the error)
+    charge.joints[11] = {-0.18f, 0.53f, 0.36f, 0.9f};  // the hand by the shoulder in the picture
+    m::BodyScaleState s3;
+    for (int n = 0; n < 60; ++n) m::ObserveBody(s3, charge);
+    const m::Frame back = m::NormalizeBody(s3, charge);
+    CHECK(m::Distance(back.joints[11], back.joints[8]) < 0.15f);
+    CHECK(back.joints[9].z > back.joints[8].z + 0.1f);  // the elbow stays forward
   }
   // An adult stays an adult; a huge or tiny reading is clamped (x0.8 .. x2).
   m::BodyScaleState adult;

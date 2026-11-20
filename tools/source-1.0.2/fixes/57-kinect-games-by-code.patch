@@ -560,10 +560,10 @@ index 20be75b..72b04c6 100644
  }
 diff --git a/include/xbox360ps5/body_scale.hpp b/include/xbox360ps5/body_scale.hpp
 new file mode 100644
-index 0000000..1b56cc3
+index 0000000..34a4072
 --- /dev/null
 +++ b/include/xbox360ps5/body_scale.hpp
-@@ -0,0 +1,143 @@
+@@ -0,0 +1,174 @@
 +// SPDX-License-Identifier: MIT
 +// Fix 57: the phone's pose brought to a plausible body size before a game sees it.
 +//
@@ -597,6 +597,8 @@ index 0000000..1b56cc3
 +constexpr float kUpperArmMetres = 0.30f, kForearmMetres = 0.26f, kHandMetres = 0.08f;
 +constexpr float kMinimumBoneShare = 0.9f;
 +constexpr float kLargestBodyScale = 2.0f, kSmallestBodyScale = 0.8f;
++// 1.0.5_candidate_2: a bent arm whose hand is by its shoulder in the picture (an adult's metres).
++constexpr float kNearShoulderFlat = 0.12f, kBentElbowDegrees = 125.0f;
 +// pose.mjs joint order.
 +constexpr int kHipCentre = 0, kShoulderCentre = 2;
 +constexpr int kLeftArm[4] = {4, 5, 6, 7}, kRightArm[4] = {8, 9, 10, 11};
@@ -614,6 +616,14 @@ index 0000000..1b56cc3
 +  return std::sqrt(dx * dx + dy * dy + dz * dz);
 +}
 +inline bool Seen(const Joint& joint) { return joint.confidence >= 0.5f; }
++// The angle at the elbow, degrees (180: straight).
++inline float ElbowDegrees(const Joint& shoulder, const Joint& elbow, const Joint& wrist) {
++  const float ax = shoulder.x - elbow.x, ay = shoulder.y - elbow.y, az = shoulder.z - elbow.z;
++  const float bx = wrist.x - elbow.x, by = wrist.y - elbow.y, bz = wrist.z - elbow.z;
++  const float la = std::sqrt(ax * ax + ay * ay + az * az), lb = std::sqrt(bx * bx + by * by + bz * bz);
++  if (la < 1e-4f || lb < 1e-4f) return 180;
++  return std::acos(std::clamp((ax * bx + ay * by + az * bz) / (la * lb), -1.0f, 1.0f)) * 57.29578f;
++}
 +
 +// One step of the averages for a new frame (weight 0.08: about a second at 30 frames/s).
 +inline void ObserveBody(BodyScaleState& state, const Frame& pose) {
@@ -678,6 +688,27 @@ index 0000000..1b56cc3
 +        next.z = from.z + dz / now * length;
 +      }
 +      previous_in = next_in;
++    }
++    // 1.0.5_candidate_2: a phone sees how far a forearm points towards or away from it, not which
++    // way. The motion recordings of 1.0.5_candidate_1 ("hands on the shoulders", DBZ's charge)
++    // had each hand on its shoulder in the picture (within 0.05 m) but 0.36-0.38 m in front of
++    // it: the elbow forward by 0.15 m (right) and the forearm forward by 0.2 m more (wrong: it
++    // comes back to the shoulder). With the hand by its shoulder in the picture and the elbow
++    // bent, the forearm (and the hand) take the depth sign that puts the hand nearer the
++    // shoulder. A straight arm at the camera (a punch) is not bent and keeps its depth.
++    const Joint& shoulder = out.joints[arm[0]];
++    Joint& elbow = out.joints[arm[1]];
++    Joint& wrist = out.joints[arm[2]];
++    Joint& hand = out.joints[arm[3]];
++    const float flat_to_shoulder = std::hypot(hand.x - shoulder.x, hand.y - shoulder.y);
++    if (flat_to_shoulder < kNearShoulderFlat * size && ElbowDegrees(shoulder, elbow, wrist) < kBentElbowDegrees) {
++      Joint wrist_flipped = wrist, hand_flipped = hand;
++      wrist_flipped.z = elbow.z - (wrist.z - elbow.z);
++      hand_flipped.z = wrist_flipped.z - (hand.z - wrist.z);
++      if (Distance(hand_flipped, shoulder) < Distance(hand, shoulder)) {
++        wrist = wrist_flipped;
++        hand = hand_flipped;
++      }
 +    }
 +  }
 +  return out;
