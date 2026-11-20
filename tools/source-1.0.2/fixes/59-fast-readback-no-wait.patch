@@ -1,0 +1,57 @@
+diff --git a/include/xbox360ps5/frame_cost.hpp b/include/xbox360ps5/frame_cost.hpp
+--- a/include/xbox360ps5/frame_cost.hpp
++++ b/include/xbox360ps5/frame_cost.hpp
+@@ -87,6 +87,10 @@ struct Place {
+   std::atomic<uint64_t> ns{0}, waits{0};
+ };
+ inline std::array<Place, kPlaces> places;
++// Fix 59: fast resolve readbacks left for the next resolve because the GPU had not finished the
++// previous copy (instead of a wait).
++inline std::atomic<uint64_t> late_readbacks{0};
++inline void NoteLateReadback() { late_readbacks.fetch_add(1, std::memory_order_relaxed); }
+ inline void AddPlace(int line, uint64_t ns) {
+   Place* slot = nullptr;
+   for (Place& place : places) {
+@@ -211,12 +215,18 @@ class PlaceReporter {
+                       rows[n].line == -2 ? "no line" : "more lines", double(rows[n].ns) / 1e6 / s, double(rows[n].waits) / s);
+       parts += item;
+     }
++    const uint64_t late = late_readbacks.load(std::memory_order_relaxed);
++    char tail[96];
++    std::snprintf(tail, sizeof(tail), "; fast resolve readbacks left for the next resolve: %.1f/s",
++                  double(late - last_late_) / s);  // fix 59
++    last_late_ = late;
+     return "Frame time other waits (GPU thread) by the line of vulkan_command_processor.cc that waited: " +
+-           (parts.empty() ? std::string("none") : parts);
++           (parts.empty() ? std::string("none") : parts) + tail;
+   }
+ 
+  private:
+   std::array<uint64_t, kPlaces> last_ns_{}, last_waits_{};
++  uint64_t last_late_ = 0;
+ };
+ 
+ // The detail line: each section's exclusive time and count per second, and the executing time
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+@@ -4505,10 +4505,16 @@ bool VulkanCommandProcessor::IssueCopy() {
+       return true;
+     }
+     if (read_submission > GetCompletedSubmission()) {
+-      if (auto_readback &&
+-          read_submission >
+-              completion_timeline_.UpdateAndGetCompletedSubmission()) {
++      if (read_submission >
++          completion_timeline_.UpdateAndGetCompletedSubmission()) {
+         // Automatic copy: the GPU has not finished it; never wait.
++        // Fix 59: nor in fast mode (readback=1). Waiting here for the previous copy's
++        // submission was MW2's largest GPU wait on 1.0.4_candidate_20 (fix 58: this line,
++        // 138 ms/s in 55/s); fast mode hands the data over one resolve late anyway, and now
++        // a resolve later still when the GPU is behind. The other modes awaited all work above.
++#if XE_PLATFORM_PS5
++        if (!auto_readback) xbox360ps5::frame_cost::NoteLateReadback();
++#endif
+         return true;
+       }
+       CheckSubmissionCompletionAndDeviceLoss(read_submission);

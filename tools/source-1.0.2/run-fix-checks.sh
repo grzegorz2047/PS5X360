@@ -65,6 +65,7 @@ checks=(
   check-library-disc.cpp           # fix 52
   check-kinect-pairing.cpp         # fix 56
   check-gpu-wait-lines.cpp         # fix 58
+  check-fast-readback.cpp          # fix 59
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -93,6 +94,7 @@ declare -A fix_of=(
   [check-library-disc.cpp]=52
   [check-kinect-pairing.cpp]=56
   [check-gpu-wait-lines.cpp]=58
+  [check-fast-readback.cpp]=59
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))

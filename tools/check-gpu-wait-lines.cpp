@@ -59,8 +59,9 @@ void CheckPlaces() {
   std::thread([] { fc::LineScope at(7777); fc::AddFenceWait(5'000'000); }).join();  // not the GPU thread
   const std::string line = reporter.Line(2.0);
   std::printf("   %s\n", line.c_str());
-  Expect(line == "Frame time other waits (GPU thread) by the line of vulkan_command_processor.cc that waited: "
-                 "line 3035 3.0 ms/s in 1.5/s, line 4049 0.5 ms/s in 0.5/s, no line 0.3 ms/s in 0.5/s",
+  // Fix 59 may end the line with its own count: the start is fix 58's.
+  Expect(line.rfind("Frame time other waits (GPU thread) by the line of vulkan_command_processor.cc that waited: "
+                 "line 3035 3.0 ms/s in 1.5/s, line 4049 0.5 ms/s in 0.5/s, no line 0.3 ms/s in 0.5/s", 0) == 0,
          "by line, largest first, per second");
   Expect(!Has(line, "7777") && !Has(line, "4.5"), "other threads and caused waits left out");
   Expect(Has(reporter.Line(1.0), "none"), "only what came since the previous line");
