@@ -1,14 +1,50 @@
 diff --git a/.deps/xenia-canary/src/xenia/apu/xma_decoder.cc b/.deps/xenia-canary/src/xenia/apu/xma_decoder.cc
-index ca06f8c..8352328 100644
+index ca06f8c..c9300e3 100644
 --- a/.deps/xenia-canary/src/xenia/apu/xma_decoder.cc
 +++ b/.deps/xenia-canary/src/xenia/apu/xma_decoder.cc
-@@ -409,6 +409,16 @@ void XmaDecoder::Pause() {
+@@ -170,6 +170,9 @@ X_STATUS XmaDecoder::Setup(kernel::KernelState* kernel_state) {
+   register_file_[XmaRegister::NextContextIndex] = 1;
+   context_bitmap_.Resize(kContextCount);
+ 
++  // Xbox360PS5 (fix 45): decided once; Pause and WriteRegister follow the
++  // worker as it was started, not the cvar as it is later.
++  dedicated_worker_ = cvars::use_dedicated_xma_thread;
+   worker_running_ = true;
+   work_event_ = xe::threading::Event::CreateAutoResetEvent(false);
+   assert_not_null(work_event_);
+@@ -177,7 +180,7 @@ X_STATUS XmaDecoder::Setup(kernel::KernelState* kernel_state) {
+       kernel::object_ref<kernel::XHostThread>(new kernel::XHostThread(
+           kernel_state, 128 * 1024, 0,
+           [this]() {
+-            if (cvars::use_dedicated_xma_thread) {
++            if (dedicated_worker_) {
+               WorkerThreadMain();
+             }
+             return 0;
+@@ -341,14 +344,14 @@ void XmaDecoder::WriteRegister(uint32_t addr, uint32_t value) {
+       const uint32_t context_id = base_context_id + std::countr_zero(value);
+       auto& context = *contexts_[context_id];
+       context.Enable();
+-      if (!cvars::use_dedicated_xma_thread) {
++      if (!dedicated_worker_) {
+         context.Work();
+       }
+       value &= value - 1;
+     }
+     // Signal the decoder thread to start processing.
+     work_event_->SetBoostPriority();
+-    if (cvars::use_dedicated_xma_thread) {
++    if (dedicated_worker_) {
+       // Block until the worker finishes, so the game sees updated context data.
+       uint32_t remaining = kicked_value;
+       while (remaining) {
+@@ -409,6 +412,16 @@ void XmaDecoder::Pause() {
    }
    paused_ = true;
  
 +  // Xbox360PS5 (fix 45): without a dedicated thread (the game option xma_inline)
 +  // WorkerThreadMain never runs, so nothing would signal pause_fence_.
-+  if (!cvars::use_dedicated_xma_thread) {
++  if (!dedicated_worker_) {
 +    return;
 +  }
 +  // Xbox360PS5 (fix 45): wake an idle worker so it reaches its paused_ check, as
@@ -19,56 +55,197 @@ index ca06f8c..8352328 100644
    pause_fence_.Wait();
  }
  
+diff --git a/.deps/xenia-canary/src/xenia/apu/xma_decoder.h b/.deps/xenia-canary/src/xenia/apu/xma_decoder.h
+index 9423b0f..96fa364 100644
+--- a/.deps/xenia-canary/src/xenia/apu/xma_decoder.h
++++ b/.deps/xenia-canary/src/xenia/apu/xma_decoder.h
+@@ -75,6 +75,10 @@ class XmaDecoder {
+   std::unique_ptr<xe::threading::Event> work_event_ = nullptr;
+ 
+   std::atomic<bool> paused_ = false;
++  // Xbox360PS5 (fix 45): cvars::use_dedicated_xma_thread as Setup found it. The
++  // port applies its settings again during a game, which rewrites the cvar
++  // (xma_inline is a start option); the worker loop runs, or not, as it started.
++  bool dedicated_worker_ = true;
+   xe::threading::Fence pause_fence_;   // Signaled when worker paused.
+   xe::threading::Fence resume_fence_;  // Signaled when resume requested.
+ 
+diff --git a/.deps/xenia-canary/src/xenia/base/logging.cc b/.deps/xenia-canary/src/xenia/base/logging.cc
+index 74555a0..ba29fb2 100644
+--- a/.deps/xenia-canary/src/xenia/base/logging.cc
++++ b/.deps/xenia-canary/src/xenia/base/logging.cc
+@@ -413,6 +413,10 @@ class Logger {
+   void AppendLine(uint32_t thread_id, const char prefix_char,
+                   const char* buffer_data, size_t buffer_length,
+                   bool terminate = false) {
++    // Xbox360PS5 (fix 45): a thread suspended between claim and publish would
++    // hold up the writer at its slot, and every thread that logs after it once
++    // the ring is full; Emulator::Pause suspends guest threads anywhere.
++    xe::threading::SuspensionDeferral deferral;
+     size_t count = BlockCount(sizeof(LogLine) + buffer_length);
+ 
+     auto range = claim_strategy_.claim(count);
+@@ -528,6 +532,10 @@ void RememberLine(const char prefix_char, const char* text, size_t size) {
+       std::snprintf(head, sizeof(head), "%c> %08X ", prefix_char,
+                     xe::threading::current_thread_id());
+   size = std::min(size, kRecentLineLimit);
++  // Xbox360PS5 (fix 45): a guest thread suspended (Emulator::Pause after a
++  // guest crash) while it holds recent_mutex_ would block every thread that
++  // logs next, the frame loop and its STALL report among them.
++  xe::threading::SuspensionDeferral deferral;
+   std::lock_guard<std::mutex> lock(recent_mutex_);
+   if (!recent_lines_) {
+     return;
+@@ -546,6 +554,7 @@ void RememberLine(const char prefix_char, const char* text, size_t size) {
+ }  // namespace
+ 
+ void logging::KeepRecentLines(bool keep) {
++  xe::threading::SuspensionDeferral deferral;  // fix 45: as in RememberLine
+   std::lock_guard<std::mutex> lock(recent_mutex_);
+   if (keep) {
+     if (!recent_lines_) {
+@@ -561,6 +570,7 @@ void logging::WriteRecentLines() {
+   std::string lines;
+   bool cut = false;
+   {
++    xe::threading::SuspensionDeferral deferral;  // fix 45: as in RememberLine
+     std::lock_guard<std::mutex> lock(recent_mutex_);
+     if (!recent_lines_) {
+       return;
+diff --git a/.deps/xenia-canary/src/xenia/base/threading.h b/.deps/xenia-canary/src/xenia/base/threading.h
+index 63a53e9..b61cc70 100644
+--- a/.deps/xenia-canary/src/xenia/base/threading.h
++++ b/.deps/xenia-canary/src/xenia/base/threading.h
+@@ -461,6 +461,27 @@ struct ThreadPriority {
+ };
+ #endif
+ 
++// Xbox360PS5 (fix 45): while it lives, a suspension that another thread asks
++// for (Thread::Suspend, as Emulator::Pause does for every guest thread) does
++// not stop the calling thread where it is; it is delivered when the deferral
++// ends. Unlike Thread::DeferSuspension it puts back what it found, so it nests.
++// For a lock that other threads take all the time, such as the log's: a thread
++// stopped while it holds one would block every other thread that logs.
++class SuspensionDeferral {
++ public:
++#if XE_PLATFORM_WIN32
++  SuspensionDeferral() = default;
++#else
++  SuspensionDeferral();
++  ~SuspensionDeferral();
++#endif
++  SuspensionDeferral(const SuspensionDeferral&) = delete;
++  SuspensionDeferral& operator=(const SuspensionDeferral&) = delete;
++
++ private:
++  [[maybe_unused]] bool was_deferred_ = false;
++};
++
+ // Models a Win32-like thread object.
+ // https://msdn.microsoft.com/en-us/library/windows/desktop/ms682453(v=vs.85).aspx
+ class Thread : public WaitHandle {
+diff --git a/.deps/xenia-canary/src/xenia/base/threading_posix.cc b/.deps/xenia-canary/src/xenia/base/threading_posix.cc
+index fb8e101..c51ea7a 100644
+--- a/.deps/xenia-canary/src/xenia/base/threading_posix.cc
++++ b/.deps/xenia-canary/src/xenia/base/threading_posix.cc
+@@ -1281,6 +1281,27 @@ void Thread::DeferSuspension(bool defer) {
+   pthread_sigmask(defer ? SIG_BLOCK : SIG_UNBLOCK, &signals, nullptr);
+ }
+ 
++// Xbox360PS5 (fix 45): see threading.h. As SuspensionDeferred, without its
++// wait statistics (the log takes it for every line).
++SuspensionDeferral::SuspensionDeferral() {
++  sigset_t signals, previous;
++  sigemptyset(&signals);
++  sigaddset(&signals, GetSystemSignal(SignalType::kThreadSuspend));
++  pthread_sigmask(SIG_BLOCK, &signals, &previous);
++  was_deferred_ =
++      sigismember(&previous, GetSystemSignal(SignalType::kThreadSuspend)) == 1;
++}
++
++SuspensionDeferral::~SuspensionDeferral() {
++  if (was_deferred_) {
++    return;
++  }
++  sigset_t signals;
++  sigemptyset(&signals);
++  sigaddset(&signals, GetSystemSignal(SignalType::kThreadSuspend));
++  pthread_sigmask(SIG_UNBLOCK, &signals, nullptr);
++}
++
+ void Thread::ExitWithCleanup(int exit_code, std::function<void()> cleanup) {
+   auto* thread = current_thread_;
+   current_thread_ = nullptr;
 diff --git a/.deps/xenia-canary/src/xenia/emulator.cc b/.deps/xenia-canary/src/xenia/emulator.cc
-index 261e935..dd5b647 100644
+index 261e935..fc2cbed 100644
 --- a/.deps/xenia-canary/src/xenia/emulator.cc
 +++ b/.deps/xenia-canary/src/xenia/emulator.cc
 @@ -13,6 +13,10 @@
  
  // Xbox360PS5: small persisted phase markers, independent of verbose logging.
  extern "C" void Xbox360PS5LoaderStage(const char*) __attribute__((weak));
-+// Xbox360PS5 (fix 45): a guest crash, told to the port before Pause() (which may
-+// not return); ExceptionCallback's "Uh-oh!" dialog is not on the console's screen.
++// Xbox360PS5 (fix 45): a guest crash, told to the port first (before the dump
++// is built and Pause() is called); the port shows its own notice for it.
 +extern "C" void Xbox360PS5GuestCrashed(uint32_t guest_pc, uint32_t thread_handle,
 +                                       uint64_t fault_address) __attribute__((weak));
  namespace {
  void LoaderStage(const char* stage) {
    if (Xbox360PS5LoaderStage) Xbox360PS5LoaderStage(stage);
-@@ -1531,6 +1535,17 @@ bool Emulator::ExceptionCallback(Exception* ex) {
-   XELOGE("{}", crash_msg);
-   FlushLog();
+@@ -1486,6 +1490,21 @@ bool Emulator::ExceptionCallback(Exception* ex) {
+   auto guest_function = code_cache->LookupFunction(ex->pc());
+   assert_not_null(guest_function);
  
 +  // Xbox360PS5 (fix 45): the port records the crash for its overlay and its
-+  // STALL report before Pause(), which waits for the GPU and audio threads.
++  // STALL report first: the dump below allocates and writes the log, and
++  // Pause() waits for the GPU and audio threads; neither must keep it unseen.
 +  if (Xbox360PS5GuestCrashed) {
 +    const uint32_t guest_pc =
-+        guest_function->MapMachineCodeToGuestAddress(ex->pc());
++        guest_function ? guest_function->MapMachineCodeToGuestAddress(ex->pc())
++                       : 0;
 +    const uint64_t fault_address =
 +        ex->code() == Exception::Code::kAccessViolation ? ex->fault_address()
 +                                                         : 0;
-+    Xbox360PS5GuestCrashed(guest_pc, current_thread->handle(), fault_address);
++    Xbox360PS5GuestCrashed(guest_pc,
++                           current_thread ? current_thread->handle() : 0,
++                           fault_address);
 +  }
 +
-   // Pause the emulator and eat the exception.
-   Pause();
+   auto context = current_thread->thread_state()->context();
  
+   std::string crash_msg;
+@@ -1540,7 +1559,12 @@ bool Emulator::ExceptionCallback(Exception* ex) {
+       "{}",
+       crash_msg);
+   // Display a dialog telling the user the guest has crashed.
+-  if (display_window_ && imgui_drawer_) {
++  // Xbox360PS5 (fix 45): on the console display_window_ and imgui_drawer_ are
++  // the game's screen (canary_game_main.cpp's Setup), and the port, which has
++  // the crash, shows its own notice there. This modal (the whole dump and an OK
++  // button) would cover the game and take the focus of the library overlay and
++  // the on-screen keyboard, so it is left out when the port has the hook.
++  if (display_window_ && imgui_drawer_ && !Xbox360PS5GuestCrashed) {
+     display_window_->app_context().CallInUIThreadSynchronous([this,
+                                                               &crash_dlg]() {
+       xe::ui::ImGuiDialog::ShowMessageBox(imgui_drawer_, "Uh-oh!", crash_dlg);
 diff --git a/port/guest_crash.hpp b/port/guest_crash.hpp
 new file mode 100644
-index 0000000..e96b9d3
+index 0000000..adbae9b
 --- /dev/null
 +++ b/port/guest_crash.hpp
-@@ -0,0 +1,145 @@
+@@ -0,0 +1,147 @@
 +// SPDX-License-Identifier: MIT
 +// Fix 45: a guest crash, kept for the screen and the STALL report.
 +//
 +// When guest code faults, the core's Emulator::ExceptionCallback logs its crash dump, then calls
-+// Pause() and shows an "Uh-oh!" dialog through display_window_/imgui_drawer_, which are not the
-+// screen on the console; and Pause() may never return (Minecraft, 584111F7: XmaDecoder::Pause
-+// waited for an idle worker, research/minecraft-online-hang/VERDICT.md). The player saw a picture
-+// frozen at 0 FPS and the STALL report began with "no output is not proof of deadlock".
-+// Before it pauses, the core now calls the weak hook Xbox360PS5GuestCrashed (canary_game_main.cpp),
-+// which records the crash here: the overlay shows that the game crashed and how to leave it, and
-+// the STALL report's first line names the crash.
++// Pause() and only after it shows an "Uh-oh!" dialog (an ImGui modal with the whole dump); and
++// Pause() never returned (Minecraft, 584111F7: XmaDecoder::Pause waited for an idle worker,
++// research/minecraft-online-hang/VERDICT.md). The player saw a picture frozen at 0 FPS and the
++// STALL report began with "no output is not proof of deadlock".
++// Before it builds the dump, the core now calls the weak hook Xbox360PS5GuestCrashed
++// (canary_game_main.cpp), which records the crash here: the overlay shows that the game crashed
++// and how to leave it, and the STALL report's first line names the crash. With the hook the core
++// leaves its modal out, which would cover the game and take the focus of the library overlay and
++// the on-screen keyboard.
 +#pragma once
 +
 +#include <atomic>
@@ -133,7 +310,7 @@ index 0000000..e96b9d3
 +};
 +
 +// Constant-initialized (no guard to take inside the exception handler).
-+inline Recorder global_recorder;
++inline constinit Recorder global_recorder;
 +inline Recorder& Global() { return global_recorder; }
 +
 +// Whole seconds since the crash (0 when the clock reads earlier).
@@ -204,18 +381,31 @@ index 0000000..e96b9d3
 +}  // namespace guest_crash
 +}  // namespace xbox360ps5
 diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
-index cfafb43..2db68a8 100644
+index cfafb43..5d63370 100644
 --- a/src/canary_game_main.cpp
 +++ b/src/canary_game_main.cpp
-@@ -178,6 +178,7 @@ DECLARE_bool(upnp);
- #include "guide_network.hpp"  // fix 22: the network mode from the guide
+@@ -179,6 +179,7 @@ DECLARE_bool(upnp);
  #include <fcntl.h>
  #include "network_self_test.hpp"  // fix 42: the self-test's timing, lookups and TCP probe
-+#include "guest_crash.hpp"  // fix 45: a guest crash for the overlay and the STALL report
  extern "C" void ps5x_resolver_report(char* out, size_t size);  // port/ps5_resolver.cpp
++#include "guest_crash.hpp"  // fix 45: a guest crash for the overlay and the STALL report
  
  namespace {
-@@ -377,13 +378,24 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
+ // Online mode's check of each piece the Xenia server needs, written to the console's log
+@@ -326,6 +327,12 @@ struct ExitCacheScope {
+   }
+ };
+ void CheckpointExitCache(const std::shared_ptr<ExitCacheState>& state) noexcept try {
++  // Fix 45: after a guest crash the emulator has paused itself, its GPU worker too, so the
++  // snapshot asked of that worker would only hold the way out for the whole 30 s.
++  if (xbox360ps5::guest_crash::Global().Get().recorded) {
++    XELOGW("Vulkan cache: exit checkpoint skipped after a guest crash");
++    return;
++  }
+   std::lock_guard<std::mutex> lock(state->mutex);
+   if (!state->processor) return;
+   auto completion = state->processor->RequestPipelineCacheSnapshot();
+@@ -377,13 +384,24 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
          draw->PopClipRect();
        }
      }
@@ -242,7 +432,7 @@ index cfafb43..2db68a8 100644
        const char* notice=touchpad_menu_ ? Tr("No new frames (compiling shaders or loading). Touchpad: guide") : Tr("No new frames (compiling shaders or loading). OPTIONS + touchpad: guide");
        const ImVec2 size=ImGui::GetFont()->CalcTextSizeA(24*scale,4096,0,notice);
        list->AddRectFilled(ImVec2(24*scale,1000*scale),ImVec2((60+size.x/scale)*scale,1048*scale),IM_COL32(0,0,0,180),8*scale);
-@@ -869,6 +881,10 @@ void ReportStall(xe::Emulator& emulator, int pass) {
+@@ -869,6 +887,10 @@ void ReportStall(xe::Emulator& emulator, int pass) {
    namespace oh = xbox360ps5::object_history;
    const auto threads = emulator.kernel_state()->object_table()->GetObjectsByType<xe::kernel::XThread>();
    XELOGW("STALL pass {}: {} threads", pass, threads.size());
@@ -253,7 +443,7 @@ index cfafb43..2db68a8 100644
    StallReader reader{emulator.memory()};
    const auto& thunks = ImportThunks(emulator);
    std::set<uint32_t> handles_seen;  // objects whose history is logged after the threads
-@@ -895,7 +911,8 @@ void ReportStall(xe::Emulator& emulator, int pass) {
+@@ -895,7 +917,8 @@ void ReportStall(xe::Emulator& emulator, int pass) {
          continue;
        }
      }
@@ -263,7 +453,7 @@ index cfafb43..2db68a8 100644
             thread->is_guest_thread() ? CallersText(emulator.memory(), uint32_t(context->r[1])) : std::string(" -"));
      XELOGW("STALL thread {:08X} id {} '{}' guest {} suspended {} lr {:08X} ctr {:08X} r1 {:08X} r3 {:08X} r4 {:08X} r5 {:08X}",
             thread->handle(), thread->thread_id(), thread->thread_name(), thread->is_guest_thread() ? 1 : 0,
-@@ -2872,8 +2889,10 @@ int main(int argc, char** argv) {
+@@ -2872,8 +2895,10 @@ int main(int argc, char** argv) {
              const double watch_seconds=std::chrono::duration<double>(at-watch_started).count();
              switch(frame_watch.Observe(frames,watch_seconds)) {
                case xbox360ps5::FrameWatch::capture:
@@ -276,7 +466,7 @@ index cfafb43..2db68a8 100644
                  ReportStall(emulator, 1);
                  // What the game asked of the system before it stopped.
                  XELOGW("STALL recent lines, oldest first:");
-@@ -3048,6 +3067,14 @@ int main(int argc, char** argv) {
+@@ -3048,6 +3073,14 @@ int main(int argc, char** argv) {
  extern "C" void Xbox360PS5LoaderStage(const char* stage) {
    xbox360ps5::Stage(stage);
  }

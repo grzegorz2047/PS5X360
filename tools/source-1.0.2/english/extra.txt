@@ -269,8 +269,8 @@ USB drive usb5 = Unidad USB usb5
 USB drive usb6 = Unidad USB usb6
 USB drive usb7 = Unidad USB usb7
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \ssin\sportada\sen\sXboxUnity\sni\sen\sMicrosoft
-The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = El juego se ha bloqueado y el emulador lo ha pausado. Touchpad: guía, luego Cerrar el juego y volver al menú
-The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = El juego se ha bloqueado y el emulador lo ha pausado. OPTIONS + touchpad: guía, luego Cerrar el juego y volver al menú
+The game crashed and the emulator paused it. Touchpad: guide, then Close the game and return to the menu = El juego se ha bloqueado y el emulador lo ha pausado. Touchpad: guía, luego Close the game and return to the menu
+The game crashed and the emulator paused it. OPTIONS + touchpad: guide, then Close the game and return to the menu = El juego se ha bloqueado y el emulador lo ha pausado. OPTIONS + touchpad: guía, luego Close the game and return to the menu
 
 [added es-419]
 Console storage = Almacenamiento de la consola
