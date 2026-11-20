@@ -45,6 +45,7 @@ on:
       - 'tools/check-game-info.cpp'
       - 'tools/check-kinect-usb.cpp'
       - 'tools/check-guest-crash.cpp'
+      - 'tools/check-hang-watch.cpp'
       - 'tools/check-kinect-fake-relay.py'
       - 'tools/check-english-source.py'
       - '.github/workflows/source-fix-checks.yml'

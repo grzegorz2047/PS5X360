@@ -1,0 +1,824 @@
+diff --git a/include/xbox360ps5/hang_watch.hpp b/include/xbox360ps5/hang_watch.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/hang_watch.hpp
+@@ -0,0 +1,432 @@
++// SPDX-License-Identifier: MIT
++// Fix 47 of the source rebuild (tools/source-1.0.2/fixes/47-hang-watch.patch): a watch for a
++// game whose picture stops and whose process the system ends without a crash report (Ninja
++// Gaiden II, issue #11: no STALL report, no Performance line, the app gone ~30 s later).
++//
++// The STALL report (fix 24) is written by the UI loop, which stops too when it is the one
++// blocked (a GPU that never finishes a submission blocks the presenter's Paint). This header
++// keeps, without locks and without Xenia headers (so tools/check-hang-watch.cpp drives it):
++//   - which host thread is inside which Vulkan call since when (fence waits, queue submits,
++//     swapchain acquires, pipeline creation; gpu_diag::Call and a few direct call sites),
++//     and for a fence wait the submission it waits for;
++//   - heartbeats of the UI loop and of the GPU command thread;
++//   - the last draws and resolves recorded into GPU submissions (shader hashes and objects,
++//     primitive, vertex count) and the last submission handed to the queue.
++// A Watcher, stepped once a second by its own thread, says when the UI loop or a call has
++// stood still for several seconds and returns the report lines; the title writes them with
++// xbox360ps5::Stage (straight to boot.log, the kernel log and the TCP log stream, outside
++// the emulator's log lock) and then asks the UI and GPU threads where they are.
++#pragma once
++#include <array>
++#include <atomic>
++#include <chrono>
++#include <cstdarg>
++#include <cstdint>
++#include <cstdio>
++#include <string>
++#include <utility>
++#include <vector>
++#include <pthread.h>
++
++namespace xbox360ps5 {
++namespace hang_watch {
++
++inline uint64_t NowMs() {
++  return uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(
++                      std::chrono::steady_clock::now().time_since_epoch())
++                      .count());
++}
++
++// One host thread: its role ("ui", "gpu" or none), the call it is in, since when.
++struct Slot {
++  std::atomic<uint64_t> owner{0};  // pthread_t, 0 when free
++  std::atomic<const char*> role{nullptr};
++  std::atomic<const char*> call{nullptr};
++  std::atomic<uint64_t> since_ms{0};
++  std::atomic<uint64_t> detail{0};  // submission awaited + 1, or 0
++  std::atomic<uint64_t> calls{0};
++};
++inline constexpr size_t kSlots = 64;
++inline std::array<Slot, kSlots> slots;
++
++// The calling thread's slot, claimed at its first use and freed when it exits; null when all
++// are taken (the call is then not watched).
++inline Slot* ThisThread() {
++  struct Holder {
++    Slot* slot = nullptr;
++    bool full = false;
++    ~Holder() {
++      if (!slot) return;
++      slot->call.store(nullptr, std::memory_order_relaxed);
++      slot->role.store(nullptr, std::memory_order_relaxed);
++      slot->detail.store(0, std::memory_order_relaxed);
++      slot->owner.store(0, std::memory_order_release);
++    }
++  };
++  static thread_local Holder holder;
++  if (holder.slot || holder.full) return holder.slot;
++  const uint64_t self = uint64_t(pthread_self());
++  for (Slot& slot : slots) {
++    uint64_t expected = 0;
++    if (slot.owner.compare_exchange_strong(expected, self, std::memory_order_acq_rel)) {
++      holder.slot = &slot;
++      return holder.slot;
++    }
++  }
++  holder.full = true;
++  return nullptr;
++}
++
++inline void NameThread(const char* role) {
++  if (Slot* slot = ThisThread()) slot->role.store(role, std::memory_order_release);
++}
++// The submission the next fence wait of this thread is for (cleared when the call ends).
++inline void SetAwaitedSubmission(uint64_t submission) {
++  if (Slot* slot = ThisThread()) slot->detail.store(submission + 1, std::memory_order_relaxed);
++}
++
++// Marks the calling thread as inside `call` (a string literal) for its lifetime. Nested
++// scopes keep the outer call's name and time.
++class InCall {
++ public:
++  explicit InCall(const char* call) : slot_(ThisThread()) {
++    if (!slot_) return;
++    if (slot_->call.load(std::memory_order_relaxed)) {
++      slot_ = nullptr;  // nested: the outer scope reports
++      return;
++    }
++    slot_->since_ms.store(NowMs(), std::memory_order_relaxed);
++    slot_->call.store(call, std::memory_order_release);
++  }
++  ~InCall() {
++    if (!slot_) return;
++    slot_->call.store(nullptr, std::memory_order_release);
++    slot_->detail.store(0, std::memory_order_relaxed);
++    slot_->calls.fetch_add(1, std::memory_order_relaxed);
++  }
++  InCall(const InCall&) = delete;
++  InCall& operator=(const InCall&) = delete;
++
++ private:
++  Slot* slot_;
++};
++
++// A loop that should keep turning: how often it did, and what it was last doing.
++struct Beat {
++  std::atomic<uint64_t> count{0};
++  std::atomic<uint32_t> phase{0};
++  void Mark(uint32_t now_phase) {
++    phase.store(now_phase, std::memory_order_relaxed);
++    count.fetch_add(1, std::memory_order_relaxed);
++  }
++};
++// UI loop phases.
++enum : uint32_t { kUiInput = 1, kUiPaint = 2, kUiSample = 3, kUiMeasure = 4 };
++// GPU command thread phases.
++enum : uint32_t { kGpuExecute = 1, kGpuIdle = 2 };
++inline Beat ui_loop, gpu_thread;
++inline const char* UiPhaseName(uint32_t phase) {
++  switch (phase) {
++    case kUiInput: return "input";
++    case kUiPaint: return "paint";
++    case kUiSample: return "sampling";
++    case kUiMeasure: return "measuring";
++    default: return "?";
++  }
++}
++inline const char* GpuPhaseName(uint32_t phase) {
++  switch (phase) {
++    case kGpuExecute: return "executing the ring";
++    case kGpuIdle: return "waiting for the guest";
++    default: return "?";
++  }
++}
++
++// Draws and resolves as they are recorded into submissions.
++enum : uint32_t { kDraw = 1, kResolve = 2 };
++struct Work {
++  std::atomic<uint64_t> serial{0};  // 1-based; 0 never written
++  std::atomic<uint64_t> submission{0};
++  std::atomic<uint64_t> vs{0}, ps{0};                      // ucode hashes (resolve: 0)
++  std::atomic<const void*> vs_object{nullptr}, ps_object{nullptr};
++  std::atomic<uint32_t> kind{0};
++  std::atomic<uint32_t> a{0}, b{0}, c{0};  // draw: primitive, host vertices, flags; resolve: address, bytes, format
++};
++inline constexpr size_t kWork = 32;
++inline std::array<Work, kWork> work;
++inline std::atomic<uint64_t> work_serial{0};
++// Draw flags.
++enum : uint32_t { kIndexed = 1, kMemExport = 2 };
++
++inline Work& NextWork(uint64_t submission, uint32_t kind) {
++  const uint64_t serial = work_serial.fetch_add(1, std::memory_order_relaxed) + 1;
++  Work& entry = work[(serial - 1) % kWork];
++  entry.serial.store(0, std::memory_order_relaxed);
++  entry.submission.store(submission, std::memory_order_relaxed);
++  entry.kind.store(kind, std::memory_order_relaxed);
++  return entry;
++}
++inline void RecordDraw(uint64_t submission, uint64_t vs_hash, const void* vs, uint64_t ps_hash,
++                       const void* ps, uint32_t primitive, uint32_t host_vertices, uint32_t flags) {
++  Work& entry = NextWork(submission, kDraw);
++  entry.vs.store(vs_hash, std::memory_order_relaxed);
++  entry.ps.store(ps_hash, std::memory_order_relaxed);
++  entry.vs_object.store(vs, std::memory_order_relaxed);
++  entry.ps_object.store(ps, std::memory_order_relaxed);
++  entry.a.store(primitive, std::memory_order_relaxed);
++  entry.b.store(host_vertices, std::memory_order_relaxed);
++  entry.c.store(flags, std::memory_order_relaxed);
++  entry.serial.store(work_serial.load(std::memory_order_relaxed), std::memory_order_release);
++}
++inline void RecordResolve(uint64_t submission, uint32_t address, uint32_t bytes, uint32_t format) {
++  Work& entry = NextWork(submission, kResolve);
++  entry.vs.store(0, std::memory_order_relaxed);
++  entry.ps.store(0, std::memory_order_relaxed);
++  entry.vs_object.store(nullptr, std::memory_order_relaxed);
++  entry.ps_object.store(nullptr, std::memory_order_relaxed);
++  entry.a.store(address, std::memory_order_relaxed);
++  entry.b.store(bytes, std::memory_order_relaxed);
++  entry.c.store(format, std::memory_order_relaxed);
++  entry.serial.store(work_serial.load(std::memory_order_relaxed), std::memory_order_release);
++}
++
++// The GPU command processor's last queue submission and what it knew was complete then.
++struct Queue {
++  std::atomic<uint64_t> submitted{0}, completed{0}, submitted_ms{0}, submissions{0};
++};
++inline Queue queue;
++inline void Submitted(uint64_t submission, uint64_t completed) {
++  queue.submitted.store(submission, std::memory_order_relaxed);
++  queue.completed.store(completed, std::memory_order_relaxed);
++  queue.submitted_ms.store(NowMs(), std::memory_order_relaxed);
++  queue.submissions.fetch_add(1, std::memory_order_relaxed);
++}
++
++// A copy of what the watch reads, so a report is made from one consistent look.
++struct SlotView {
++  uint64_t owner = 0, since_ms = 0, detail = 0, calls = 0;
++  const char* role = nullptr;
++  const char* call = nullptr;
++};
++struct WorkView {
++  uint64_t serial = 0, submission = 0, vs = 0, ps = 0;
++  const void* vs_object = nullptr;
++  const void* ps_object = nullptr;
++  uint32_t kind = 0, a = 0, b = 0, c = 0;
++};
++inline std::vector<SlotView> BusySlots() {
++  std::vector<SlotView> out;
++  for (const Slot& slot : slots) {
++    SlotView view;
++    view.owner = slot.owner.load(std::memory_order_acquire);
++    if (!view.owner) continue;
++    view.call = slot.call.load(std::memory_order_acquire);
++    view.role = slot.role.load(std::memory_order_acquire);
++    if (!view.call && !view.role) continue;
++    view.since_ms = slot.since_ms.load(std::memory_order_relaxed);
++    view.detail = slot.detail.load(std::memory_order_relaxed);
++    view.calls = slot.calls.load(std::memory_order_relaxed);
++    out.push_back(view);
++  }
++  return out;
++}
++// The recorded work, oldest first (entries being rewritten are left out).
++inline std::vector<WorkView> RecentWork() {
++  std::vector<WorkView> out;
++  for (const Work& entry : work) {
++    WorkView view;
++    view.serial = entry.serial.load(std::memory_order_acquire);
++    if (!view.serial) continue;
++    view.submission = entry.submission.load(std::memory_order_relaxed);
++    view.kind = entry.kind.load(std::memory_order_relaxed);
++    view.vs = entry.vs.load(std::memory_order_relaxed);
++    view.ps = entry.ps.load(std::memory_order_relaxed);
++    view.vs_object = entry.vs_object.load(std::memory_order_relaxed);
++    view.ps_object = entry.ps_object.load(std::memory_order_relaxed);
++    view.a = entry.a.load(std::memory_order_relaxed);
++    view.b = entry.b.load(std::memory_order_relaxed);
++    view.c = entry.c.load(std::memory_order_relaxed);
++    if (entry.serial.load(std::memory_order_acquire) != view.serial) continue;
++    out.push_back(view);
++  }
++  for (size_t i = 1; i < out.size(); ++i)
++    for (size_t j = i; j > 0 && out[j - 1].serial > out[j].serial; --j) std::swap(out[j - 1], out[j]);
++  return out;
++}
++
++inline std::string Format(const char* format, ...) __attribute__((format(printf, 1, 2)));
++inline std::string Format(const char* format, ...) {
++  char text[192];
++  va_list args;
++  va_start(args, format);
++  std::vsnprintf(text, sizeof(text), format, args);
++  va_end(args);
++  return text;
++}
++
++// What the watch thread does once a second. Not thread-safe: one watch thread.
++class Watcher {
++ public:
++  // A stop of the UI loop for this long, or a fence wait, queue submit, acquire or idle wait
++  // in one call for this long, is reported. Pipeline creation is reported after 20 s.
++  static constexpr uint64_t kStopMs = 4000;
++  static constexpr uint64_t kPipelineMs = 20000;
++  // While stopped: a short line every 5 s (the last one before the system ends the process
++  // dates the end), and the whole report again after 20 s.
++  static constexpr uint64_t kStillEveryMs = 5000;
++  static constexpr uint64_t kSecondReportMs = 20000;
++
++  struct Step {
++    std::vector<std::string> lines;
++    bool probe = false;               // ask the UI and GPU threads where they are
++    std::vector<const void*> dump;    // shader objects to write out (first report only)
++  };
++
++  Step Observe(uint64_t now_ms) {
++    Step step;
++    const uint64_t ui = ui_loop.count.load(std::memory_order_relaxed);
++    const uint64_t gpu = gpu_thread.count.load(std::memory_order_relaxed);
++    if (!started_) {
++      started_ = true;
++      ui_count_ = ui;
++      gpu_count_ = gpu;
++      ui_changed_ms_ = gpu_changed_ms_ = now_ms;
++      return step;
++    }
++    if (ui != ui_count_) { ui_count_ = ui; ui_changed_ms_ = now_ms; }
++    if (gpu != gpu_count_) { gpu_count_ = gpu; gpu_changed_ms_ = now_ms; }
++    const auto busy = BusySlots();
++    const uint32_t ui_phase = ui_loop.phase.load(std::memory_order_relaxed);
++    const bool ui_stopped = now_ms - ui_changed_ms_ >= kStopMs && ui_phase != kUiMeasure;
++    bool call_stuck = false;
++    for (const SlotView& slot : busy) {
++      if (!slot.call || now_ms < slot.since_ms) continue;
++      const uint64_t limit = std::string(slot.call) == "pipeline" ? kPipelineMs : kStopMs;
++      if (now_ms - slot.since_ms >= limit) call_stuck = true;
++    }
++    const bool stopped = ui_stopped || call_stuck;
++    if (!stopped) {
++      if (hung_) {
++        step.lines.push_back(Format("HANG over after %llu ms: the UI loop turns and no call waits",
++                                    (unsigned long long)(now_ms - hung_since_ms_)));
++        hung_ = false;
++        second_done_ = false;
++      }
++      return step;
++    }
++    if (!hung_) {
++      hung_ = true;
++      hung_since_ms_ = now_ms;
++      next_still_ms_ = now_ms + kStillEveryMs;
++      ++reports_;
++      Report(now_ms, busy, step, true);
++      return step;
++    }
++    if (!second_done_ && now_ms - hung_since_ms_ >= kSecondReportMs) {
++      second_done_ = true;
++      Report(now_ms, busy, step, false);
++      return step;
++    }
++    if (now_ms >= next_still_ms_) {
++      next_still_ms_ = now_ms + kStillEveryMs;
++      std::string calls;
++      for (const SlotView& slot : busy) {
++        if (!slot.call) continue;
++        calls += Format(" %s:%s %llus", slot.role ? slot.role : "thread", slot.call,
++                        (unsigned long long)((now_ms - slot.since_ms) / 1000));
++      }
++      step.lines.push_back(Format("HANG still +%llu s: UI loop unchanged %llu s, GPU thread unchanged %llu s, last submission %llu;%s",
++                                  (unsigned long long)((now_ms - hung_since_ms_) / 1000),
++                                  (unsigned long long)((now_ms - ui_changed_ms_) / 1000),
++                                  (unsigned long long)((now_ms - gpu_changed_ms_) / 1000),
++                                  (unsigned long long)queue.submitted.load(std::memory_order_relaxed),
++                                  calls.empty() ? " no thread in a watched call" : calls.c_str()));
++    }
++    return step;
++  }
++
++  bool hung() const { return hung_; }
++  unsigned reports() const { return reports_; }
++
++ private:
++  void Report(uint64_t now_ms, const std::vector<SlotView>& busy, Step& step, bool first) {
++    step.probe = true;
++    const uint32_t ui_phase = ui_loop.phase.load(std::memory_order_relaxed);
++    const uint32_t gpu_phase = gpu_thread.phase.load(std::memory_order_relaxed);
++    step.lines.push_back(Format("HANG %s: UI loop unchanged for %llu ms (last %s), GPU command thread unchanged for %llu ms (last %s)",
++                                first ? "report" : "report again",
++                                (unsigned long long)(now_ms - ui_changed_ms_), UiPhaseName(ui_phase),
++                                (unsigned long long)(now_ms - gpu_changed_ms_), GpuPhaseName(gpu_phase)));
++    const uint64_t submitted = queue.submitted.load(std::memory_order_relaxed);
++    const uint64_t completed = queue.completed.load(std::memory_order_relaxed);
++    const uint64_t submitted_ms = queue.submitted_ms.load(std::memory_order_relaxed);
++    step.lines.push_back(Format("HANG queue: last GPU submission %llu handed over %llu ms ago (%llu then known complete), %llu submissions",
++                                (unsigned long long)submitted,
++                                (unsigned long long)(submitted_ms && now_ms >= submitted_ms ? now_ms - submitted_ms : 0),
++                                (unsigned long long)completed,
++                                (unsigned long long)queue.submissions.load(std::memory_order_relaxed)));
++    std::string stuck_fence;  // "role submission N for M ms" of a fence wait past kStopMs
++    for (const SlotView& slot : busy) {
++      const char* role = slot.role ? slot.role : "thread";
++      if (slot.call) {
++        const uint64_t ms = now_ms >= slot.since_ms ? now_ms - slot.since_ms : 0;
++        if (slot.detail) {
++          const uint64_t awaited = slot.detail - 1;
++          if (ms >= kStopMs && stuck_fence.empty())
++            stuck_fence = Format("%s thread's wait for submission %llu (%llu ms)", role,
++                                 (unsigned long long)awaited, (unsigned long long)ms);
++          step.lines.push_back(Format("HANG %s %llx in %s for %llu ms, for submission %llu (%llu calls before)", role,
++                                      (unsigned long long)slot.owner, slot.call, (unsigned long long)ms,
++                                      (unsigned long long)awaited, (unsigned long long)slot.calls));
++        } else {
++          step.lines.push_back(Format("HANG %s %llx in %s for %llu ms (%llu calls before)", role,
++                                      (unsigned long long)slot.owner, slot.call, (unsigned long long)ms,
++                                      (unsigned long long)slot.calls));
++        }
++      } else {
++        step.lines.push_back(Format("HANG %s %llx in no watched call (%llu calls before)", role,
++                                    (unsigned long long)slot.owner, (unsigned long long)slot.calls));
++      }
++    }
++    // The work of the first submission not known complete: what the GPU may be stuck on.
++    const uint64_t first_open = completed + 1;
++    const auto recent = RecentWork();
++    size_t shown = 0;
++    for (const WorkView& entry : recent) {
++      const bool open = entry.submission >= first_open;
++      if (entry.kind == kDraw) {
++        step.lines.push_back(Format("HANG work %llu sub %llu%s draw vs %016llX ps %016llX prim %u vertices %u%s%s",
++                                    (unsigned long long)entry.serial, (unsigned long long)entry.submission,
++                                    open ? " (open)" : "", (unsigned long long)entry.vs, (unsigned long long)entry.ps,
++                                    entry.a, entry.b, (entry.c & kIndexed) ? " indexed" : "",
++                                    (entry.c & kMemExport) ? " memexport" : ""));
++        if (first && (open || entry.submission + 2 >= submitted)) {
++          for (const void* object : {entry.vs_object, entry.ps_object}) {
++            if (!object) continue;
++            bool known = false;
++            for (const void* seen : step.dump) known = known || seen == object;
++            if (!known && step.dump.size() < 16) step.dump.push_back(object);
++          }
++        }
++      } else if (entry.kind == kResolve) {
++        step.lines.push_back(Format("HANG work %llu sub %llu%s resolve to %08X, %u bytes, format %u",
++                                    (unsigned long long)entry.serial, (unsigned long long)entry.submission,
++                                    open ? " (open)" : "", entry.a, entry.b, entry.c));
++      }
++      ++shown;
++    }
++    if (!shown) step.lines.push_back("HANG work: nothing recorded");
++    if (!stuck_fence.empty())
++      step.lines.push_back("HANG verdict: the GPU does not finish a submission (" + stuck_fence + "): a GPU hang");
++    else if (now_ms - ui_changed_ms_ >= kStopMs)
++      step.lines.push_back("HANG verdict: the UI loop is stopped outside a GPU wait: see where the threads are (WHERE lines)");
++  }
++
++  bool started_ = false, hung_ = false, second_done_ = false;
++  uint64_t ui_count_ = 0, gpu_count_ = 0, ui_changed_ms_ = 0, gpu_changed_ms_ = 0;
++  uint64_t hung_since_ms_ = 0, next_still_ms_ = 0;
++  unsigned reports_ = 0;
++};
++
++}  // namespace hang_watch
++}  // namespace xbox360ps5
+diff --git a/include/xbox360ps5/gpu_diagnostics.hpp b/include/xbox360ps5/gpu_diagnostics.hpp
+--- a/include/xbox360ps5/gpu_diagnostics.hpp
++++ b/include/xbox360ps5/gpu_diagnostics.hpp
+@@ -5,6 +5,7 @@
+ #include <chrono>
+ #include <cstdint>
+ #include <utility>
++#include "xbox360ps5/hang_watch.hpp"  // fix 47: which thread is in which Vulkan call
+ 
+ namespace xbox360ps5::gpu_diag {
+ enum class Kind : unsigned { pipeline, submit, present, fence, idle, cpu_draw, cpu_copy, cpu_upload, cpu_completion, count };
+@@ -100,6 +101,9 @@ class Scope {
+ 
+ template<class Fn, class... Args>
+ auto Call(Kind kind, Fn fn, Args&&... args) {
++  // Fix 47: always (two relaxed stores and a clock read around a Vulkan call), so a call
++  // that never returns is seen by the hang watch.
++  hang_watch::InCall in_call(names[static_cast<unsigned>(kind)]);
+   if (!enabled.load(std::memory_order_relaxed)) return fn(std::forward<Args>(args)...);
+   const auto started = std::chrono::steady_clock::now();
+   const auto result = fn(std::forward<Args>(args)...);
+diff --git a/.deps/xenia-canary/src/xenia/gpu/command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/command_processor.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/command_processor.cc
+@@ -133,6 +133,7 @@ DEFINE_uint32(
+     "GPU");
+ 
+ #if XE_PLATFORM_PS5
++#include "xbox360ps5/hang_watch.hpp"  // fix 47
+ namespace xbox360ps5 {
+ void PlaceCallingThread(bool gpu);
+ }
+@@ -383,6 +384,10 @@ void CommandProcessor::WorkerThreadMain() {
+     xe::FatalError("Unable to setup command processor internal state");
+     return;
+   }
++#if XE_PLATFORM_PS5
++  // Fix 47: the hang watch's "gpu" thread and its heartbeat.
++  xbox360ps5::hang_watch::NameThread("gpu");
++#endif
+ 
+   while (worker_running_) {
+     while (!pending_fns_.empty()) {
+@@ -415,6 +420,9 @@ void CommandProcessor::WorkerThreadMain() {
+         } else {
+           xe::threading::MaybeYield();
+         }
++#if XE_PLATFORM_PS5
++        xbox360ps5::hang_watch::gpu_thread.Mark(xbox360ps5::hang_watch::kGpuIdle);
++#endif
+         loop_count++;
+         write_ptr_index = write_ptr_index_.load();
+       } while (worker_running_ && pending_fns_.empty() &&
+@@ -428,6 +436,9 @@ void CommandProcessor::WorkerThreadMain() {
+     assert_true(read_ptr_index_ != write_ptr_index);
+ 
+     // Execute. Note that we handle wraparound transparently.
++#if XE_PLATFORM_PS5
++    xbox360ps5::hang_watch::gpu_thread.Mark(xbox360ps5::hang_watch::kGpuExecute);
++#endif
+     read_ptr_index_ = ExecutePrimaryBuffer(read_ptr_index_, write_ptr_index);
+ 
+     // TODO(benvanik): use reader->Read_update_freq_ and only issue after moving
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+@@ -3467,6 +3467,22 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+ 
+   // Draw.
+   ++draws_since_resolve_.reached_the_gpu;
++#if XE_PLATFORM_PS5
++  // Fix 47: the draws of the submissions in flight, for a hang report.
++  xbox360ps5::hang_watch::RecordDraw(
++      GetCurrentSubmission(), vertex_shader->ucode_data_hash(),
++      static_cast<const Shader*>(vertex_shader),
++      pixel_shader ? pixel_shader->ucode_data_hash() : 0,
++      static_cast<const Shader*>(pixel_shader),
++      uint32_t(prim_type), primitive_processing_result.host_draw_vertex_count,
++      (primitive_processing_result.index_buffer_type !=
++               PrimitiveProcessor::ProcessedIndexBufferType::kNone &&
++           !shader_32bit_index_dma
++       ? xbox360ps5::hang_watch::kIndexed
++       : 0u) |
++          (memexport_ranges_.empty() ? 0u
++                                     : xbox360ps5::hang_watch::kMemExport));
++#endif
+   OnVIZSurveyDraw(true);
+   if (primitive_processing_result.index_buffer_type ==
+           PrimitiveProcessor::ProcessedIndexBufferType::kNone ||
+@@ -3746,6 +3762,12 @@ bool VulkanCommandProcessor::IssueCopy() {
+     }
+     return false;
+   }
++#if XE_PLATFORM_PS5
++  // Fix 47: resolves in the submissions in flight, for a hang report.
++  xbox360ps5::hang_watch::RecordResolve(
++      GetCurrentSubmission(), written_address, written_length,
++      uint32_t(copy_dest_info.copy_dest_format));
++#endif
+ 
+   // CPU readback resolve path (if not disabled).
+   ReadbackResolveMode readback_mode = GetReadbackResolveMode();
+@@ -5464,6 +5486,11 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
+       }
+       return false;
+     }
++#if XE_PLATFORM_PS5
++    // Fix 47: the last submission handed to the queue.
++    xbox360ps5::hang_watch::Submitted(submission_index,
++                                      GetCompletedSubmission());
++#endif
+     current_submission_wait_stage_masks_.clear();
+     for (VkSemaphore semaphore : current_submission_wait_semaphores_) {
+       submissions_in_flight_semaphores_.emplace_back(submission_index,
+diff --git a/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_gpu_completion_timeline.cc b/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_gpu_completion_timeline.cc
+--- a/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_gpu_completion_timeline.cc
++++ b/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_gpu_completion_timeline.cc
+@@ -14,6 +14,9 @@
+ 
+ #include "xenia/base/assert.h"
+ #include "xenia/base/logging.h"
++#if XE_PLATFORM_PS5
++#include "xbox360ps5/hang_watch.hpp"  // fix 47
++#endif
+ 
+ namespace xe {
+ namespace ui {
+@@ -106,6 +109,10 @@ VkResult VulkanGPUCompletionTimeline::AcquireFenceAndSubmit(
+ 
+   VkResult submit_result;
+   {
++#if XE_PLATFORM_PS5
++    // Fix 47: a submit (or the queue lock before it) that never returns.
++    xbox360ps5::hang_watch::InCall in_call("submit");
++#endif
+     const VulkanDevice::Queue::Acquisition queue_acquisition =
+         vulkan_device_->AcquireQueue(queue_family_index, queue_index);
+     submit_result = vulkan_device_->SubmitAndUpdateLost(
+@@ -152,6 +159,10 @@ void VulkanGPUCompletionTimeline::AwaitSubmissionImpl(
+     submission_end_iterator = std::next(submission_end_iterator);
+   }
+   if (submission_end_iterator != pending_submission_fences_.cbegin()) {
++#if XE_PLATFORM_PS5
++    // Fix 47: the hang watch names the submission a stuck fence wait is for.
++    xbox360ps5::hang_watch::SetAwaitedSubmission(awaited_submission);
++#endif
+     const VkResult fence_wait_result =
+         PS5X360_VK_CALL(fence, vulkan_device_->functions().vkWaitForFences, 
+             vulkan_device_->device(), 1,
+diff --git a/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_presenter.cc b/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_presenter.cc
+--- a/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_presenter.cc
++++ b/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_presenter.cc
+@@ -16,6 +16,9 @@
+ #include "xenia/base/logging.h"
+ #include "xenia/base/math.h"
+ #include "xenia/base/platform.h"
++#if XE_PLATFORM_PS5
++#include "xbox360ps5/hang_watch.hpp"  // fix 47
++#endif
+ #include "xenia/ui/vulkan/vulkan_util.h"
+ #if XE_PLATFORM_PS5
+ #include "xbox360ps5/display_surface.hpp"
+@@ -1678,9 +1681,16 @@ Presenter::PaintResult VulkanPresenter::PaintAndPresentImpl(
+ 
+   uint32_t swapchain_image_index;
+   const auto acquire_start = std::chrono::steady_clock::now();
+-  VkResult acquire_result = dfn.vkAcquireNextImageKHR(
+-      device, paint_context_.swapchain, UINT64_MAX, acquire_semaphore,
+-      VK_NULL_HANDLE, &swapchain_image_index);
++  VkResult acquire_result;
++  {
++#if XE_PLATFORM_PS5
++    // Fix 47: an acquire that never returns (no image comes back from a stuck queue).
++    xbox360ps5::hang_watch::InCall in_call("acquire");
++#endif
++    acquire_result = dfn.vkAcquireNextImageKHR(
++        device, paint_context_.swapchain, UINT64_MAX, acquire_semaphore,
++        VK_NULL_HANDLE, &swapchain_image_index);
++  }
+   // A diagnostic only: whether the first generated picture found a free image at once.
+   if (fg) fg->NoteAcquire(std::chrono::steady_clock::now() - acquire_start);
+   switch (acquire_result) {
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -108,6 +108,8 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
+ #include <set>
+ #include "xenia/kernel/object_history.h"
+ #include "xenia/gpu/cp_trace.h"
++#include "xenia/gpu/shader.h"
++#include "xbox360ps5/hang_watch.hpp"  // fix 47: the hang watch
+ #include "xenia/cpu/entry_probe.h"  // candidate 21: Battlefield 3's render-job probes
+ #include "xenia/gpu/memexport_merge.h"  // fix 30: the export lines for Battlefield 3
+ #include "xenia/kernel/user_module.h"
+@@ -1127,6 +1129,98 @@ void ReportStall(xe::Emulator& emulator, int pass) {
+     xbox360ps5::ProbeThread(thread->thread()->native_handle(), name);
+   }
+ }
++// Fix 47 (issue #11): a thread of its own that watches the UI loop, the GPU command thread and
++// the Vulkan calls (xbox360ps5/hang_watch.hpp) once a second. When the UI loop or a GPU wait
++// stands still for seconds it writes a HANG report with Stage (boot.log, the kernel log and the
++// TCP log stream, outside the log's lock), asks the UI and GPU threads where they are (WHERE
++// lines), writes the shaders of the draws in flight to the logs folder, and keeps a line every
++// 5 s while it lasts: the last one dates a process the system ends without a report.
++class HangWatchThread {
++ public:
++  explicit HangWatchThread(std::filesystem::path folder)
++      : folder_(std::move(folder)), thread_([this] { Run(); }) {}
++  ~HangWatchThread() {
++    {
++      std::lock_guard<std::mutex> lock(mutex_);
++      stop_ = true;
++    }
++    wake_.notify_all();
++    thread_.join();
++  }
++  HangWatchThread(const HangWatchThread&) = delete;
++  HangWatchThread& operator=(const HangWatchThread&) = delete;
++
++ private:
++  void Run() {
++    namespace hw = xbox360ps5::hang_watch;
++    hw::Watcher watcher;
++    std::unique_lock<std::mutex> lock(mutex_);
++    while (!wake_.wait_for(lock, std::chrono::seconds(1), [this] { return stop_; })) {
++      lock.unlock();
++      auto step = watcher.Observe(hw::NowMs());
++      for (const auto& line : step.lines) xbox360ps5::Stage(line.c_str());
++      if (step.probe) {
++        GpuState();
++        for (const auto& slot : hw::BusySlots()) {
++          if (!slot.role) continue;
++          const std::string name = std::string(slot.role) + " thread";
++          xbox360ps5::ProbeThread(reinterpret_cast<void*>(uintptr_t(slot.owner)), name.c_str());
++        }
++      }
++      for (const void* object : step.dump) DumpShader(static_cast<const xe::gpu::Shader*>(object));
++      lock.lock();
++    }
++  }
++  // The command processor's ring and WAIT_REG_MEM (fix 24's trace; its lock is only ever held briefly).
++  void GpuState() {
++    namespace ct = xbox360ps5::cp_trace;
++    auto& trace = ct::Global();
++    const auto wait = trace.Wait();
++    char text[192];
++    std::snprintf(text, sizeof(text), "HANG gpu ring read %08X write %08X%s; %llu WAIT_REG_MEM waits", trace.ReadPointer(),
++                  trace.WritePointer(), trace.ReadPointer() == trace.WritePointer() ? " (empty)" : "",
++                  (unsigned long long)trace.Waits());
++    xbox360ps5::Stage(text);
++    if (wait.active) {
++      std::snprintf(text, sizeof(text), "HANG gpu in WAIT_REG_MEM on %s %08X: (value & %08X) function %u ref %08X, value %08X, for %u ms, %u polls",
++                    wait.memory ? "memory" : "register", wait.memory ? ct::PacketAddress(wait.address) : wait.address,
++                    wait.mask, wait.function & 7, wait.ref, wait.value, ct::NowMs() - wait.since_ms, wait.polls);
++      xbox360ps5::Stage(text);
++    }
++  }
++  // A shader of a draw in flight: its microcode and, when analysed, its disassembly.
++  void DumpShader(const xe::gpu::Shader* shader) {
++    if (!shader) return;
++    const char* kind = shader->type() == xe::gpu::xenos::ShaderType::kVertex ? "vs" : "ps";
++    char name[64];
++    std::snprintf(name, sizeof(name), "hang-%016llX-%s", (unsigned long long)shader->ucode_data_hash(), kind);
++    std::error_code error;
++    std::filesystem::create_directories(folder_, error);
++    const auto base = folder_ / name;
++    bool written = false;
++    if (FILE* file = std::fopen((base.string() + ".ucode").c_str(), "wb")) {
++      written = std::fwrite(shader->ucode_dwords(), 4, shader->ucode_dword_count(), file) == shader->ucode_dword_count();
++      std::fclose(file);
++    }
++    if (shader->is_ucode_analyzed()) {
++      if (FILE* file = std::fopen((base.string() + ".txt").c_str(), "wb")) {
++        const auto& text = shader->ucode_disassembly();
++        std::fwrite(text.data(), 1, text.size(), file);
++        std::fclose(file);
++      }
++    }
++    char line[192];
++    std::snprintf(line, sizeof(line), "HANG shader %016llX (%s, %zu dwords)%s %s.ucode", (unsigned long long)shader->ucode_data_hash(),
++                  kind, shader->ucode_dword_count(), written ? " written to" : " could not be written to", base.string().c_str());
++    xbox360ps5::Stage(line);
++  }
++
++  std::filesystem::path folder_;
++  std::mutex mutex_;
++  std::condition_variable wake_;
++  bool stop_ = false;
++  std::thread thread_;  // last: starts once the members above exist
++};
+ // Where the time goes in a slow scene: every guest and emulator thread is
+ // sampled for a few seconds, and the log gets, per thread, the share spent in
+ // generated guest code, in the emulator and in system libraries, with the
+@@ -2622,7 +2716,12 @@ int main(int argc, char** argv) {
+         float fps_sum = 0.0f, fps_low = 1e9f, swaps_sum = 0.0f;
+         const auto game_started = std::chrono::steady_clock::now();
+         double next_shot = 5;
++        // Fix 47: the UI loop's heartbeat and the hang watch, for this game's loop only (it
++        // stops when the loop ends: the exit below waits for the GPU on purpose).
++        xbox360ps5::hang_watch::NameThread("ui");
++        auto hang_watch_thread = std::make_unique<HangWatchThread>(log_root);
+         while (!context.HasQuitFromUIThread()) {
++          xbox360ps5::hang_watch::ui_loop.Mark(xbox360ps5::hang_watch::kUiInput);
+ #if 0  // The old OpenGL renderer's "refused operation" latch; the layer has no such state.
+           if (started.renderer == int(xbox360ps5::Renderer::kOpenGL) &&
+               static_cast<xbox360ps5::gl::OpenGLGraphicsSystem*>(
+@@ -2922,11 +3021,16 @@ int main(int argc, char** argv) {
+           xbox360ps5::motion::SetEnabled(settings.motion_phone != 0);
+           input->Submit(sample);
+           window.SubmitUiPad(sample);
++          xbox360ps5::hang_watch::ui_loop.Mark(xbox360ps5::hang_watch::kUiPaint);
+           context.Tick(); window.Paint();
++          xbox360ps5::hang_watch::ui_loop.Mark(xbox360ps5::hang_watch::kUiSample);
+           // A measurement asked for in the guide starts once the game is back in play.
+           if (std::chrono::steady_clock::now() >= measure_at) {
+             measure_at = std::chrono::steady_clock::time_point::max();
++            // Fix 47: the picture stands still on purpose while the threads are sampled.
++            xbox360ps5::hang_watch::ui_loop.Mark(xbox360ps5::hang_watch::kUiMeasure);
+             MeasurePerformance(emulator, fps);
++            xbox360ps5::hang_watch::ui_loop.Mark(xbox360ps5::hang_watch::kUiSample);
+           }
+           if (std::chrono::steady_clock::now() - sample_at >= std::chrono::seconds(1)) {
+             const auto at = std::chrono::steady_clock::now();
+@@ -3051,6 +3155,7 @@ int main(int argc, char** argv) {
+             }
+           }
+         }
++        hang_watch_thread.reset();  // fix 47
+         xe::ui::controller_keyboard::Cancel();
+         // Publish cancellation and signal any keyboard fence while the drawer
+         // and kernel still exist, before ending the guest title.
+diff --git a/platform/ps5/crash_report.cpp b/platform/ps5/crash_report.cpp
+--- a/platform/ps5/crash_report.cpp
++++ b/platform/ps5/crash_report.cpp
+@@ -274,6 +274,40 @@ void ProbeThread(void* thread, const char* name) {
+   if (pthread_kill(reinterpret_cast<pthread_t>(thread), SIGUSR2)) return;
+   for (int wait = 0; wait < 200 && !probe_done; ++wait) usleep(1000);
+ }
++namespace {
++// Fix 47 (issue #11): a signal that ends the process without a fault leaves one line in the
++// report (Ninja Gaiden II's app ended with nothing written). SIGPIPE, a write to a socket
++// whose other end is closed, would end it silently: it is reported once and then ignored,
++// so the write fails with EPIPE instead. The others end the process as before, after the
++// line. Only system calls and a stack buffer here (a signal handler).
++constexpr int kEndingSignals[] = {SIGHUP, SIGINT, SIGQUIT, SIGTERM, SIGXCPU, SIGXFSZ, SIGPIPE};
++std::atomic<bool> pipe_reported{false};
++void HandleEnding(int number, siginfo_t* info, void*) {
++  if (number == SIGPIPE && pipe_reported.exchange(true)) return;
++  char text[160];
++  size_t size = 0;
++  const auto put = [&](const char* part) { for (; *part && size + 1 < sizeof(text); ++part) text[size++] = *part; };
++  const auto number_text = [&](uint64_t value) {
++    char digits[24]; int count = 0;
++    do { digits[count++] = char('0' + value % 10); value /= 10; } while (value);
++    while (count && size + 1 < sizeof(text)) text[size++] = digits[--count];
++  };
++  put("[X360] SIGNAL "); number_text(uint64_t(number));
++  put(" from pid "); number_text(uint64_t(info ? info->si_pid : 0));
++  put(" code "); number_text(uint64_t(uint32_t(info ? info->si_code : 0)));
++  put(number == SIGPIPE ? ": a write to a closed socket or pipe; ignored from now on\n"
++                        : ": the process ends now\n");
++  text[size] = 0;
++  if (report_file >= 0) { (void)!write(report_file, text, size); fsync(report_file); }
++  sceKernelDebugOutText(0, text);
++  if (number == SIGPIPE) return;
++  struct sigaction standard{};
++  standard.sa_handler = SIG_DFL;
++  sigemptyset(&standard.sa_mask);
++  sigaction(number, &standard, nullptr);
++  raise(number);
++}
++}  // namespace
+ void InstallCrashReport(const char* path) {
+   report_file = open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
+   if (report_file < 0) report_file = open("/download0/xbox360ps5/boot.log", O_WRONLY | O_CREAT | O_APPEND, 0644);
+@@ -283,6 +317,11 @@ void InstallCrashReport(const char* path) {
+   action.sa_flags = SA_SIGINFO;
+   sigemptyset(&action.sa_mask);
+   for (int signal : kSignals) sigaction(signal, &action, nullptr);
++  struct sigaction ending{};
++  ending.sa_sigaction = HandleEnding;
++  ending.sa_flags = SA_SIGINFO | SA_RESTART;
++  sigemptyset(&ending.sa_mask);
++  for (int signal : kEndingSignals) sigaction(signal, &ending, nullptr);
+   std::set_terminate(OnTerminate);
+ }
+ bool SetCrashReportFile(const char* path) {
