@@ -166,6 +166,34 @@ void CheckHandSeamAndCalls() {
   auto seam = m::FindHandSeam(image.View());
   CHECK(seam.matches == 1 && seam.site == 0x82000200);
   CHECK(seam.r11 == 0xFFFFFFFF820E0000ull);
+  {
+    // The thresholds after the seam, as DBZ forms them: addi r29,r11,0x2C10 (82002C10 in
+    // this image of 82000000-82003FFF; the real one is 0x820E6C10), then lfs from it.
+    Image t;
+    auto put_float = [&t](uint32_t at, float value) {
+      uint32_t bits;
+      std::memcpy(&bits, &value, 4);
+      t.Put(at, bits);
+    };
+    t.Put(0x82000200, Lis(11, 0x8200));
+    t.Put(0x82000204, 0xC01E2710u);
+    t.Put(0x82000208, Mr(5, 26));
+    t.Put(0x8200020C, Addi(29, 11, 0x2C10));
+    t.Put(0x82000210, D(48, 11, 29, 0x9C));   // lfs f11,0x9C(r29): reach
+    t.Put(0x82000214, D(48, 12, 29, 0x610));  // lfs f12,0x610(r29): -direction
+    t.Put(0x8200021C, D(48, 13, 29, 0x60C));  // lfs f13,0x60C(r29): +direction
+    put_float(0x82002C10 + 0x9C, 0.4f);
+    put_float(0x82002C10 + 0x610, -0.7071f);
+    put_float(0x82002C10 + 0x60C, 0.7071f);
+    const auto tseam = m::FindHandSeam(t.View());
+    CHECK(tseam.site == 0x82000200);
+    const auto th = m::FindHandThresholds(t.View(), tseam);
+    CHECK(th.found && th.reach == 0.4f && th.direction == 0.7071f);
+    // Values that make no sense are not taken (the DBZ defaults stay).
+    put_float(0x82002C10 + 0x9C, 40.0f);
+    CHECK(!m::FindHandThresholds(t.View(), tseam).found);
+    CHECK(!m::FindHandThresholds(t.View(), m::HandSeam{}).found);
+  }
   image.Put(0x82000400, Lis(11, 0x7FFF));
   image.Put(0x82000404, 0xC1BE2710u);  // lfs f13,0x2710(r30): a second seam
   seam = m::FindHandSeam(image.View());
@@ -262,6 +290,11 @@ int RealImage(int argc, char** argv) {
   std::printf("hand reach seam: %zu match(es)", seam.matches);
   if (seam.site) std::printf(" at %08X (r11 %016llX)", seam.site, (unsigned long long)seam.r11);
   std::printf("\n");
+  if (seam.site) {
+    const auto th = m::FindHandThresholds(view, seam);
+    std::printf("hand reach thresholds: %s, reach %.4f direction %.4f\n", th.found ? "found" : "not found",
+                th.reach, th.direction);
+  }
   return bad ? 1 : 0;
 }
 

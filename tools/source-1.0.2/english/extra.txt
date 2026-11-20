@@ -232,6 +232,10 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = Movimento: nenhum celular conectado
 Scan with your phone to use it as Kinect. = Escaneie com o celular para usá-lo como Kinect.
 Same Wi-Fi, stand 2-3 m back, full body visible. = Mesma rede Wi-Fi, fique a 2-3 m, com o corpo inteiro visível.
+Step back = Afaste-se
+Step closer = Aproxime-se
+Show your whole body to the camera = Mostre o corpo inteiro para a câmera
+Hand reach (the game needs %.2f) = Alcance da mão (o jogo precisa de %.2f)
 
 [added pt]
 Console storage = Armazenamento da consola
@@ -277,6 +281,10 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = Movimento: nenhum telemóvel ligado
 Scan with your phone to use it as Kinect. = Leia o código com o telemóvel para o usar como Kinect.
 Same Wi-Fi, stand 2-3 m back, full body visible. = Mesma rede Wi-Fi, fique a 2-3 m, com o corpo inteiro visível.
+Step back = Afaste-se
+Step closer = Aproxime-se
+Show your whole body to the camera = Mostre o corpo inteiro à câmara
+Hand reach (the game needs %.2f) = Alcance da mão (o jogo precisa de %.2f)
 
 [added es]
 Console storage = Almacenamiento de la consola
@@ -322,6 +330,10 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = Movimiento: ningún móvil conectado
 Scan with your phone to use it as Kinect. = Escanéalo con el móvil para usarlo como Kinect.
 Same Wi-Fi, stand 2-3 m back, full body visible. = Misma red Wi-Fi, colócate a 2-3 m, con todo el cuerpo visible.
+Step back = Aléjate
+Step closer = Acércate
+Show your whole body to the camera = Muestra todo el cuerpo a la cámara
+Hand reach (the game needs %.2f) = Alcance de la mano (el juego necesita %.2f)
 
 [added es-419]
 Console storage = Almacenamiento de la consola
@@ -367,6 +379,10 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = Movimiento: ningún celular conectado
 Scan with your phone to use it as Kinect. = Escanéalo con el celular para usarlo como Kinect.
 Same Wi-Fi, stand 2-3 m back, full body visible. = Misma red Wi-Fi, colócate a 2-3 m, con todo el cuerpo visible.
+Step back = Aléjate
+Step closer = Acércate
+Show your whole body to the camera = Muestra todo el cuerpo a la cámara
+Hand reach (the game needs %.2f) = Alcance de la mano (el juego necesita %.2f)
 
 [added de]
 Console storage = Konsolenspeicher
@@ -412,6 +428,10 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = Bewegung: kein Handy verbunden
 Scan with your phone to use it as Kinect. = Mit dem Handy scannen, um es als Kinect zu nutzen.
 Same Wi-Fi, stand 2-3 m back, full body visible. = Gleiches WLAN, 2-3 m Abstand, ganzer Körper sichtbar.
+Step back = Geh einen Schritt zurück
+Step closer = Komm näher
+Show your whole body to the camera = Zeig der Kamera deinen ganzen Körper
+Hand reach (the game needs %.2f) = Handreichweite (das Spiel braucht %.2f)
 
 [added fr]
 Console storage = Stockage de la console
@@ -457,6 +477,10 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = Mouvement : aucun téléphone connecté
 Scan with your phone to use it as Kinect. = Scannez avec votre téléphone pour l'utiliser comme Kinect.
 Same Wi-Fi, stand 2-3 m back, full body visible. = Même Wi-Fi, placez-vous à 2-3 m, corps entier visible.
+Step back = Reculez
+Step closer = Rapprochez-vous
+Show your whole body to the camera = Montrez tout votre corps à la caméra
+Hand reach (the game needs %.2f) = Portée de la main (le jeu demande %.2f)
 
 [added it]
 Console storage = Memoria della console
@@ -502,6 +526,10 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = Movimento: nessun telefono connesso
 Scan with your phone to use it as Kinect. = Scansiona con il telefono per usarlo come Kinect.
 Same Wi-Fi, stand 2-3 m back, full body visible. = Stessa rete Wi-Fi, stai a 2-3 m, corpo intero visibile.
+Step back = Allontanati
+Step closer = Avvicinati
+Show your whole body to the camera = Mostra tutto il corpo alla fotocamera
+Hand reach (the game needs %.2f) = Portata della mano (il gioco richiede %.2f)
 
 [added ja]
 Console storage = 本体ストレージ
@@ -547,6 +575,10 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = モーション: スマートフォン未接続
 Scan with your phone to use it as Kinect. = スマートフォンでスキャンして Kinect として使用します。
 Same Wi-Fi, stand 2-3 m back, full body visible. = 同じ Wi-Fi で、2-3 m 離れて全身が映るように立ってください。
+Step back = 下がってください
+Step closer = 近づいてください
+Show your whole body to the camera = 全身をカメラに映してください
+Hand reach (the game needs %.2f) = 手の伸び (ゲームの必要値 %.2f)
 
 [added ko]
 Console storage = 본체 저장 공간
@@ -592,6 +624,10 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = 모션: 연결된 휴대폰 없음
 Scan with your phone to use it as Kinect. = 휴대폰으로 스캔하여 Kinect로 사용하세요.
 Same Wi-Fi, stand 2-3 m back, full body visible. = 같은 Wi-Fi에서 2-3 m 떨어져 전신이 보이게 서세요.
+Step back = 뒤로 물러나세요
+Step closer = 더 가까이 오세요
+Show your whole body to the camera = 전신이 카메라에 보이게 하세요
+Hand reach (the game needs %.2f) = 손 뻗기 (게임 필요값 %.2f)
 
 [added nl]
 Console storage = Consoleopslag
@@ -637,6 +673,10 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = Beweging: geen telefoon verbonden
 Scan with your phone to use it as Kinect. = Scan met je telefoon om hem als Kinect te gebruiken.
 Same Wi-Fi, stand 2-3 m back, full body visible. = Zelfde wifi, sta 2-3 m achteruit, hele lichaam zichtbaar.
+Step back = Ga achteruit
+Step closer = Kom dichterbij
+Show your whole body to the camera = Laat je hele lichaam aan de camera zien
+Hand reach (the game needs %.2f) = Handbereik (het spel heeft %.2f nodig)
 
 [added pl]
 Console storage = Pamięć konsoli
@@ -682,6 +722,10 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = Ruch: brak połączonego telefonu
 Scan with your phone to use it as Kinect. = Zeskanuj telefonem, aby użyć go jako Kinecta.
 Same Wi-Fi, stand 2-3 m back, full body visible. = Ta sama sieć Wi-Fi, stań 2-3 m dalej, całe ciało widoczne.
+Step back = Odsuń się
+Step closer = Podejdź bliżej
+Show your whole body to the camera = Pokaż kamerze całe ciało
+Hand reach (the game needs %.2f) = Zasięg ręki (gra potrzebuje %.2f)
 
 [added ru]
 Console storage = Память консоли
@@ -727,6 +771,10 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = Движение: телефон не подключён
 Scan with your phone to use it as Kinect. = Отсканируйте телефоном, чтобы использовать его как Kinect.
 Same Wi-Fi, stand 2-3 m back, full body visible. = Та же сеть Wi-Fi, встаньте в 2-3 м, всё тело в кадре.
+Step back = Отойдите назад
+Step closer = Подойдите ближе
+Show your whole body to the camera = Покажите камере всё тело
+Hand reach (the game needs %.2f) = Вынос руки (игре нужно %.2f)
 
 [added tr]
 Console storage = Konsol depolama alanı
@@ -772,6 +820,10 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = Hareket: bağlı telefon yok
 Scan with your phone to use it as Kinect. = Kinect olarak kullanmak için telefonunuzla tarayın.
 Same Wi-Fi, stand 2-3 m back, full body visible. = Aynı Wi-Fi, 2-3 m geride durun, tüm vücut görünsün.
+Step back = Geri çekilin
+Step closer = Yaklaşın
+Show your whole body to the camera = Tüm vücudunuzu kameraya gösterin
+Hand reach (the game needs %.2f) = El uzanımı (oyunun istediği %.2f)
 
 [added zh-Hans]
 Console storage = 主机存储空间
@@ -817,6 +869,10 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = 动作：未连接手机
 Scan with your phone to use it as Kinect. = 用手机扫描，即可将其用作 Kinect。
 Same Wi-Fi, stand 2-3 m back, full body visible. = 连接同一 Wi-Fi，站在 2-3 米外，全身入镜。
+Step back = 请后退
+Step closer = 请靠近
+Show your whole body to the camera = 让摄像头看到你的全身
+Hand reach (the game needs %.2f) = 手部伸展（游戏需要 %.2f）
 
 [added zh-Hant]
 Console storage = 主機儲存空間
@@ -862,3 +918,7 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = 動作：未連接手機
 Scan with your phone to use it as Kinect. = 用手機掃描，即可將其當作 Kinect 使用。
 Same Wi-Fi, stand 2-3 m back, full body visible. = 連接同一 Wi-Fi，站在 2-3 公尺外，全身入鏡。
+Step back = 請後退
+Step closer = 請靠近
+Show your whole body to the camera = 讓攝影機看到你的全身
+Hand reach (the game needs %.2f) = 手部伸展（遊戲需要 %.2f）

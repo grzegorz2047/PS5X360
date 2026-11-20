@@ -66,27 +66,29 @@ index 0000000..c19e94e
 +
 +}  // namespace xbox360ps5::motion
 diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
-index e0ec811..b8f3cd8 100644
+index e0ec811..475a812 100644
 --- a/src/canary_game_main.cpp
 +++ b/src/canary_game_main.cpp
-@@ -135,6 +135,8 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
+@@ -135,6 +135,9 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
  #include "xbox360ps5/achievement_hook.hpp"
  #include "xbox360ps5/notify.hpp"
  #include "xbox360ps5/web_settings.hpp"
 +#include "xbox360ps5/qr_code.hpp"         // fix 63: the camera QR code in the motion panel
 +#include "xbox360ps5/phone_qr_panel.hpp"  // fix 63
++#include "xbox360ps5/kinect_hand_view.hpp"  // fix 63: the title's hand reach in the panel
  #include "xbox360ps5/save_storage.hpp"
  #include "xbox360ps5/dlc_install.hpp"
  #include "xenia/kernel/xam/content_manager.h"
-@@ -163,6 +165,7 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
+@@ -163,6 +166,8 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
  #include <atomic>
  #include <array>
  #include <chrono>
 +#include <cmath>
++#include <tuple>
  #include "output_metrics.hpp"
  #include "overlay_rates.hpp"
  #include <condition_variable>
-@@ -392,6 +395,22 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
+@@ -392,16 +397,38 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
        auto* draw = ImGui::GetForegroundDrawList();
        const float scale = io.DisplaySize.y / 1080.0f;
        draw->AddRectFilled(ImVec2(1550*scale,100*scale),ImVec2(1900*scale,640*scale),IM_COL32(0,0,0,150),8*scale);
@@ -108,16 +110,25 @@ index e0ec811..b8f3cd8 100644
 +      } else {
        draw->AddText(ImVec2(1570*scale,115*scale), IM_COL32(130,240,170,255), pose.tracked ? "Motion: tracking (research)" : "Motion: waiting / body lost");
        draw->AddText(ImVec2(1570*scale,140*scale), IM_COL32(220,220,220,255), xbox360ps5::motion::guest_skeleton_bound.load() ? "Game skeleton: from this pose" : xbox360ps5::motion::guest_camera_open.load() ? "Guest camera: virtual depth" : "Guest camera: not opened");
++      // Fix 63: what the game needs, under the live skeleton (kinect_hand_view.hpp).
++      const auto hands = xbox360ps5::motion::SnapshotGameHands();
++      DrawPositionHint(draw, scale, pose);
++      if (pose.tracked && hands.valid) DrawTargetArms(draw, scale, pose, hands);
        if (pose.tracked) {
-@@ -402,6 +421,7 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
+         const auto point = [&](int n) { return ImVec2((1725 + pose.joints[n].x*170)*scale,(405-pose.joints[n].y*170)*scale); };
+         const int bones[][2]={{0,1},{1,2},{2,3},{2,4},{4,5},{5,6},{6,7},{2,8},{8,9},{9,10},{10,11},{0,12},{12,13},{13,14},{14,15},{0,16},{16,17},{17,18},{18,19}};
+-        draw->PushClipRect(ImVec2(1550*scale,170*scale),ImVec2(1900*scale,640*scale),true);
++        draw->PushClipRect(ImVec2(1550*scale,185*scale),ImVec2(1900*scale,hands.valid ? 565*scale : 640*scale),true);
+         for (const auto& bone : bones) if (pose.joints[bone[0]].confidence >= .5f && pose.joints[bone[1]].confidence >= .5f) draw->AddLine(point(bone[0]),point(bone[1]),IM_COL32(100,240,160,255),2*scale);
          for (int n=0;n<20;++n) if (pose.joints[n].confidence >= .5f) draw->AddCircleFilled(point(n),4*scale,IM_COL32(240,255,240,255));
          draw->PopClipRect();
        }
++      if (hands.valid) DrawReachBars(draw, scale, hands);
 +      }
      }
      // Fix 45: after a guest crash the game does not come back; the notice says so and how to
      // leave it, in place of "no new frames" (the FPS counter alone showed 0).
-@@ -435,6 +455,40 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
+@@ -435,6 +462,107 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
      list->AddText(ImGui::GetFont(), 22 * scale, ImVec2(36 * scale, 65 * scale), IM_COL32(220, 230, 240, 255), output_text);
    }
   private:
@@ -151,6 +162,73 @@ index e0ec811..b8f3cd8 100644
 +                            Tr("Same Wi-Fi, stand 2-3 m back, full body visible.");
 +    draw->AddText(font, at.text_size * scale, ImVec2(at.text_x * scale, at.text_y * scale),
 +                  IM_COL32(230, 230, 230, 255), how.c_str(), nullptr, at.text_width * scale);
++  }
++  // Fix 63: too close / too far / not all of the body in the picture, under the status lines.
++  void DrawPositionHint(ImDrawList* draw, float scale, const xbox360ps5::motion::Frame& pose) {
++    using xbox360ps5::motion::Positioning;
++    const Positioning hint = xbox360ps5::motion::PositionHint(pose);
++    const char* text = hint == Positioning::kStepBack ? Tr("Step back")
++                     : hint == Positioning::kStepCloser ? Tr("Step closer")
++                     : hint == Positioning::kWholeBody ? Tr("Show your whole body to the camera") : nullptr;
++    if (text)
++      draw->AddText(ImGui::GetFont(), 20 * scale, ImVec2(1570 * scale, 163 * scale), IM_COL32(245, 204, 137, 255),
++                    text, nullptr, 312 * scale);
++  }
++  // Fix 63: the arms as the game wants them, faint, behind the live skeleton: each arm
++  // straight out to its side and straight up, from the live shoulder, at the arm's length;
++  // a direction the game is counting is drawn brighter.
++  void DrawTargetArms(ImDrawList* draw, float scale, const xbox360ps5::motion::Frame& pose,
++                      const xbox360ps5::motion::GameHands& hands) {
++    draw->PushClipRect(ImVec2(1550 * scale, 185 * scale), ImVec2(1900 * scale, 565 * scale), true);
++    for (int side = 0; side < 2; ++side) {
++      const bool right = side == 0;
++      const auto& shoulder = pose.joints[right ? 8 : 4];
++      if (shoulder.confidence < .5f) continue;
++      const float length = std::max(0.55f, xbox360ps5::motion::PhoneArmLength(pose, right));
++      const auto& hand = right ? hands.right : hands.left;
++      const ImVec2 from((1725 + shoulder.x * 170) * scale, (405 - shoulder.y * 170) * scale);
++      // The player's right is the picture's left (phone X), the game's +X (bit 2); left: bit 1.
++      const int outward = right ? 1 : 0, up = 2;  // counters: 0 left(-X) 1 right(+X) 2 up 3 down 4 front
++      for (const auto& [dx, dy, counter] : {std::tuple<float, float, int>{right ? -1.f : 1.f, 0.f, outward},
++                                            std::tuple<float, float, int>{0.f, 1.f, up}}) {
++        const bool counting = hand.counters[counter] > 0;
++        const ImVec2 to(from.x + dx * length * 170 * scale, from.y - dy * length * 170 * scale);
++        draw->AddLine(from, to, counting ? IM_COL32(120, 180, 255, 230) : IM_COL32(120, 180, 255, 90),
++                      (counting ? 7 : 5) * scale);
++        draw->AddCircle(to, 7 * scale, counting ? IM_COL32(120, 180, 255, 230) : IM_COL32(120, 180, 255, 90), 16,
++                        2 * scale);
++      }
++    }
++    draw->PopClipRect();
++  }
++  // Fix 63: each hand's reach as the game measured it, against its threshold (the tick), green
++  // when it counts towards a direction, and under it how far the hold is (15 updates).
++  void DrawReachBars(ImDrawList* draw, float scale, const xbox360ps5::motion::GameHands& hands) {
++    char title[96];
++    std::snprintf(title, sizeof(title), Tr("Hand reach (the game needs %.2f)"), double(hands.reach_needed));
++    draw->AddText(ImGui::GetFont(), 18 * scale, ImVec2(1570 * scale, 568 * scale), IM_COL32(220, 220, 220, 255), title);
++    const float left = 1595, width = 285, full = std::max(0.1f, hands.reach_needed * 2);
++    for (int side = 0; side < 2; ++side) {
++      const auto& hand = side ? hands.left : hands.right;
++      const float y = 594 + side * 22;
++      draw->AddText(ImGui::GetFont(), 18 * scale, ImVec2(1570 * scale, (y - 3) * scale), IM_COL32(220, 220, 220, 255),
++                    side ? "L" : "R");
++      draw->AddRectFilled(ImVec2(left * scale, y * scale), ImVec2((left + width) * scale, (y + 10) * scale),
++                          IM_COL32(255, 255, 255, 40), 3 * scale);
++      const float reach = std::clamp(hand.magnitude / full, 0.0f, 1.0f);
++      const bool counts = xbox360ps5::motion::Directions(hand, hands.reach_needed, hands.direction_needed) != 0;
++      const ImU32 colour = counts ? IM_COL32(100, 230, 120, 255)
++                         : hand.magnitude >= hands.reach_needed ? IM_COL32(245, 204, 137, 255) : IM_COL32(200, 200, 200, 200);
++      draw->AddRectFilled(ImVec2(left * scale, y * scale), ImVec2((left + width * reach) * scale, (y + 10) * scale),
++                          colour, 3 * scale);
++      const float tick = left + width * std::clamp(hands.reach_needed / full, 0.0f, 1.0f);
++      draw->AddLine(ImVec2(tick * scale, (y - 3) * scale), ImVec2(tick * scale, (y + 13) * scale),
++                    IM_COL32(255, 255, 255, 255), 2 * scale);
++      const float hold = xbox360ps5::motion::HoldProgress(hand);
++      if (hold > 0)
++        draw->AddRectFilled(ImVec2(left * scale, (y + 12) * scale), ImVec2((left + width * hold) * scale, (y + 15) * scale),
++                            IM_COL32(120, 180, 255, 255));
++    }
 +  }
 +  std::chrono::steady_clock::time_point phone_checked_{};
 +  std::string phone_url_, phone_key_;
