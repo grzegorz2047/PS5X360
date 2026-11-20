@@ -63,6 +63,7 @@ on:
       - 'tools/check-gpu-wait-lines.cpp'
       - 'tools/check-fast-readback.cpp'
       - 'tools/check-library-folders.cpp'
+      - 'tools/check-fault-stack.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

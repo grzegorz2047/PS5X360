@@ -67,6 +67,7 @@ checks=(
   check-gpu-wait-lines.cpp         # fix 58
   check-fast-readback.cpp          # fix 59
   check-library-folders.cpp        # fix 60
+  check-fault-stack.cpp            # fix 61
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -97,6 +98,7 @@ declare -A fix_of=(
   [check-gpu-wait-lines.cpp]=58
   [check-fast-readback.cpp]=59
   [check-library-folders.cpp]=60
+  [check-fault-stack.cpp]=61
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
