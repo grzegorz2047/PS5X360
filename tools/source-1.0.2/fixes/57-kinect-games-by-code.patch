@@ -273,7 +273,7 @@ index 5a5720c..036f17a 100644
  #if XE_PLATFORM_PS5
    static std::atomic<bool> motion_reported{false};
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
-index 20be75b..98dc83c 100644
+index 20be75b..4340ab3 100644
 --- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
 +++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
 @@ -37,7 +37,11 @@
@@ -407,13 +407,31 @@ index 20be75b..98dc83c 100644
    // A new owned guest page, within the PPC relative branch reach. Never borrow
    // padding from the executable or overwrite an existing guest allocation.
    auto* heap = memory->LookupHeap(0x83C00000);
-@@ -847,8 +911,34 @@ X_HRESULT SkeletonGetNextFrame(KernelState* kernel_state, uint32_t wait_ms,
+@@ -847,8 +911,52 @@ X_HRESULT SkeletonGetNextFrame(KernelState* kernel_state, uint32_t wait_ms,
    }
    if (!xbox360ps5::motion::enabled.load()) return kSkeletonNotConnected;
    source.delivered_period = period;
 -  const xbox360ps5::motion::Frame pose = xbox360ps5::motion::Snapshot();
 +  // Fix 57: the phone's body brought to an adult's size, arms rebuilt (body_scale.hpp).
 +  const xbox360ps5::motion::Frame pose = xbox360ps5::motion::NormalizedSnapshot();
++  {
++    // 1.0.5_candidate_6: what the depth re-centring did, as it happens (a new phone session
++    // restarts the averages; a jump of the hips' depth, the page's Recenter, is taken at once).
++    static uint32_t logged_session = 0, logged_jumps = 0;
++    const auto report = xbox360ps5::motion::ReportBodyScale();
++    if (pose.tracked && report.session != logged_session) {
++      logged_session = report.session;
++      logged_jumps = report.jumps;
++      XELOGW("Virtual Kinect: phone session {:08X}; body averages start, the phone says {:.2f} m",
++             report.session, xbox360ps5::motion::kBridgeBodyDistance - xbox360ps5::motion::Snapshot().joints[0].z);
++    } else if (report.jumps != logged_jumps) {
++      logged_jumps = report.jumps;
++      XELOGW("Virtual Kinect: the phone's distance jumped from {:.2f} to {:.2f} m between two frames "
++             "(its Recenter or a new calibration); taken at once ({} so far)",
++             xbox360ps5::motion::kBridgeBodyDistance - report.jump_from,
++             xbox360ps5::motion::kBridgeBodyDistance - report.jump_to, report.jumps);
++    }
++  }
 +  // 1.0.5: the phone's pose as it came and the title's hands, kept for motion-*.xmr
 +  // (motion_record.hpp; saved when the guide opens).
 +  xbox360ps5::motion::motion_recorder.Add(xbox360ps5::motion::Snapshot(),
@@ -443,7 +461,7 @@ index 20be75b..98dc83c 100644
    uint32_t signed_in_mask = 0;
    for (uint32_t slot = 0; slot < 4; ++slot) {
      if (kernel_state->xam_state()->IsUserSignedIn(slot) &&
-@@ -899,8 +989,38 @@ void SkeletonGetNextFrameHandler(cpu::ppc::PPCContext* ppc_context,
+@@ -899,8 +1007,38 @@ void SkeletonGetNextFrameHandler(cpu::ppc::PPCContext* ppc_context,
    // Reviewed DBZ caller embeds its frame at object+80. Observe the previous
    // update without changing guest state. The hand context is separate from
    // the raised-hand prompt; a delivered skeleton is not proof it is usable.
@@ -483,7 +501,7 @@ index 20be75b..98dc83c 100644
        xbox360ps5::motion::guest_skeleton_frames.load() % 150 == 0) {
      const uint32_t object = frame - 0x80;
      Memory* memory = kernel_state->memory();
-@@ -910,16 +1030,39 @@ void SkeletonGetNextFrameHandler(cpu::ppc::PPCContext* ppc_context,
+@@ -910,16 +1048,42 @@ void SkeletonGetNextFrameHandler(cpu::ppc::PPCContext* ppc_context,
        auto u32 = [data](size_t at) { return xe::load_and_swap<uint32_t>(data + at); };
        auto f32 = [data](size_t at) { return xe::load_and_swap<float>(data + at); };
        XELOGW("Virtual Kinect hands: context unavailable {} magnitude {}/{} "
@@ -491,7 +509,8 @@ index 20be75b..98dc83c 100644
 +             "vectors ({},{},{})/({},{},{}) edges {:08X}/{:08X}; last 150 frames: "
 +             "context available in {}, edges right {} left {}; phone arms {:.2f}/{:.2f} m, "
 +             "the game's {:.2f}/{:.2f} m (body x{:.2f}); hands to shoulders {:.2f}/{:.2f} m "
-+             "(depth {:+.2f}/{:+.2f}); phone frame to the title {:.1f} ms average, {:.1f} ms at most",
++             "(depth {:+.2f}/{:+.2f}); distance, the phone's {:.2f} m, to the title {:.2f} m; "
++             "phone frame to the title {:.1f} ms average, {:.1f} ms at most",
               u32(0x1D80 + 0x5F8), f32(0x2710), f32(0x2714),
               f32(0x2720), f32(0x2724), f32(0x2728),
               f32(0x2730), f32(0x2734), f32(0x2738),
@@ -504,6 +523,8 @@ index 20be75b..98dc83c 100644
 +             [] { float f = 1; xbox360ps5::motion::NormalizedSnapshot(&f); return f; }(),
 +             g_hand_shoulder[1] < 9 ? g_hand_shoulder[1] : 0.0f, g_hand_shoulder[0] < 9 ? g_hand_shoulder[0] : 0.0f,
 +             g_hand_shoulder_dz[1], g_hand_shoulder_dz[0],
++             xbox360ps5::motion::kBridgeBodyDistance - xbox360ps5::motion::Snapshot().joints[0].z,
++             xbox360ps5::motion::kBridgeBodyDistance - xbox360ps5::motion::NormalizedSnapshot().joints[0].z,
 +             g_latency_count.load() ? double(g_latency_sum_us.load()) / 1000.0 / double(g_latency_count.load()) : 0.0,
 +             double(g_latency_max_us.load()) / 1000.0);
 +      edges_right = edges_left = context_frames = 0;
@@ -526,7 +547,7 @@ index 20be75b..98dc83c 100644
          hand_probe_done = true;
          const uint64_t a = (uint64_t(u32(0x30)) + 6) * 4;
          const uint64_t b = (uint64_t(u32(0x50)) + 14) * 4;
-@@ -950,15 +1093,15 @@ void SkeletonGetNextFrameHandler(cpu::ppc::PPCContext* ppc_context,
+@@ -950,15 +1114,15 @@ void SkeletonGetNextFrameHandler(cpu::ppc::PPCContext* ppc_context,
  // an extern handler on the function. Done once, at the title's first camera
  // request, which is before it can have asked for a skeleton frame.
  void BindSkeletonSource(KernelState* kernel_state) {
@@ -547,7 +568,7 @@ index 20be75b..98dc83c 100644
    cpu::XexModule* xex = module ? module->xex_module() : nullptr;
    if (!xex) {
      return;
-@@ -981,6 +1124,10 @@ void BindSkeletonSource(KernelState* kernel_state) {
+@@ -981,6 +1145,10 @@ void BindSkeletonSource(KernelState* kernel_state) {
      return;
    }
    const uint32_t address = found[0];
@@ -558,7 +579,7 @@ index 20be75b..98dc83c 100644
    cpu::Function* function = nullptr;
    const cpu::Symbol::Status status = xex->DeclareFunction(address, &function);
    if (!function || (status != cpu::Symbol::Status::kNew &&
-@@ -1017,12 +1164,17 @@ void BindSkeletonSource(KernelState* kernel_state) {
+@@ -1017,12 +1185,17 @@ void BindSkeletonSource(KernelState* kernel_state) {
    xbox360ps5::motion::guest_skeleton_bound = true;
    BindEstimatedHands(kernel_state, xex);
    XELOGW("Virtual Kinect: skeleton frames of the title come from the "
@@ -578,7 +599,7 @@ index 20be75b..98dc83c 100644
  void ShutdownCameraDevice() {
    std::unique_ptr<CameraDevice> camera_device;
    {
-@@ -1041,6 +1193,10 @@ void ShutdownCameraDevice() {
+@@ -1041,6 +1214,10 @@ void ShutdownCameraDevice() {
      g_skeleton_source.notified_user = xbox360ps5::motion::kUserIndexNone;
    }
    g_skeleton_binding_tried = false;
@@ -589,7 +610,7 @@ index 20be75b..98dc83c 100644
    xbox360ps5::motion::guest_skeleton_bound = false;
    xbox360ps5::motion::guest_skeleton_frames = 0;
    xbox360ps5::motion::guest_skeleton_bodies = 0;
-@@ -1128,9 +1284,18 @@ dword_result_t PsCamDeviceRequest_entry(dword_t request_ptr) {
+@@ -1128,9 +1305,18 @@ dword_result_t PsCamDeviceRequest_entry(dword_t request_ptr) {
    if (!request_ptr) {
      return X_STATUS_INVALID_PARAMETER;
    }
@@ -612,10 +633,10 @@ index 20be75b..98dc83c 100644
  }
 diff --git a/include/xbox360ps5/body_scale.hpp b/include/xbox360ps5/body_scale.hpp
 new file mode 100644
-index 0000000..12098c3
+index 0000000..22ce787
 --- /dev/null
 +++ b/include/xbox360ps5/body_scale.hpp
-@@ -0,0 +1,195 @@
+@@ -0,0 +1,211 @@
 +// SPDX-License-Identifier: MIT
 +// Fix 57: the phone's pose brought to a plausible body size before a game sees it.
 +//
@@ -673,6 +694,8 @@ index 0000000..12098c3
 +  float hip_z = 0;                 // the hips' depth, averaged over about five seconds
 +  bool hip_z_set = false;
 +  float last_hip_z = 0;            // the hips' depth in the frame before
++  uint32_t jumps = 0;              // depth jumps taken at once (1.0.5_candidate_6: logged)
++  float jump_from = 0, jump_to = 0;
 +  Frame last_in{}, last_out{};     // the last frame normalised (for repeated asks)
 +};
 +
@@ -703,6 +726,11 @@ index 0000000..12098c3
 +  if (pose.tracked && std::isfinite(pose.joints[kHipCentre].z)) {
 +    const float z = pose.joints[kHipCentre].z;
 +    const bool jump = state.hip_z_set && std::fabs(z - state.last_hip_z) > kDepthJumpMetres;
++    if (jump) {
++      ++state.jumps;
++      state.jump_from = state.last_hip_z;
++      state.jump_to = z;
++    }
 +    state.hip_z = state.hip_z_set && !jump ? state.hip_z + kDepthCentreWeight * (z - state.hip_z) : z;
 +    state.hip_z_set = true;
 +    state.last_hip_z = z;
@@ -804,6 +832,15 @@ index 0000000..12098c3
 +  // Snapshot() may mark a frame untracked once it is old; the cached output follows it.
 +  return pose.sequence == body_scale.sequence && pose.session == body_scale.session ? body_scale.last_out
 +                                                                                     : pose;
++}
++// For the log: the averages' phone session, its depth jumps so far and the last one (hips' Z).
++struct BodyScaleReport {
++  uint32_t session = 0, jumps = 0;
++  float jump_from = 0, jump_to = 0, hip_z = 0;
++};
++inline BodyScaleReport ReportBodyScale() {
++  std::lock_guard lock(body_scale_mutex);
++  return {body_scale.session, body_scale.jumps, body_scale.jump_from, body_scale.jump_to, body_scale.hip_z};
 +}
 +inline void ResetBodyScale() {
 +  std::lock_guard lock(body_scale_mutex);

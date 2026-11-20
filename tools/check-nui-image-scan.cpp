@@ -306,6 +306,9 @@ void CheckBodyScale() {
     for (auto& j : recalibrated.joints) j.z += 1.3f;
     m::ObserveBody(sd, recalibrated);
     CHECK(std::fabs(m::NormalizeBody(sd, recalibrated).joints[0].z) < 0.01f);
+    // ...and is counted for the log (1.0.5_candidate_6): one jump, from 3.5 m (after the step)
+    // to 2.5 m. The real step before it was not one.
+    CHECK(sd.jumps == 1 && std::fabs(sd.jump_from - (-1.0f)) < 1e-4f && std::fabs(sd.jump_to) < 1e-4f);
   }
   // An adult stays an adult; a huge or tiny reading is clamped (x0.8 .. x2).
   m::BodyScaleState adult;
