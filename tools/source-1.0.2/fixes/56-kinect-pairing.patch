@@ -1,0 +1,200 @@
+diff --git a/include/xbox360ps5/kinect_page_patch.hpp b/include/xbox360ps5/kinect_page_patch.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/kinect_page_patch.hpp
+@@ -0,0 +1,82 @@
++// SPDX-License-Identifier: MIT
++// Fix 56 (tools/source-1.0.2/fixes/56-kinect-pairing.patch): the phone camera page says why it
++// cannot pair yet, and pairs by itself when it can.
++//
++// The page is the official package's /app0/assets/kinect/index.html, served by the console over
++// HTTPS (port/phone_camera_tls.cpp). Its connect() read /api/motion/status and, when "enabled"
++// was false, showed "Turn on Camera motion in the Kinect game's settings on the PS5 first." and
++// stopped. Before the Kinect game runs, enabled is false whatever the game's setting is (the
++// per-game "Camera motion" applies when the game starts), so a phone scanned from the library got
++// that message with the setting already on (Dragon Ball Z for Kinect, 1.0.4_candidate_18).
++// The status now says game_running and waiting_for ("game", "setting" or ""), and Patch rewrites
++// the page as it is served: it names the reason (the game not started yet, or its setting off),
++// in each language the page has (English, Portuguese, Spanish), and keeps asking every two
++// seconds, as it already does after a lost connection, so it pairs as soon as the game turns
++// the camera on. A page that does not have the expected lines is served as it is.
++#pragma once
++#include <string>
++#include <utility>
++#include <vector>
++
++namespace xbox360ps5::kinect_page {
++
++struct Edit {
++  const char* find;
++  const char* replace;
++};
++
++inline const std::vector<Edit>& Edits() {
++  static const std::vector<Edit> edits = {
++      // connect(): the reason, and keep asking (no throw: the retry stays quiet).
++      {"    if (!result.enabled) throw Error(T('enable_motion'));",
++       "    if (!result.enabled) {\n"
++       "      // PS5X360Reloaded fix 56: say why, and keep asking every two seconds.\n"
++       "      paired = false; pairing = 'waiting';\n"
++       "      relay.textContent = result.waiting_for === 'game' ? T('wait_game') :\n"
++       "        result.waiting_for === 'setting' ? T('wait_setting') : T('enable_motion');\n"
++       "      return;\n"
++       "    }"},
++      // The retry every two seconds also while waiting for the game or its setting.
++      {"  if (onConsole && !paired && (pairing === 'lost' || pairing === 'expired') && $('key').value.trim()) connect(true);",
++       "  if (onConsole && !paired && (pairing === 'lost' || pairing === 'expired' || pairing === 'waiting') && "
++       "$('key').value.trim()) connect(true);"},
++      // A quiet retry while waiting (the console restarting into the game) keeps the reason shown.
++      {"    if (!quiet || pairing !== 'lost') relay.textContent = e.message;",
++       "    if (!quiet || (pairing !== 'lost' && pairing !== 'waiting')) relay.textContent = e.message;"},
++      // The texts.
++      {"motion_off:'Camera motion is off for this game on the PS5.',",
++       "motion_off:'Camera motion is off for this game on the PS5.', "
++       "wait_game:'Key accepted. Start the Kinect game on the PS5: this page connects by itself when it runs.', "
++       "wait_setting:'The game on the PS5 has Camera motion off. Turn it on in the guide or the game\\'s settings: this page connects by itself.',"},
++      {"motion_off:'O Movimento por câmera está desligado neste jogo no PS5.',",
++       "motion_off:'O Movimento por câmera está desligado neste jogo no PS5.', "
++       "wait_game:'Chave aceita. Inicie o jogo de Kinect no PS5: esta página conecta sozinha quando ele abrir.', "
++       "wait_setting:'O jogo no PS5 está com o Movimento por câmera desligado. Ligue no guia ou nas configurações do jogo: esta página conecta sozinha.',"},
++      {"motion_off:'El Movimiento por cámara está desactivado en este juego en la PS5.',",
++       "motion_off:'El Movimiento por cámara está desactivado en este juego en la PS5.', "
++       "wait_game:'Clave aceptada. Inicia el juego de Kinect en la PS5: esta página se conecta sola cuando arranque.', "
++       "wait_setting:'El juego de la PS5 tiene el Movimiento por cámara desactivado. Actívalo en la guía o en los ajustes del juego: esta página se conecta sola.',"},
++  };
++  return edits;
++}
++
++struct Patched {
++  std::string page;
++  size_t applied = 0;  // edits made; all or none
++};
++// Every edit's text must be in the page exactly once; otherwise (another version of the page)
++// the page is returned unchanged.
++inline Patched Patch(std::string page) {
++  for (const Edit& edit : Edits()) {
++    const std::string find = edit.find;
++    const size_t at = page.find(find);
++    if (at == std::string::npos || page.find(find, at + 1) != std::string::npos) return {std::move(page), 0};
++  }
++  for (const Edit& edit : Edits()) {
++    const std::string find = edit.find;
++    page.replace(page.find(find), find.size(), edit.replace);
++  }
++  return {std::move(page), Edits().size()};
++}
++
++}  // namespace xbox360ps5::kinect_page
+diff --git a/include/xbox360ps5/motion_input.hpp b/include/xbox360ps5/motion_input.hpp
+--- a/include/xbox360ps5/motion_input.hpp
++++ b/include/xbox360ps5/motion_input.hpp
+@@ -19,6 +19,13 @@ struct Frame {
+   std::chrono::steady_clock::time_point received{};
+ };
+ inline std::atomic<bool> enabled{false};
++// Fix 56: a game is running (set by the title once the game has launched). Until then "enabled"
++// is the general setting, not the game's: the status says what the phone waits for.
++inline std::atomic<bool> game_running{false};
++inline const char* WaitingFor() {
++  if (enabled.load()) return "";
++  return game_running.load() ? "setting" : "game";
++}
+ inline std::atomic<bool> guest_camera_open{false};
+ inline std::atomic<uint64_t> guest_depth_frames{0}, guest_color_frames{0};
+ inline std::atomic<uint64_t> guest_completed_requests{0};
+@@ -77,6 +84,7 @@ inline std::string Status() {
+   std::lock_guard lock(mutex);
+   const auto age = latest.sequence ? std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - latest.received).count() : -1;
+   return std::string("{\"enabled\":") + (enabled.load() ? "true" : "false") +
++    ",\"game_running\":" + (game_running.load() ? "true" : "false") + ",\"waiting_for\":\"" + WaitingFor() + "\"" +
+     ",\"tracked\":" + (enabled.load() && latest.tracked && age >= 0 && age <= 500 ? "true" : "false") +
+     ",\"packets\":" + std::to_string(packets) + ",\"sequence\":" + std::to_string(latest.sequence) +
+     ",\"age_ms\":" + std::to_string(age) + ",\"guest_sensor_ready\":false,\"guest_camera_open\":" + (guest_camera_open.load() ? "true" : "false") +
+diff --git a/platform/ps5/web_settings.cpp b/platform/ps5/web_settings.cpp
+--- a/platform/ps5/web_settings.cpp
++++ b/platform/ps5/web_settings.cpp
+@@ -392,6 +392,8 @@ void Answer(int client) {
+   // Everything else needs the key shown on the television.
+   std::string given = Header(request, "X-Key");
+   if (given.empty()) given = Parameter(query, "k");
++  // Fix 56: the key is hexadecimal; "6E1456" typed from the TV is the same key.
++  for (char& c : given) c = char(std::tolower(static_cast<unsigned char>(c)));
+   // Fix 46: the official app's Kinect tracker on this console may send its own key (web_key.hpp).
+   sockaddr_in peer{};
+   socklen_t peer_size = sizeof(peer);
+diff --git a/port/phone_camera_tls.cpp b/port/phone_camera_tls.cpp
+--- a/port/phone_camera_tls.cpp
++++ b/port/phone_camera_tls.cpp
+@@ -6,6 +6,7 @@
+ #include "phone_camera_tls.hpp"
+ 
+ #include "xbox360ps5/motion_input.hpp"
++#include "xbox360ps5/kinect_page_patch.hpp"  // fix 56: the page says why it waits, and pairs by itself
+ #include "xbox360ps5/app_identity.hpp"  // fix 46: the certificates' names
+ 
+ #include "mbedtls/ctr_drbg.h"
+@@ -27,6 +28,7 @@
+ #include <algorithm>
+ #include <atomic>
+ #include <cerrno>
++#include <cctype>
+ #include <cstdio>
+ #include <cstdlib>
+ #include <cstring>
+@@ -282,6 +284,7 @@ std::string Route(const std::string& method, std::string target, const std::stri
+     const std::string marker = "<meta name=\"ps5x360-host\" content=\"relay\">";
+     if (const size_t at = page.find(marker); at != std::string::npos)
+       page.replace(at, marker.size(), "<meta name=\"ps5x360-host\" content=\"ps5\">");
++    page = kinect_page::Patch(std::move(page)).page;  // fix 56
+     return Response("200 OK", "text/html; charset=utf-8", page);
+   }
+   if (method == "GET" && (target == "/pose.mjs" || target == "/kinect_tracker.mjs" || target == "/demo_body.mjs")) {
+@@ -291,7 +294,10 @@ std::string Route(const std::string& method, std::string target, const std::stri
+   }
+   if (target == "/ping") return Response("204 No Content", "text/plain", "");
+   if (target == "/favicon.ico") return Response("404 Not Found", "text/plain", "");
+-  if (Header(head, "X-Key") != key) return Response("403 Forbidden", "application/json", "{\"error\":\"key\"}");
++  // Fix 56: the key is hexadecimal; "6E1456" typed from the TV is the same key.
++  std::string given = Header(head, "X-Key");
++  for (char& c : given) c = char(std::tolower(static_cast<unsigned char>(c)));
++  if (given != key) return Response("403 Forbidden", "application/json", "{\"error\":\"key\"}");
+   if (method == "GET" && target == "/api/motion/status") return Response("200 OK", "application/json", motion::Status());
+   if (method == "POST" && target == "/api/motion/frame") {
+     const auto result = motion::Receive(body);
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -2563,6 +2563,8 @@ int main(int argc, char** argv) {
+           break;
+         }
+         XELOGI("GAME LAUNCH {:08X}", status);
++        // Fix 56: the phone's camera page now waits for this game's setting, not for a game.
++        xbox360ps5::motion::game_running = status == 0;
+         XELOGW("Game: '{}' title {:08X}, launch status {:08X}", emulator.title_name(), emulator.title_id(), status);
+         XELOGW("Graphics: emulated VSync {}", xbox360ps5::EffectiveVsync(settings.vsync) ? "on" : "off");
+         XELOGW("Settings: {} of this game's own ({}); not at the recommended value: {}", overrides.size(),
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -3354,7 +3354,9 @@ void Launcher::DrawGameOptions(Canvas& c, float x) {
+   const QrCode& camera_qr = std::string_view(option.key) == "motion_phone" ? CameraQr(web_plain_, web_key_) : QrCode();
+   if (camera_qr.size) {
+     DrawQrCard(c, camera_qr, x + 56, 786, 138);
+-    c.Wrapped(CameraQrText(), x + 212, 786, 20, kBody, 594);
++    // Fix 56: the pairing key large beside the code (the phone page asks for it without the code).
++    c.Text(std::string(Tr("Code: ")) + web_key_, x + 212, 782, 34, kAccent);
++    c.Wrapped(CameraQrText(), x + 212, 828, 18, kBody, 594);
+   } else {
+     c.Wrapped(Tr(option.about), x + 56, 786, 20, kBody, 750);
+   }
+@@ -3513,7 +3515,9 @@ void Launcher::DrawOptionsSheet(Canvas& c) {
+   const QrCode& camera_qr = std::string_view(option.key) == "motion_phone" ? CameraQr(web_plain_, web_key_) : QrCode();
+   if (camera_qr.size) {
+     DrawQrCard(c, camera_qr, x + 56, 632, 200);
+-    c.Wrapped(CameraQrText(), x + 276, 632, 20, kBody, 530);
++    // Fix 56: the pairing key large beside the code.
++    c.Text(std::string(Tr("Code: ")) + web_key_, x + 276, 628, 40, kAccent);
++    c.Wrapped(CameraQrText(), x + 276, 684, 20, kBody, 530);
+   } else {
+     c.Wrapped(Tr(option.about), x + 56, 632, 20, kBody, 750);
+   }
