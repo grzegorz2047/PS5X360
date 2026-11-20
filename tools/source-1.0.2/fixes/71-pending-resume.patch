@@ -95,20 +95,24 @@ diff --git a/.deps/xenia-canary/src/xenia/kernel/xthread.cc b/.deps/xenia-canary
          const std::string line = xbox360ps5::suspend_trace::EarlyResumeLine(
              resumer, handle(), entering_self_suspend_.load(std::memory_order_relaxed), now);
          if (!line.empty()) XELOGW("{}", line);
-@@ -1203,6 +1207,16 @@ uint32_t XThread::SelfSuspend() {
-   xe::threading::Thread::DeferSuspension(true);
-   auto& suspend_count =
-       *reinterpret_cast<std::atomic_uint8_t*>(&guest_thread->suspend_count);
-+  // Fix 71: a resume came just before (it found the count at 0): this suspension took place and
-+  // ended at once, instead of sleeping with no one left to wake the thread.
-+  if (pending_resume_.Take(std::chrono::duration_cast<std::chrono::nanoseconds>(
-+                               std::chrono::steady_clock::now().time_since_epoch())
-+                               .count())) {
-+    suspend_trace_.Note(xbox360ps5::suspend_trace::kSuspendCancelled, 0, uint8_t(suspend_count.load()),
-+                        xbox360ps5::suspend_trace::NowMs());
-+    xe::threading::Thread::DeferSuspension(false);
-+    return suspend_count.load();
-+  }
-   entering_self_suspend_.store(true, std::memory_order_relaxed);  // fix 69
-   const uint32_t previous = suspend_count.fetch_add(1);
-   entering_self_suspend_.store(false, std::memory_order_relaxed);
+@@ -1210,6 +1214,20 @@ uint32_t XThread::SelfSuspend() {
+                       xbox360ps5::suspend_trace::NowMs());
+   {
+     std::unique_lock<std::mutex> lock(suspend_mutex_);
++    // Fix 71: a resume that came before the count was raised (it found 0, under this lock) left a
++    // credit: this suspension took place and ended at once, instead of sleeping with no one left
++    // to wake the thread. Checked after raising the count and under the lock Resume holds while it
++    // reads the count, so a resume either finds the count raised or leaves the credit seen here.
++    if (pending_resume_.Take(std::chrono::duration_cast<std::chrono::nanoseconds>(
++                                 std::chrono::steady_clock::now().time_since_epoch())
++                                 .count())) {
++      suspend_count.fetch_sub(1);
++      lock.unlock();
++      suspend_trace_.Note(xbox360ps5::suspend_trace::kSuspendCancelled, 0, uint8_t(previous),
++                          xbox360ps5::suspend_trace::NowMs());
++      xe::threading::Thread::DeferSuspension(false);
++      return previous;
++    }
+     suspend_cv_.wait(lock,
+                      [&suspend_count]() { return suspend_count.load() == 0; });
+   }

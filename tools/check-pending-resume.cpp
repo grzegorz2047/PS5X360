@@ -68,9 +68,13 @@ struct ModelThread {
   std::atomic<bool> stop{false};
 
   void SelfSuspend() {
-    if (use_credit && credit.Take(NowNs())) return;  // fix 71
-    count.fetch_add(1);
+    count.fetch_add(1);  // raised without the lock, as XThread does
     std::unique_lock<std::mutex> lock(suspend_mutex);
+    // Fix 71: taken after raising the count, under the lock Resume reads the count under.
+    if (use_credit && credit.Take(NowNs())) {
+      count.fetch_sub(1);
+      return;
+    }
     suspend_cv.wait(lock, [&] { return count.load() == 0 || stop.load(); });
   }
   uint8_t Resume() {
@@ -101,8 +105,9 @@ Outcome RunJobs(bool use_credit, double seconds) {
   std::thread work([&] {
     while (!done.load()) {
       idle.store(1);
-      for (volatile int spin = 0; spin < 50; ++spin) {
-      }  // the guest's code between saying so and NtSuspendThread
+      for (int spin = 0; spin < 50; ++spin) {
+        std::atomic_signal_fence(std::memory_order_seq_cst);  // the guest's code between saying so and NtSuspendThread
+      }
       worker.SelfSuspend();
       rounds.fetch_add(1);
     }
@@ -174,13 +179,18 @@ void CheckTree() {
   const size_t self = code.find("uint32_t XThread::SelfSuspend() {");
   Expect(resume != std::string::npos && zero != std::string::npos && note != std::string::npos && note < self,
          "a resume that finds a count of 0 leaves the credit");
-  const size_t take = code.find("if (pending_resume_.Take(", self);
-  const size_t cancelled = code.find("suspend_trace_.Note(xbox360ps5::suspend_trace::kSuspendCancelled,", take);
-  const size_t early_return = code.find("return suspend_count.load();", cancelled);
   const size_t raise = code.find("const uint32_t previous = suspend_count.fetch_add(1);", self);
-  Expect(self != std::string::npos && take != std::string::npos && cancelled != std::string::npos &&
-             early_return < raise,
-         "SelfSuspend takes it before raising the count and returns at once, noted in the trace");
+  const size_t lock = code.find("std::unique_lock<std::mutex> lock(suspend_mutex_);", raise);
+  const size_t take = code.find("if (pending_resume_.Take(", lock);
+  const size_t undo = code.find("suspend_count.fetch_sub(1);", take);
+  const size_t cancelled = code.find("suspend_trace_.Note(xbox360ps5::suspend_trace::kSuspendCancelled,", undo);
+  const size_t early_return = code.find("return previous;", cancelled);
+  const size_t wait = code.find("suspend_cv_.wait(lock,", lock);
+  Expect(self != std::string::npos && raise != std::string::npos && lock != std::string::npos &&
+             take != std::string::npos && undo != std::string::npos && cancelled != std::string::npos &&
+             early_return < wait,
+         "SelfSuspend takes it after raising the count, under the lock Resume reads the count under, "
+         "undoes its count and returns at once, noted in the trace");
   Expect(Read(k + "xthread.h").find("xbox360ps5::pending_resume::Credit pending_resume_;") != std::string::npos,
          "each thread has its credit");
 }
