@@ -1,0 +1,85 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_content.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_content.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_content.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_content.cc
+@@ -863,6 +863,11 @@ dword_result_t XamSwapDisc_entry(
+ }
+ DECLARE_XAM_EXPORT1(XamSwapDisc, kContent, kSketchy);
+ 
++// Fix 51: the game's "insert disc" screen calls this when the player backs out of it
++// (Battlefield 3); nothing is pending here, as a failed XamSwapDisc leaves no request behind.
++dword_result_t XamSwapCancel_entry() { return X_ERROR_SUCCESS; }
++DECLARE_XAM_EXPORT1(XamSwapCancel, kContent, kStub);
++
+ dword_result_t XamLoaderGetDvdTrayState_entry() {
+   return static_cast<uint8_t>(kernel_state()->smc()->GetTrayState());
+ }
+diff --git a/port/disc_catalog.cpp b/port/disc_catalog.cpp
+--- a/port/disc_catalog.cpp
++++ b/port/disc_catalog.cpp
+@@ -41,7 +41,11 @@ std::string Extension(const std::string&s){auto n=Name(s);auto at=n.find_last_of
+ std::string Key(const std::string&s){return Drive(s)?Lower(s):s;}
+ bool Within(const std::string&p,const std::string&r){auto path=Key(p),root=Key(r);return path==root || (path.size()>root.size() && path.compare(0,root.size(),root)==0 && (root.back()=='/'||path[root.size()]=='/'));}
+ void Allowed(const std::string&p,const std::vector<std::string>&roots){Need(!roots.empty(),Error::InvalidPath,"No media root configured");for(const auto&r:roots)if(Within(p,Lexical(r)))return;throw Failure(Error::InvalidPath,"Media path escapes allowed roots");}
+-std::string Canonical(const std::string&p,const std::vector<std::string>&roots){std::error_code ec;auto actual=fs::canonical(NativePath(p),ec);Need(!ec,Error::MissingMedia,"Media path missing/unreadable");auto normalized=Lexical(PathText(actual));Allowed(normalized,roots);return normalized;}
++// Fix 51: realpath, behind fs::canonical, has failed in the console's sandbox where stat works
++// (fix 46, candidate 54); a path stat finds is then taken as it is written, normalized, and still
++// has to lie inside the roots (Allowed). On the PC realpath answers and nothing changes.
++fs::path Physical(const std::string&p,std::error_code&ec){auto actual=fs::canonical(NativePath(p),ec);if(!ec)return actual;std::error_code stat_error;if(!fs::exists(NativePath(p),stat_error)||stat_error)return actual;ec.clear();return fs::path(NativePath(p)).lexically_normal();}
++std::string Canonical(const std::string&p,const std::vector<std::string>&roots){std::error_code ec;auto actual=Physical(p,ec);Need(!ec,Error::MissingMedia,"Media path missing/unreadable");auto normalized=Lexical(PathText(actual));Allowed(normalized,roots);return normalized;}
+ std::string Text(const std::string&p,size_t limit){std::ifstream f(NativePath(p),std::ios::binary);Need(bool(f),Error::MissingMedia,"Cannot read playlist");std::string s;std::array<char,4096>b;while(f){f.read(b.data(),b.size());auto n=f.gcount();Need(s.size()+size_t(n)<=limit,Error::MalformedPlaylist,"Playlist exceeds 64 KiB");s.append(b.data(),size_t(n));}Need(f.eof(),Error::MissingMedia,"Playlist read failed");return s;}
+ std::vector<fs::directory_entry> Entries(const std::string&dir,size_t limit){std::error_code ec;fs::directory_iterator it(NativePath(dir),ec),end;Need(!ec,Error::MissingMedia,"Cannot enumerate media directory");std::vector<fs::directory_entry> v;while(it!=end){Need(v.size()<limit,Error::TooManyMembers,"Media directory entry limit exceeded");v.push_back(*it);it.increment(ec);Need(!ec,Error::MissingMedia,"Media enumeration failed");}std::sort(v.begin(),v.end(),[](const auto&a,const auto&b){return PathText(a.path())<PathText(b.path());});return v;}
+ std::string MountInput(const std::string&path,const std::vector<std::string>&roots,const Options&o){auto p=Canonical(path,roots);std::error_code ec;bool directory=fs::is_directory(NativePath(p),ec);Need(!ec,Error::MissingMedia,"Cannot inspect media");if(directory){std::vector<std::string> matches;for(auto&e:Entries(p,o.max_directory_entries))if(Lower(PathText(e.path().filename()))=="default.xex")matches.push_back(PathText(e.path()));Need(matches.size()==1, matches.empty()?Error::MissingMedia:Error::AmbiguousDisc,"Directory needs one unambiguous default.xex");p=Canonical(matches[0],roots);}
+@@ -128,7 +132,7 @@ std::vector<std::filesystem::path> CandidatesForDisc(
+     auto family_dir=folder_hint.number?Parent(initial_dir):initial_dir;
+     std::vector<std::string> roots={family_dir};
+     // Resolve roots first, so legitimate symlink aliases retain canonical containment.
+-    auto physical=std::filesystem::canonical(NativePath(family_dir),ec);
++    auto physical=Physical(family_dir,ec);  // fix 51: stat when realpath refuses
+     Need(!ec,Error::MissingMedia,"Physical media family is unavailable");
+     family_dir=Lexical(PathText(physical));roots={family_dir};
+     auto launched=MountInput(lexical,roots,options);
+diff --git a/port/multi_disc.cpp b/port/multi_disc.cpp
+--- a/port/multi_disc.cpp
++++ b/port/multi_disc.cpp
+@@ -6,6 +6,8 @@
+ #include "xenia/base/logging.h"
+ #include "xenia/emulator.h"
+ #include "xenia/kernel/kernel_state.h"
++#include "xenia/base/filesystem.h"  // fix 51
++#include "xenia/kernel/xam/xam_module.h"  // fix 51: the restart mounts the disc in the drive
+ #include "xenia/vfs/virtual_file_system.h"
+ #include "xenia/vfs/file.h"
+ #include <mutex>
+@@ -66,6 +68,9 @@ uint32_t SwapMultiDisc(xe::kernel::KernelState* state,uint32_t requested) {
+  current->disc_number=uint8_t(requested);
+  current->media_id=identity.media_id;
+  SetLaunchedGame(accepted_path);
++ // Fix 51: a title switch after the swap (XamLoaderLaunchTitle restarts the process with the
++ // loader data) mounts the disc now in the drive, not the one the game started from.
++ if(auto xam=state->GetKernelModule<xe::kernel::xam::XamModule>("xam.xex")) xam->loader_data().host_path=xe::path_to_utf8(accepted_path);
+  XELOGW("Disc swap: mounted disc {} of {} for title {:08X}: {}",requested,current->disc_count,uint32_t(current->title_id),accepted_path.string());
+  return X_ERROR_SUCCESS;
+ }
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -16,6 +16,7 @@
+ #include "xbox360ps5/app_identity.hpp"  // fix 46
+ #include "xbox360ps5/official_import.hpp"  // fix 46: the first start's copy from PS5X360
+ #include "xbox360ps5/renderer.hpp"
++#include "xbox360ps5/title_switch.hpp"  // fix 51: XamSwapDisc looks beside the launched image
+ namespace xbox360ps5 {
+ void SelectOpenGLDriver(bool opengl);  // radv_dispatch.cpp
+ }
+@@ -2542,6 +2543,11 @@ int main(int argc, char** argv) {
+         window.TakeIcon();
+         // Kept with a later launch request, so the restart finds the game again.
+         xam->loader_data().host_path = xe::path_to_utf8(game);
++        // Fix 51: a game that asks for another disc (XamSwapDisc: Battlefield 3's campaign is
++        // on disc 2) gets it from beside this image; 1.0.2's canary runtime never said which
++        // image it launched, so every swap failed ("InvalidPath: Empty").
++        xbox360ps5::SetLaunchedGame(game);
++        XELOGI("Multi-disc: discs are looked for beside {}", game.string());
+         // Canary reads the emulated console's XConfig, rather than the old
+         // user_language cvar. Set it in big-endian form before guest code runs.
+         xe::be<uint32_t> game_language = uint32_t(settings.GameLanguage());

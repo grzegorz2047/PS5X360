@@ -54,6 +54,7 @@ checks=(
   check-guest-crash.cpp            # fix 45
   check-app-identity.cpp           # fix 46
   check-official-import.cpp        # fix 46
+  check-multidisc-source.cpp       # fix 51
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -70,6 +71,7 @@ declare -A fix_of=(
   [check-readback-slots.cpp]=35 [check-unwatched-policy.cpp]=36 [check-exact-unwatch.cpp]=37
   [check-jit-backports.cpp]=38 [check-net-log-drain.cpp]=39 [check-review-fix30.cpp]="35 36 37"
   [check-app-identity.cpp]=46 [check-official-import.cpp]=46
+  [check-multidisc-source.cpp]=51
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
