@@ -66,17 +66,42 @@ struct Report {
   int frames = 0, tracked = 0;
   Series raw_arm, arm, factor, our_reach, game_reach, ratio, hand_shoulder, hand_shoulder_dz, raw_distance, distance;
   int straight_arms = 0;
+  int plane_jumps = 0;  // a forearm's depth share from past +-kPlaneShare to past the other side
+  uint32_t sides_held = 0;
 };
+// The forearm's depth share (dz / length), 0 when not seen.
+float ForearmShare(const m::Frame& pose, int side) {
+  const auto& e = pose.joints[side ? 9 : 5];
+  const auto& w = pose.joints[side ? 10 : 6];
+  const float l = m::Distance(e, w);
+  return e.confidence >= .5f && w.confidence >= .5f && l > 1e-4f ? (w.z - e.z) / l : 0;
+}
+bool PlaneJump(float before, float now) {
+  return before * now < 0 && std::fabs(before) > m::kPlaneShare && std::fabs(now) > m::kPlaneShare;
+}
 Report Replay(const std::vector<m::MotionRecord>& records) {
   Report r;
   m::BodyScaleState state;
+  float share[2] = {};
+  bool shared = false;
   for (const auto& record : records) {
     ++r.frames;
-    if (!record.pose.tracked) continue;
+    if (!record.pose.tracked) {
+      shared = false;
+      continue;
+    }
     ++r.tracked;
     m::ObserveBody(state, record.pose);
     float factor = 1;
-    const m::Frame body = m::NormalizeBody(state, record.pose, &factor);
+    m::Frame body = m::NormalizeBody(state, record.pose, &factor);
+    m::KeepDepthSides(state, body);  // as NormalizedSnapshot does
+    for (int side = 0; side < 2; ++side) {
+      const float now = ForearmShare(body, side);
+      if (shared && PlaneJump(share[side], now)) ++r.plane_jumps;
+      share[side] = now;
+    }
+    shared = true;
+    r.sides_held = state.sides_held;
     r.factor.Add(factor);
     r.raw_distance.Add(m::kBridgeBodyDistance - record.pose.joints[0].z);
     r.distance.Add(m::kBridgeBodyDistance - body.joints[0].z);
@@ -146,6 +171,68 @@ std::vector<m::MotionRecord> Synthetic() {
   return records;
 }
 
+// 1.0.5_candidate_8: a forearm jumping through the picture plane (KeepDepthSides).
+m::Frame ArmFrame(float forearm_share) {
+  m::Frame p;
+  p.tracked = true;
+  p.session = 5;
+  for (auto& j : p.joints) j = {0, 0, 0, 0.9f};
+  // the right arm: the elbow below the shoulder, the forearm up and forward or back by its share
+  const float dz = 0.26f * forearm_share, dy = 0.26f * std::sqrt(1 - forearm_share * forearm_share);
+  p.joints[8] = {-0.18f, 0.5f, 0, 0.9f};
+  p.joints[9] = {-0.2f, 0.2f, 0, 0.9f};
+  p.joints[10] = {-0.2f, 0.2f + dy, dz, 0.9f};
+  p.joints[11] = {-0.2f, 0.28f + dy, dz * 1.3f, 0.9f};
+  return p;
+}
+void CheckDepthSides() {
+  m::BodyScaleState state;
+  std::vector<float> out;
+  auto step = [&](float share) {
+    m::Frame f = ArmFrame(share);
+    const m::Frame given = f;
+    m::KeepDepthSides(state, f);
+    // x, y and the upper arm stay as given
+    CHECK(f.joints[10].x == given.joints[10].x && f.joints[10].y == given.joints[10].y);
+    CHECK(f.joints[9].z == given.joints[9].z && f.joints[8].z == given.joints[8].z);
+    out.push_back(ForearmShare(f, 1));
+    return f;
+  };
+  for (int n = 0; n < 5; ++n) step(0.6f);
+  // a flicker to the other side for 2 frames: held, nothing of it reaches the title
+  step(-0.6f);
+  step(-0.6f);
+  for (int n = 0; n < 3; ++n) step(0.6f);
+  for (size_t n = 0; n < out.size(); ++n) CHECK(std::fabs(out[n] - 0.6f) < 1e-3f);
+  CHECK(state.sides_held == 1);
+  // a pose that stays on the other side: held 6 frames, then turned over 4, the middle one in the
+  // plane, then as given
+  const size_t from = out.size();
+  m::Frame last;
+  for (int n = 0; n < 15; ++n) last = step(-0.6f);
+  for (size_t n = from; n < from + m::kSignHoldFrames; ++n) CHECK(out[n] > 0.5f);
+  CHECK(out[from + 6] > 0.2f && out[from + 6] < 0.5f);
+  CHECK(std::fabs(out[from + 7]) < 1e-3f);
+  CHECK(out[from + 8] < -0.2f && out[from + 8] > -0.5f);
+  for (size_t n = from + 9; n < out.size(); ++n) CHECK(std::fabs(out[n] + 0.6f) < 1e-3f);
+  CHECK(last.joints[11].z == ArmFrame(-0.6f).joints[11].z);  // the hand as given again
+  CHECK(state.sides_held == 2);
+  // no frame of the output jumped through the plane
+  for (size_t n = 1; n < out.size(); ++n) CHECK(!PlaneJump(out[n - 1], out[n]));
+  // a forearm turning through the plane on its own (small shares on the way) is left alone
+  for (float s : {-0.5f, -0.25f, 0.0f, 0.25f, 0.5f, 0.6f, 0.3f, -0.1f, -0.5f}) {
+    const m::Frame f = step(s);
+    CHECK(std::fabs(ForearmShare(f, 1) - s) < 1e-3f);
+  }
+  CHECK(state.sides_held == 2);
+  // a forearm not seen forgets its side
+  m::Frame unseen = ArmFrame(0.6f);
+  unseen.joints[10].confidence = 0;
+  m::KeepDepthSides(state, unseen);
+  step(-0.6f);
+  CHECK(std::fabs(out.back() + 0.6f) < 1e-3f && state.sides_held == 2);
+}
+
 void CheckSynthetic() {
   const auto records = Synthetic();
   // The file format round trip, and files that do not read.
@@ -168,6 +255,7 @@ void CheckSynthetic() {
   CHECK(r.our_reach.At(.9f) >= 0.4f);
   // The bent arm keeps its hand near the shoulder (within a forearm and a hand).
   CHECK(!r.hand_shoulder.v.empty() && r.hand_shoulder.At(.5f) < 0.3f);
+  CheckDepthSides();
   // The console's ring: the last kRecordFrames, times from the first kept one.
   m::MotionRecorder ring;
   const auto t0 = std::chrono::steady_clock::now();
@@ -258,6 +346,7 @@ int ReportFiles(int argc, char** argv) {
                 r.game_reach.Text().c_str(), r.ratio.Text().c_str());
     std::printf("  hands within 0.35 m of their shoulder: %s m, depth part %s m\n", r.hand_shoulder.Text().c_str(),
                 r.hand_shoulder_dz.Text().c_str());
+    std::printf("  forearm jumps through the picture plane: %d to the title, %u held\n", r.plane_jumps, r.sides_held);
   }
   FitReachReference(all);
   return bad ? 1 : 0;
