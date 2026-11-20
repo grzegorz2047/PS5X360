@@ -76,6 +76,8 @@ on:
       - 'tools/check-suspend-trace.cpp'
       - 'tools/check-deferred-checks.cpp'
       - 'tools/check-pending-resume.cpp'
+      - 'tools/check-page-version.cpp'
+      - 'tools/check-page-version.mjs'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

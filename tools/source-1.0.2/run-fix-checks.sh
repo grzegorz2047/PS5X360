@@ -79,6 +79,7 @@ checks=(
   check-suspend-trace.cpp          # fix 69
   check-deferred-checks.cpp        # fix 70
   check-pending-resume.cpp         # fix 71
+  check-page-version.cpp           # fix 72
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -122,6 +123,7 @@ declare -A fix_of=(
   [check-suspend-trace.cpp]=69
   [check-deferred-checks.cpp]=70
   [check-pending-resume.cpp]=71
+  [check-page-version.cpp]=72
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
@@ -243,6 +245,16 @@ elif node "$repo/tools/check-phone-latency.mjs" "$tree"; then
   echo "pass check-phone-latency.mjs"
 else
   echo "FAIL check-phone-latency.mjs"
+  status=1
+fi
+# Fix 72: the phone page's version and its one reload, with node.
+echo "=== check-page-version.mjs"
+if [[ " $skipped_fixes " == *" 72 "* ]]; then
+  echo "skip check-page-version.mjs (fix 72 left out of this build)"
+elif node "$repo/tools/check-page-version.mjs" "$tree"; then
+  echo "pass check-page-version.mjs"
+else
+  echo "FAIL check-page-version.mjs"
   status=1
 fi
 echo "=== check-gdfx-names.sh"
