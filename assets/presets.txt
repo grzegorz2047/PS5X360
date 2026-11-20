@@ -845,8 +845,13 @@ readback=1
 readback=2
 
 # Tekken Tag Tournament 2 - https://github.com/xenia-canary/game-compatibility/issues/749 (labels: gpu-readback)
+# PS5 (issue #13, 2026-11-20, 1.0.4_candidate_21): with complete readback every draw waited for
+# its pipeline (0-4 FPS for 1.5-2 s at each new fighter or stage) and each of ~1100 resolves a
+# second waited for the GPU (41-43 FPS in fights, the game in slow motion). Fast readback: no
+# stalls (minimum 44 FPS, stand-ins for a moment), 45-50 FPS on candidate 21, smooth on the
+# console, no visible errors. Fix 59 (candidate 22 on) also drops the wait for the previous copy.
 [4E4D0859]
-readback=2
+readback=1
 
 # NASCAR '15 - https://github.com/xenia-canary/game-compatibility/issues/560 (labels: gpu-readback)
 [4F4807D1]
