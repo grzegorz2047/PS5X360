@@ -62,6 +62,7 @@ checks=(
   check-save-folder.cpp            # fix 50
   check-multidisc-source.cpp       # fix 51
   check-library-disc.cpp           # fix 52
+  check-kinect-pairing.cpp         # fix 56
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -69,6 +70,7 @@ declare -A arguments=(
   [check-cover-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-ui-lang-overlay.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-game-info.cpp]="$repo/tools/source-1.0.2/fixtures/gameinfo-excerpt.txt"
+  [check-kinect-pairing.cpp]="$repo/tools/source-1.0.2/fixtures/kinect-index-excerpt.html"
   [check-guest-crash.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-measure-10s.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-library-disc.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -88,6 +90,7 @@ declare -A fix_of=(
   [check-save-folder.cpp]=50
   [check-multidisc-source.cpp]=51
   [check-library-disc.cpp]=52
+  [check-kinect-pairing.cpp]=56
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))

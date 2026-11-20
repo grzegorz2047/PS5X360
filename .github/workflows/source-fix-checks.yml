@@ -58,6 +58,7 @@ on:
       - 'tools/check-global-lock-spin.cpp'
       - 'tools/check-multidisc-source.cpp'
       - 'tools/check-library-disc.cpp'
+      - 'tools/check-kinect-pairing.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
