@@ -223,6 +223,12 @@ Saves and settings were not copied from PS5X360: a folder could not be checked (
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Esta unidade tem as pastas PS5X360/saves e PS5X360Reloaded/saves. É usada a PS5X360Reloaded/saves; a pasta antiga ficou como estava:
 # Fix 52: the library's details line names the disc of a set (the same key in every section).
 Disc %u = Disco %u
+Kinect game = Jogo de Kinect
+\srequires Kinect. Turn on Camera motion for this game? = \sexige o Kinect. Ativar o Camera motion para este jogo?
+A phone paired on the settings page then works as its camera. You can change it later in the game's settings. = Um celular pareado na página de configurações passa a funcionar como a câmera. Você pode mudar isso depois nas configurações do jogo.
+Turn on and play = Ativar e jogar
+Play without it = Jogar sem
+This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again. = Este jogo exige o Kinect. Ative o Camera motion no guia (Configurações, Controles) e inicie o jogo novamente.
 
 [added pt]
 Console storage = Armazenamento da consola
@@ -259,6 +265,12 @@ Saves were not copied from PS5X360: this app already has saves of its own. = Os 
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Os jogos guardados e as definições não foram copiados do PS5X360: não foi possível verificar uma pasta (o registo indica o motivo). O próximo arranque tenta novamente.
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Esta unidade tem as pastas PS5X360/saves e PS5X360Reloaded/saves. É usada a PS5X360Reloaded/saves; a pasta antiga ficou como estava:
 Disc %u = Disco %u
+Kinect game = Jogo Kinect
+\srequires Kinect. Turn on Camera motion for this game? = \srequer o Kinect. Ativar o Camera motion para este jogo?
+A phone paired on the settings page then works as its camera. You can change it later in the game's settings. = Um telemóvel emparelhado na página de definições passa a funcionar como a câmara. Pode alterar isto mais tarde nas definições do jogo.
+Turn on and play = Ativar e jogar
+Play without it = Jogar sem
+This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again. = Este jogo requer o Kinect. Ative o Camera motion no guia (Definições, Comandos) e inicie o jogo novamente.
 
 [added es]
 Console storage = Almacenamiento de la consola
@@ -295,6 +307,12 @@ Saves were not copied from PS5X360: this app already has saves of its own. = Las
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Las partidas guardadas y los ajustes no se han copiado de PS5X360: no se ha podido comprobar una carpeta (el registro indica el motivo). El próximo inicio lo intentará de nuevo.
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Esta unidad tiene las carpetas PS5X360/saves y PS5X360Reloaded/saves. Se usa PS5X360Reloaded/saves; la carpeta antigua se ha dejado como estaba:
 Disc %u = Disco %u
+Kinect game = Juego de Kinect
+\srequires Kinect. Turn on Camera motion for this game? = \srequiere Kinect. ¿Activar Camera motion para este juego?
+A phone paired on the settings page then works as its camera. You can change it later in the game's settings. = Un móvil emparejado en la página de configuración funcionará como su cámara. Puedes cambiarlo más tarde en la configuración del juego.
+Turn on and play = Activar y jugar
+Play without it = Jugar sin él
+This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again. = Este juego requiere Kinect. Activa Camera motion en la guía (Configuración, Controles) y vuelve a iniciar el juego.
 
 [added es-419]
 Console storage = Almacenamiento de la consola
@@ -331,6 +349,12 @@ Saves were not copied from PS5X360: this app already has saves of its own. = Las
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Las partidas guardadas y la configuración no se copiaron de PS5X360: no se pudo comprobar una carpeta (el registro indica el motivo). El próximo inicio lo intentará de nuevo.
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Esta unidad tiene las carpetas PS5X360/saves y PS5X360Reloaded/saves. Se usa PS5X360Reloaded/saves; la carpeta antigua se dejó como estaba:
 Disc %u = Disco %u
+Kinect game = Juego de Kinect
+\srequires Kinect. Turn on Camera motion for this game? = \srequiere Kinect. ¿Activar Camera motion para este juego?
+A phone paired on the settings page then works as its camera. You can change it later in the game's settings. = Un celular vinculado en la página de configuración funcionará como su cámara. Puedes cambiarlo más tarde en la configuración del juego.
+Turn on and play = Activar y jugar
+Play without it = Jugar sin él
+This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again. = Este juego requiere Kinect. Activa Camera motion en la guía (Configuración, Controles) y vuelve a iniciar el juego.
 
 [added de]
 Console storage = Konsolenspeicher
@@ -367,6 +391,12 @@ Saves were not copied from PS5X360: this app already has saves of its own. = Spi
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Spielstände und Einstellungen wurden nicht aus PS5X360 kopiert: Ein Ordner konnte nicht geprüft werden (das Protokoll nennt den Grund). Der nächste Start versucht es erneut.
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Dieses Laufwerk hat PS5X360/saves und PS5X360Reloaded/saves. PS5X360Reloaded/saves wird verwendet; der alte Ordner wurde nicht verändert:
 Disc %u = Disc %u
+Kinect game = Kinect-Spiel
+\srequires Kinect. Turn on Camera motion for this game? = \sbenötigt Kinect. Camera motion für dieses Spiel einschalten?
+A phone paired on the settings page then works as its camera. You can change it later in the game's settings. = Ein auf der Einstellungsseite gekoppeltes Handy dient dann als Kamera. Du kannst das später in den Einstellungen des Spiels ändern.
+Turn on and play = Einschalten und spielen
+Play without it = Ohne spielen
+This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again. = Dieses Spiel benötigt Kinect. Schalte Camera motion im Guide ein (Einstellungen, Steuerung) und starte das Spiel neu.
 
 [added fr]
 Console storage = Stockage de la console
@@ -403,6 +433,12 @@ Saves were not copied from PS5X360: this app already has saves of its own. = Les
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Les sauvegardes et les réglages n'ont pas été copiés depuis PS5X360 : un dossier n'a pas pu être vérifié (le journal indique pourquoi). Le prochain démarrage réessaiera.
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Ce périphérique contient PS5X360/saves et PS5X360Reloaded/saves. PS5X360Reloaded/saves est utilisé ; l'ancien dossier a été laissé tel quel :
 Disc %u = Disque %u
+Kinect game = Jeu Kinect
+\srequires Kinect. Turn on Camera motion for this game? = \snécessite Kinect. Activer Camera motion pour ce jeu ?
+A phone paired on the settings page then works as its camera. You can change it later in the game's settings. = Un téléphone associé sur la page des paramètres sert alors de caméra. Vous pourrez le modifier plus tard dans les paramètres du jeu.
+Turn on and play = Activer et jouer
+Play without it = Jouer sans
+This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again. = Ce jeu nécessite Kinect. Activez Camera motion dans le guide (Paramètres, Commandes), puis relancez le jeu.
 
 [added it]
 Console storage = Memoria della console
@@ -439,6 +475,12 @@ Saves were not copied from PS5X360: this app already has saves of its own. = I s
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Salvataggi e impostazioni non sono stati copiati da PS5X360: non è stato possibile controllare una cartella (il registro indica il motivo). Il prossimo avvio riproverà.
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Questa unità contiene PS5X360/saves e PS5X360Reloaded/saves. Viene usata PS5X360Reloaded/saves; la vecchia cartella è stata lasciata com'era:
 Disc %u = Disco %u
+Kinect game = Gioco Kinect
+\srequires Kinect. Turn on Camera motion for this game? = \srichiede Kinect. Attivare Camera motion per questo gioco?
+A phone paired on the settings page then works as its camera. You can change it later in the game's settings. = Un telefono associato nella pagina delle impostazioni funzionerà come sua fotocamera. Puoi cambiarlo in seguito nelle impostazioni del gioco.
+Turn on and play = Attiva e gioca
+Play without it = Gioca senza
+This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again. = Questo gioco richiede Kinect. Attiva Camera motion nella guida (Impostazioni, Controlli), poi riavvia il gioco.
 
 [added ja]
 Console storage = 本体ストレージ
@@ -475,6 +517,12 @@ Saves were not copied from PS5X360: this app already has saves of its own. = PS5
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = PS5X360 からセーブデータと設定をコピーできませんでした：フォルダーを確認できませんでした（理由はログに記録されています）。次回の起動時に再試行します。
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = このドライブには PS5X360/saves と PS5X360Reloaded/saves の両方があります。PS5X360Reloaded/saves を使用し、古いフォルダーはそのままにしました:
 Disc %u = ディスク %u
+Kinect game = Kinect ゲーム
+\srequires Kinect. Turn on Camera motion for this game? = \sには Kinect が必要です。このゲームで Camera motion をオンにしますか？
+A phone paired on the settings page then works as its camera. You can change it later in the game's settings. = 設定ページでペアリングしたスマートフォンがカメラとして機能します。後でゲームの設定で変更できます。
+Turn on and play = オンにしてプレイ
+Play without it = オフのままプレイ
+This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again. = このゲームには Kinect が必要です。ガイド（設定、コントロール）で Camera motion をオンにしてから、ゲームを再起動してください。
 
 [added ko]
 Console storage = 본체 저장 공간
@@ -511,6 +559,12 @@ Saves were not copied from PS5X360: this app already has saves of its own. = PS5
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = PS5X360에서 저장 데이터와 설정을 복사하지 못했습니다: 폴더를 확인할 수 없었습니다(로그에 이유가 기록됨). 다음 시작 시 다시 시도합니다.
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = 이 드라이브에 PS5X360/saves와 PS5X360Reloaded/saves가 모두 있습니다. PS5X360Reloaded/saves를 사용하며 이전 폴더는 그대로 두었습니다:
 Disc %u = 디스크 %u
+Kinect game = Kinect 게임
+\srequires Kinect. Turn on Camera motion for this game? = \s에는 Kinect가 필요합니다. 이 게임에서 Camera motion을 켜시겠습니까?
+A phone paired on the settings page then works as its camera. You can change it later in the game's settings. = 설정 페이지에서 페어링한 휴대폰이 카메라로 작동합니다. 나중에 게임 설정에서 변경할 수 있습니다.
+Turn on and play = 켜고 플레이
+Play without it = 끈 채로 플레이
+This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again. = 이 게임에는 Kinect가 필요합니다. 가이드(설정, 컨트롤)에서 Camera motion을 켠 다음 게임을 다시 시작하세요.
 
 [added nl]
 Console storage = Consoleopslag
@@ -547,6 +601,12 @@ Saves were not copied from PS5X360: this app already has saves of its own. = Opg
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Opgeslagen spellen en instellingen zijn niet gekopieerd uit PS5X360: een map kon niet worden gecontroleerd (het logboek noemt de reden). De volgende start probeert het opnieuw.
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Dit station heeft zowel PS5X360/saves als PS5X360Reloaded/saves. PS5X360Reloaded/saves wordt gebruikt; de oude map is ongewijzigd gelaten:
 Disc %u = Schijf %u
+Kinect game = Kinect-game
+\srequires Kinect. Turn on Camera motion for this game? = \svereist Kinect. Camera motion voor deze game inschakelen?
+A phone paired on the settings page then works as its camera. You can change it later in the game's settings. = Een telefoon die op de instellingenpagina is gekoppeld, werkt dan als camera. Je kunt dit later wijzigen in de instellingen van de game.
+Turn on and play = Inschakelen en spelen
+Play without it = Spelen zonder
+This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again. = Deze game vereist Kinect. Schakel Camera motion in via de gids (Instellingen, Besturing) en start de game opnieuw.
 
 [added pl]
 Console storage = Pamięć konsoli
@@ -583,6 +643,12 @@ Saves were not copied from PS5X360: this app already has saves of its own. = Zap
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Zapisy i ustawienia nie zostały skopiowane z PS5X360: nie udało się sprawdzić folderu (log podaje powód). Następne uruchomienie spróbuje ponownie.
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Na tym dysku są foldery PS5X360/saves i PS5X360Reloaded/saves. Używany jest PS5X360Reloaded/saves; stary folder pozostawiono bez zmian:
 Disc %u = Płyta %u
+Kinect game = Gra na Kinecta
+\srequires Kinect. Turn on Camera motion for this game? = \swymaga Kinecta. Włączyć Camera motion dla tej gry?
+A phone paired on the settings page then works as its camera. You can change it later in the game's settings. = Telefon sparowany na stronie ustawień będzie wtedy działał jako kamera. Możesz to później zmienić w ustawieniach gry.
+Turn on and play = Włącz i graj
+Play without it = Graj bez tego
+This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again. = Ta gra wymaga Kinecta. Włącz Camera motion w przewodniku (Ustawienia, Sterowanie), a potem uruchom grę ponownie.
 
 [added ru]
 Console storage = Память консоли
@@ -619,6 +685,12 @@ Saves were not copied from PS5X360: this app already has saves of its own. = С�
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Сохранения и настройки не скопированы из PS5X360: не удалось проверить папку (причина указана в журнале). При следующем запуске будет новая попытка.
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = На этом диске есть и PS5X360/saves, и PS5X360Reloaded/saves. Используется PS5X360Reloaded/saves; старая папка оставлена без изменений:
 Disc %u = Диск %u
+Kinect game = Игра для Kinect
+\srequires Kinect. Turn on Camera motion for this game? = \sтребует Kinect. Включить Camera motion для этой игры?
+A phone paired on the settings page then works as its camera. You can change it later in the game's settings. = Телефон, сопряжённый на странице настроек, будет работать как камера. Это можно изменить позже в настройках игры.
+Turn on and play = Включить и играть
+Play without it = Играть без него
+This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again. = Этой игре нужен Kinect. Включите Camera motion в меню (Настройки, Управление) и перезапустите игру.
 
 [added tr]
 Console storage = Konsol depolama alanı
@@ -655,6 +727,12 @@ Saves were not copied from PS5X360: this app already has saves of its own. = Kay
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Kayıtlar ve ayarlar PS5X360'tan kopyalanmadı: bir klasör denetlenemedi (nedeni günlükte yazıyor). Bir sonraki başlatmada yeniden denenecek.
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Bu sürücüde hem PS5X360/saves hem de PS5X360Reloaded/saves var. PS5X360Reloaded/saves kullanılıyor; eski klasör olduğu gibi bırakıldı:
 Disc %u = Disk %u
+Kinect game = Kinect oyunu
+\srequires Kinect. Turn on Camera motion for this game? = \sKinect gerektirir. Bu oyun için Camera motion açılsın mı?
+A phone paired on the settings page then works as its camera. You can change it later in the game's settings. = Ayarlar sayfasında eşleştirilen bir telefon kamera olarak çalışır. Bunu daha sonra oyunun ayarlarından değiştirebilirsiniz.
+Turn on and play = Aç ve oyna
+Play without it = Olmadan oyna
+This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again. = Bu oyun Kinect gerektirir. Rehberde (Ayarlar, Kontroller) Camera motion'ı açın ve oyunu yeniden başlatın.
 
 [added zh-Hans]
 Console storage = 主机存储空间
@@ -691,6 +769,12 @@ Saves were not copied from PS5X360: this app already has saves of its own. = 未
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = 未从 PS5X360 复制存档和设置：无法检查某个文件夹（原因见日志）。下次启动时将重试。
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = 此驱动器上同时有 PS5X360/saves 和 PS5X360Reloaded/saves。将使用 PS5X360Reloaded/saves；旧文件夹保持不变：
 Disc %u = 光盘 %u
+Kinect game = Kinect 游戏
+\srequires Kinect. Turn on Camera motion for this game? = \s需要 Kinect。要为此游戏开启 Camera motion 吗？
+A phone paired on the settings page then works as its camera. You can change it later in the game's settings. = 在设置页面配对的手机将用作摄像头。之后可以在游戏设置中更改。
+Turn on and play = 开启并游玩
+Play without it = 不开启直接游玩
+This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again. = 此游戏需要 Kinect。请在指南（设置、控制）中开启 Camera motion，然后重新启动游戏。
 
 [added zh-Hant]
 Console storage = 主機儲存空間
@@ -727,3 +811,9 @@ Saves were not copied from PS5X360: this app already has saves of its own. = 未
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = 未從 PS5X360 複製存檔和設定：無法檢查某個資料夾（原因見記錄）。下次啟動時將重試。
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = 此磁碟機上同時有 PS5X360/saves 和 PS5X360Reloaded/saves。將使用 PS5X360Reloaded/saves；舊資料夾保持不變：
 Disc %u = 光碟 %u
+Kinect game = Kinect 遊戲
+\srequires Kinect. Turn on Camera motion for this game? = \s需要 Kinect。要為此遊戲開啟 Camera motion 嗎？
+A phone paired on the settings page then works as its camera. You can change it later in the game's settings. = 在設定頁面配對的手機將作為攝影機使用。之後可以在遊戲設定中變更。
+Turn on and play = 開啟並遊玩
+Play without it = 不開啟直接遊玩
+This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again. = 此遊戲需要 Kinect。請在指南（設定、控制）中開啟 Camera motion，然後重新啟動遊戲。
