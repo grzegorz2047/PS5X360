@@ -1,0 +1,32 @@
+diff --git a/include/xbox360ps5/hang_watch.hpp b/include/xbox360ps5/hang_watch.hpp
+--- a/include/xbox360ps5/hang_watch.hpp
++++ b/include/xbox360ps5/hang_watch.hpp
+@@ -391,8 +391,16 @@ struct GuestMemory {
+ };
+ inline GuestMemory guest_memory;
+ inline constexpr uint32_t kBigAllocation = 8u << 20;
++// Fix 76: a raw line for the first kFailureLines failed allocations of a run only, then one that
++// says no more follow; the beat still counts them all. Each raw line is a write and an fsync
++// (milliseconds on the console), and Fable II (4D5307F1) looks for room by asking for a reserve
++// at every 64 KiB from 0x40000000 until one is free: thousands of failures by design, a few
++// milliseconds in 1.0.3 and over a minute with a line each on the 1.0.4 draft.
++inline constexpr uint32_t kFailureLines = 16;
++inline std::atomic<uint32_t> failure_lines{0};
+ inline uint64_t MiB(uint64_t bytes) { return bytes >> 20; }
+-// One allocation; returns the raw line written for it ("" when none: small and successful).
++// One allocation; returns the raw line written for it ("" when none: small and successful, or a
++// failure after the first kFailureLines).
+ inline std::string GuestAllocation(const char* what, bool physical, uint32_t address, uint32_t bytes,
+                                    uint32_t type, bool ok) {
+   if (ok) {
+@@ -400,6 +408,10 @@ inline std::string GuestAllocation(const char* what, bool physical, uint32_t add
+     (physical ? guest_memory.physical_bytes : guest_memory.virtual_bytes).fetch_add(bytes, std::memory_order_relaxed);
+   } else {
+     guest_memory.failures.fetch_add(1, std::memory_order_relaxed);
++    const uint32_t n = failure_lines.fetch_add(1, std::memory_order_relaxed);
++    if (n == kFailureLines)
++      Raw(Format("GUEST failed allocations: %u lines written, the rest only counted in the beat", kFailureLines));
++    if (n >= kFailureLines) return std::string();
+   }
+   if (ok && bytes < kBigAllocation) return std::string();
+   const std::string line = Format(
