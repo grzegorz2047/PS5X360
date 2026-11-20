@@ -69,6 +69,8 @@ on:
       - 'tools/check-nui-image-scan.cpp'
       - 'tools/check-phone-qr-panel.cpp'
       - 'tools/check-native-mutant.cpp'
+      - 'tools/check-phone-latency.cpp'
+      - 'tools/check-phone-latency.mjs'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

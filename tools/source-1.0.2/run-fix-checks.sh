@@ -73,6 +73,7 @@ checks=(
   check-nui-image-scan.cpp         # fix 57
   check-phone-qr-panel.cpp         # fix 63
   check-native-mutant.cpp          # fix 64
+  check-phone-latency.cpp          # fix 66
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -110,6 +111,7 @@ declare -A fix_of=(
   [check-nui-image-scan.cpp]=57
   [check-phone-qr-panel.cpp]=63
   [check-native-mutant.cpp]=64
+  [check-phone-latency.cpp]=66
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
@@ -221,6 +223,16 @@ elif node "$repo/tools/check-kinect-page.mjs" "$tree"; then
   echo "pass check-kinect-page.mjs"
 else
   echo "FAIL check-kinect-page.mjs"
+  status=1
+fi
+# Fix 66: the phone page's delay by stage (latency.mjs in port/phone_camera_page.hpp), with node.
+echo "=== check-phone-latency.mjs"
+if [[ " $skipped_fixes " == *" 66 "* ]]; then
+  echo "skip check-phone-latency.mjs (fix 66 left out of this build)"
+elif node "$repo/tools/check-phone-latency.mjs" "$tree"; then
+  echo "pass check-phone-latency.mjs"
+else
+  echo "FAIL check-phone-latency.mjs"
   status=1
 fi
 echo "=== check-gdfx-names.sh"
