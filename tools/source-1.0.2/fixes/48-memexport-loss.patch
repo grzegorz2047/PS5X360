@@ -320,15 +320,17 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
  #endif
  
  #include <utility>
-@@ -3323,10 +3324,43 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+@@ -3323,10 +3324,48 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
    for (const draw_util::MemExportRange& memexport_range : memexport_ranges_) {
      memexport_total_bytes += memexport_range.size_bytes;
    }
 -  const bool memexport_readback = xbox360ps5::memexport_merge::ShouldReadBack(
--      GetGPUSetting(GPUSetting::ReadbackMemexport), memexport_total_bytes,
--      cvars::readback_memexport_small);
++  const bool memexport_fix30 = xbox360ps5::memexport_merge::ShouldReadBack(
+       GetGPUSetting(GPUSetting::ReadbackMemexport), memexport_total_bytes,
+       cvars::readback_memexport_small);
 +  // Fix 48 (xbox360ps5/memexport_loss.hpp): and the exports into units where
-+  // exported data guest memory lacked was lost to an upload before.
++  // exported data guest memory lacked was lost to an upload before. Decide
++  // gives fix 30's answer first (the option, a small export), then this one.
 +  bool memexport_lossy = false;
 +  for (const draw_util::MemExportRange& memexport_range : memexport_ranges_) {
 +    memexport_lossy = memexport_lossy ||
@@ -341,7 +343,8 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
 +          GetGPUSetting(GPUSetting::ReadbackMemexport), memexport_total_bytes,
 +          cvars::readback_memexport_small, memexport_lossy);
 +  const bool memexport_readback =
-+      memexport_reason != xbox360ps5::memexport_loss::Reason::kNone;
++      memexport_fix30 ||
++      memexport_reason == xbox360ps5::memexport_loss::Reason::kLearned;
 +  if (memexport_total_bytes) {
 +    xbox360ps5::memexport_loss::NoteExport(memexport_total_bytes,
 +                                           memexport_reason,
@@ -367,7 +370,7 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
      // The GPU's copy of the ranges refreshed from guest memory before the
      // draw (see RefreshRanges).
      std::vector<xbox360ps5::memexport_merge::Range> ranges;
-@@ -3521,6 +3555,11 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+@@ -3521,6 +3560,11 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
    for (const draw_util::MemExportRange& memexport_range : memexport_ranges_) {
      shared_memory_->RangeWrittenByGpu(memexport_range.base_address_dwords << 2,
                                        memexport_range.size_bytes);
