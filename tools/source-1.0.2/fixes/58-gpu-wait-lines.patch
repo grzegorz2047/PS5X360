@@ -1,0 +1,147 @@
+diff --git a/include/xbox360ps5/frame_cost.hpp b/include/xbox360ps5/frame_cost.hpp
+--- a/include/xbox360ps5/frame_cost.hpp
++++ b/include/xbox360ps5/frame_cost.hpp
+@@ -65,11 +65,46 @@ class CauseScope {
+   uint32_t previous_;
+ };
+ 
++// Fix 58: where the GPU thread's "other" waits come from. The source line of the call that
++// waited (VulkanCommandProcessor's CheckSubmissionCompletionAndDeviceLoss and
++// AwaitAllQueueOperationsCompletion take their caller's line, __builtin_LINE()); MW2 on
++// 1.0.4_candidate_18 waited 91-141 ms/s for the GPU there with no name. The GPU thread is the
++// only writer; up to kPlaces lines, the rest under line -1.
++inline thread_local int wait_line = 0;
++class LineScope {
++ public:
++  explicit LineScope(int line) : previous_(wait_line) { wait_line = line; }
++  ~LineScope() { wait_line = previous_; }
++  LineScope(const LineScope&) = delete;
++  LineScope& operator=(const LineScope&) = delete;
++
++ private:
++  int previous_;
++};
++inline constexpr size_t kPlaces = 12;
++struct Place {
++  std::atomic<int> line{0};
++  std::atomic<uint64_t> ns{0}, waits{0};
++};
++inline std::array<Place, kPlaces> places;
++inline void AddPlace(int line, uint64_t ns) {
++  Place* slot = nullptr;
++  for (Place& place : places) {
++    const int at = place.line.load(std::memory_order_relaxed);
++    if (at == line) { slot = &place; break; }
++    if (!at) { place.line.store(line, std::memory_order_relaxed); slot = &place; break; }
++  }
++  if (!slot) slot = &places[kPlaces - 1];  // full: the last one holds the rest
++  slot->ns.store(slot->ns.load(std::memory_order_relaxed) + ns, std::memory_order_relaxed);
++  slot->waits.store(slot->waits.load(std::memory_order_relaxed) + 1, std::memory_order_relaxed);
++}
++
+ // A fence wait that took `ns`: the GPU thread's by its cause, other threads' apart.
+ inline void AddFenceWait(uint64_t ns) {
+   if (gpu_thread) {
+     totals.wait_ns[cause].fetch_add(ns, std::memory_order_relaxed);
+     totals.waits[cause].fetch_add(1, std::memory_order_relaxed);
++    if (cause == kOther) AddPlace(wait_line ? wait_line : -2, ns);  // fix 58 (-2: no line)
+   } else {
+     totals.other_wait_ns.fetch_add(ns, std::memory_order_relaxed);
+     totals.other_waits.fetch_add(1, std::memory_order_relaxed);
+@@ -148,6 +183,42 @@ class SectionScope {
+   uint32_t previous_ = kNoSection;
+ };
+ 
++// Fix 58: the "other" waits by the line that waited, largest first, since the last line.
++class PlaceReporter {
++ public:
++  std::string Line(double seconds) {
++    const double s = seconds > 0 ? seconds : 1;
++    struct Row { int line; uint64_t ns, waits; };
++    std::array<Row, kPlaces> rows{};
++    size_t count = 0;
++    for (size_t n = 0; n < kPlaces; ++n) {
++      const int line = places[n].line.load(std::memory_order_relaxed);
++      if (!line) continue;
++      const uint64_t ns = places[n].ns.load(std::memory_order_relaxed), waits = places[n].waits.load(std::memory_order_relaxed);
++      if (ns - last_ns_[n] || waits - last_waits_[n]) rows[count++] = {line, ns - last_ns_[n], waits - last_waits_[n]};
++      last_ns_[n] = ns;
++      last_waits_[n] = waits;
++    }
++    std::sort(rows.begin(), rows.begin() + count, [](const Row& a, const Row& b) { return a.ns > b.ns; });
++    std::string parts;
++    for (size_t n = 0; n < count; ++n) {
++      char item[96];
++      if (rows[n].line > 0)
++        std::snprintf(item, sizeof(item), "%sline %d %.1f ms/s in %.1f/s", parts.empty() ? "" : ", ", rows[n].line,
++                      double(rows[n].ns) / 1e6 / s, double(rows[n].waits) / s);
++      else
++        std::snprintf(item, sizeof(item), "%s%s %.1f ms/s in %.1f/s", parts.empty() ? "" : ", ",
++                      rows[n].line == -2 ? "no line" : "more lines", double(rows[n].ns) / 1e6 / s, double(rows[n].waits) / s);
++      parts += item;
++    }
++    return "Frame time other waits (GPU thread) by the line of vulkan_command_processor.cc that waited: " +
++           (parts.empty() ? std::string("none") : parts);
++  }
++
++ private:
++  std::array<uint64_t, kPlaces> last_ns_{}, last_waits_{};
++};
++
+ // The detail line: each section's exclusive time and count per second, and the executing time
+ // no section covers (the command processor's packets, register writes, constants).
+ class SectionReporter {
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
+@@ -452,7 +452,9 @@ class VulkanCommandProcessor final : public CommandProcessor {
+   // Rechecks submission number and reclaims per-submission resources. Pass 0 as
+   // the submission to await to simply check status, or pass
+   // GetCurrentSubmission() to wait for all queue operations to be completed.
+-  void CheckSubmissionCompletionAndDeviceLoss(uint64_t await_submission);
++  // Fix 58: frame_cost_line is the caller's line, for the frame-time summary's "other" waits.
++  void CheckSubmissionCompletionAndDeviceLoss(uint64_t await_submission,
++                                              int frame_cost_line = __builtin_LINE());
+   // If is_guest_command is true, a new full frame - with full cleanup of
+   // resources and, if needed, starting capturing - is opened if pending (as
+   // opposed to simply resuming after mid-frame synchronization). Returns
+@@ -463,8 +465,8 @@ class VulkanCommandProcessor final : public CommandProcessor {
+   // successfully, if it has failed, leaves it open.
+   bool EndSubmission(bool is_swap);
+   bool CanEndSubmissionImmediately() const;
+-  bool AwaitAllQueueOperationsCompletion() {
+-    CheckSubmissionCompletionAndDeviceLoss(GetCurrentSubmission());
++  bool AwaitAllQueueOperationsCompletion(int frame_cost_line = __builtin_LINE()) {
++    CheckSubmissionCompletionAndDeviceLoss(GetCurrentSubmission(), frame_cost_line);
+     return !submission_open_ &&
+            GetCompletedSubmission() + 1u >= GetCurrentSubmission();
+   }
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+@@ -5223,9 +5223,11 @@ void VulkanCommandProcessor::PollCompletedSubmission() {
+ }
+ 
+ void VulkanCommandProcessor::CheckSubmissionCompletionAndDeviceLoss(
+-    uint64_t await_submission) {
++    uint64_t await_submission, int frame_cost_line) {
+ #if XE_PLATFORM_PS5
+   xbox360ps5::gpu_diag::Scope ps5_stage(xbox360ps5::gpu_diag::Kind::cpu_completion);
++  // Fix 58: a wait below with no cause of its own is counted under the caller's line.
++  xbox360ps5::frame_cost::LineScope frame_cost_line_scope(frame_cost_line);
+ #endif
+   // Only report once, no need to retry a wait that won't succeed anyway.
+   if (device_lost_) {
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -3364,6 +3364,9 @@ int main(int argc, char** argv) {
+                 const uint64_t execute_ns = xbox360ps5::frame_cost::totals.execute_ns.load();
+                 XELOGW("{}", frame_cost_sections.Line(double(summary_samples), execute_ns - frame_cost_execute_ns));
+                 frame_cost_execute_ns = execute_ns;
++                // Fix 58: the waits with no cause, by the line that waited.
++                static xbox360ps5::frame_cost::PlaceReporter frame_cost_places;
++                XELOGW("{}", frame_cost_places.Line(double(summary_samples)));
+               }
+               // Draws made while their shader was still being compiled show
+               // a stand-in: brief gaps in a frame, lasting ones in what a game

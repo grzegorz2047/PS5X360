@@ -60,6 +60,7 @@ on:
       - 'tools/check-library-disc.cpp'
       - 'tools/check-kinect-pairing.cpp'
       - 'tools/check-kinect-page.mjs'
+      - 'tools/check-gpu-wait-lines.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
