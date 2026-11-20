@@ -52,6 +52,7 @@ on:
       - 'tools/check-english-source.py'
       - 'tools/check-multidisc-source.cpp'
       - 'tools/check-library-disc.cpp'
+      - 'tools/check-old-data-probe.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

@@ -56,6 +56,7 @@ checks=(
   check-official-import.cpp        # fix 46
   check-multidisc-source.cpp       # fix 51
   check-library-disc.cpp           # fix 52
+  check-old-data-probe.cpp         # fix 53
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -75,6 +76,7 @@ declare -A fix_of=(
   [check-app-identity.cpp]=46 [check-official-import.cpp]=46
   [check-multidisc-source.cpp]=51
   [check-library-disc.cpp]=52
+  [check-old-data-probe.cpp]=53
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))

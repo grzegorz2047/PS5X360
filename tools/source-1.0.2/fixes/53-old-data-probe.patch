@@ -1,0 +1,138 @@
+diff --git a/include/xbox360ps5/old_data_probe.hpp b/include/xbox360ps5/old_data_probe.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/old_data_probe.hpp
+@@ -0,0 +1,110 @@
++// SPDX-License-Identifier: MIT
++// Fix 53 (tools/source-1.0.2/fixes/53-old-data-probe.patch), a diagnostic: can PS5X360Reloaded
++// see the official PS5X360's /download0? The library cache, recent.txt, settings.txt,
++// game-settings/, patches/, xconfig.settings and framegen.conf live there, not in the data folder
++// fix 46's first-start import copies, so they do not carry over (Minecraft's arcade_full=1 was
++// lost). Over FTP as root the old app's image is /user/download/<official title ID>/download0.dat
++// (UFS2), and while it runs /mnt/sandbox/<official title ID>_000/download0; whether a title in its
++// own sandbox can open either is not known. This looks, once a start, and logs each path: stat
++// (not the link-reading variant, which the sandbox refuses), open read-only, and for an image
++// the UFS2 superblock's magic. Nothing is written, mounted or copied.
++#pragma once
++#include <fcntl.h>
++#include <sys/stat.h>
++#include <unistd.h>
++
++#include <cerrno>
++#include <cstdint>
++#include <cstdio>
++#include <cstring>
++#include <string>
++#include <vector>
++
++namespace xbox360ps5 {
++namespace old_data_probe {
++
++// UFS2: the superblock at 64 KiB, its fs_magic 1372 bytes in (FreeBSD's ffs/fs.h).
++inline constexpr uint64_t kSuperblock = 65536;
++inline constexpr uint64_t kMagicOffset = 1372;
++inline constexpr uint32_t kUfs2Magic = 0x19540119;
++
++struct Result {
++  std::string path;
++  int stat_error = 0;   // errno of stat, 0: found
++  bool directory = false;
++  uint64_t size = 0;
++  int open_error = -1;  // errno of open(O_RDONLY), 0: opened, -1: not tried
++  int read_error = -1;  // errno of the superblock read, 0: read, -1: not tried
++  bool ufs2 = false;
++};
++
++inline Result Look(const std::string& path) {
++  Result result;
++  result.path = path;
++  struct stat info {};
++  if (::stat(path.c_str(), &info) != 0) {
++    result.stat_error = errno ? errno : EIO;
++    return result;
++  }
++  result.directory = S_ISDIR(info.st_mode);
++  result.size = uint64_t(info.st_size);
++  const int fd = ::open(path.c_str(), O_RDONLY | (result.directory ? O_DIRECTORY : 0));
++  if (fd < 0) {
++    result.open_error = errno ? errno : EIO;
++    return result;
++  }
++  result.open_error = 0;
++  if (!result.directory) {
++    uint32_t magic = 0;
++    const ssize_t got = ::pread(fd, &magic, sizeof(magic), off_t(kSuperblock + kMagicOffset));
++    if (got == ssize_t(sizeof(magic))) {
++      result.read_error = 0;
++      result.ufs2 = magic == kUfs2Magic;
++    } else {
++      result.read_error = got < 0 ? (errno ? errno : EIO) : 0;
++    }
++  }
++  ::close(fd);
++  return result;
++}
++
++inline std::string Line(const Result& r) {
++  char text[400];
++  if (r.stat_error) {
++    std::snprintf(text, sizeof(text), "%s: not seen (stat errno %d, %s)", r.path.c_str(), r.stat_error,
++                  std::strerror(r.stat_error));
++  } else if (r.open_error > 0) {
++    std::snprintf(text, sizeof(text), "%s: a %s of %llu bytes, open refused (errno %d, %s)", r.path.c_str(),
++                  r.directory ? "folder" : "file", (unsigned long long)r.size, r.open_error, std::strerror(r.open_error));
++  } else if (r.directory) {
++    std::snprintf(text, sizeof(text), "%s: a folder, opened", r.path.c_str());
++  } else {
++    std::snprintf(text, sizeof(text), "%s: a file of %llu bytes, opened, %s", r.path.c_str(), (unsigned long long)r.size,
++                  r.read_error > 0 ? "its superblock unreadable"
++                  : r.ufs2         ? "a UFS2 image (superblock magic found)"
++                                   : "no UFS2 superblock magic");
++  }
++  return text;
++}
++
++// The paths looked at: the old app's image and folder, its sandbox while it runs, this title's
++// own image (for comparison) and the folders above them.
++inline std::vector<std::string> Paths(const std::string& old_title, const std::string& own_title) {
++  return {"/user/download/" + old_title + "/download0.dat",
++          "/user/download/" + old_title,
++          "/user/download/" + own_title + "/download0.dat",
++          "/user/download",
++          "/mnt/sandbox/" + old_title + "_000/download0/xbox360ps5/settings.txt",
++          "/mnt/sandbox/" + old_title + "_000",
++          "/mnt/sandbox",
++          "/download0/xbox360ps5/settings.txt"};
++}
++
++inline std::vector<std::string> Report(const std::vector<std::string>& paths) {
++  std::vector<std::string> lines;
++  for (const auto& path : paths) lines.push_back(Line(Look(path)));
++  return lines;
++}
++
++}  // namespace old_data_probe
++}  // namespace xbox360ps5
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -15,6 +15,7 @@
+ #include "xbox360ps5/build_version.hpp"
+ #include "xbox360ps5/app_identity.hpp"  // fix 46
+ #include "xbox360ps5/official_import.hpp"  // fix 46: the first start's copy from PS5X360
++#include "xbox360ps5/old_data_probe.hpp"  // fix 53: can the official app's /download0 be read?
+ #include "xbox360ps5/renderer.hpp"
+ #include "xbox360ps5/title_switch.hpp"  // fix 51: XamSwapDisc looks beside the launched image
+ namespace xbox360ps5 {
+@@ -1809,6 +1810,11 @@ int main(int argc, char** argv) {
+     XELOGW("Import from PS5X360: {}", xbox360ps5::official_import::Summary(imported));
+     for (const auto& line : imported.lines) XELOGW("Import from PS5X360: left out {}", line);
+   }
++  // Fix 53: whether the official app's /download0 (library, settings, game settings, patches)
++  // can be seen from here: stat, open read-only, the image's superblock. Nothing is written.
++  for (const auto& line : xbox360ps5::old_data_probe::Report(xbox360ps5::old_data_probe::Paths(
++           xbox360ps5::app_identity::kOfficialTitleId, xbox360ps5::app_identity::kTitleId)))
++    XELOGW("Official app data: {}", line);
+   XELOGW("Graphics renderer requested: {}", xbox360ps5::RendererName(started.renderer));
+   if (!xbox360ps5::RendererAvailable(started.renderer)) {
+     XELOGE("Requested OpenGL game backend is not linked in this executable; launch cancelled");

@@ -41,7 +41,7 @@ ALLOWED = {
     (IDENTITY, '#define XBOX360PS5_OFFICIAL_TITLE_ID "PPSA50011"'):
         'the official PS5X360\'s title ID, named once: its folder is read (import, Kinect key), never written',
 }
-# Lines that may use the official folder (kOfficialDataRoot), each for reading only.
+# Lines that may use the official folder (kOfficialDataRoot) or title ID, each for reading only.
 READERS = {
     ('src/canary_game_main.cpp',
      'const auto imported = xbox360ps5::official_import::Run(xbox360ps5::app_identity::kOfficialDataRoot,'):
@@ -49,6 +49,9 @@ READERS = {
     ('platform/ps5/web_settings.cpp',
      'official_key = web_key::Read(fs::path(app_identity::kOfficialDataRoot) / "web-settings.key");'):
         'the official Kinect tracker\'s key, read (web_key.hpp)',
+    ('src/canary_game_main.cpp',
+     'xbox360ps5::app_identity::kOfficialTitleId, xbox360ps5::app_identity::kTitleId)))'):
+        'fix 53: whether the official app\'s /download0 can be seen (stat, open read-only, old_data_probe.hpp)',
 }
 MACROS = ('XBOX360PS5_PRODUCT_NAME', 'XBOX360PS5_TITLE_ID', 'XBOX360PS5_DATA_ROOT', 'XBOX360PS5_OFFICIAL_TITLE_ID')
 PRODUCT = 'PS5X360Reloaded'
