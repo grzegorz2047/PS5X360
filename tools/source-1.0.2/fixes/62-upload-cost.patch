@@ -1,0 +1,155 @@
+diff --git a/include/xbox360ps5/frame_cost.hpp b/include/xbox360ps5/frame_cost.hpp
+--- a/include/xbox360ps5/frame_cost.hpp
++++ b/include/xbox360ps5/frame_cost.hpp
+@@ -229,6 +229,85 @@ class PlaceReporter {
+   uint64_t last_late_ = 0;
+ };
+ 
++// Fix 62: what an upload's time goes to. 1.0.4_candidate_22: Modern Warfare 2's GPU command
++// thread spent 248 ms/s in uploads (SharedMemory::UploadRanges), 9k a second at 27 us each,
++// as much as twelve draws: the ordering barrier before them (Use and SubmitBarriers), the
++// upload buffer (RequestPartial), marking the pages valid (MakeRangeValid, under the global
++// lock), and the copy into the buffer. Counted on the GPU thread only, in TSC ticks like the
++// sections; the bytes copied give the copy rate.
++enum UploadPart : uint32_t { kUploadBarrier = 0, kUploadBuffer, kUploadValid, kUploadCopy, kUploadParts };
++inline std::array<std::atomic<uint64_t>, kUploadParts> upload_part_ticks{};
++inline std::atomic<uint64_t> upload_calls{0}, upload_pieces{0}, upload_bytes{0};
++class UploadTimer {
++ public:
++  UploadTimer() : active_(gpu_thread), since_(active_ ? Ticks() : 0) {
++    if (active_) upload_calls.fetch_add(1, std::memory_order_relaxed);
++  }
++  // The time since the previous mark (or the start) was this part.
++  void Mark(uint32_t part) {
++    if (!active_) return;
++    const uint64_t now = Ticks();
++    upload_part_ticks[part].fetch_add(now - since_, std::memory_order_relaxed);
++    since_ = now;
++  }
++  // The time since the previous mark is none of the parts.
++  void Skip() {
++    if (active_) since_ = Ticks();
++  }
++  void Copied(uint64_t bytes) {
++    if (!active_) return;
++    upload_pieces.fetch_add(1, std::memory_order_relaxed);
++    upload_bytes.fetch_add(bytes, std::memory_order_relaxed);
++  }
++
++ private:
++  bool active_;
++  uint64_t since_;
++};
++// "Frame time uploads (GPU thread): ..." since its previous line.
++class UploadReporter {
++ public:
++  std::string Line(double seconds) {
++    const uint64_t ticks_now = Ticks(), ns_now = NowNs();
++    double ns_per_tick = last_ns_per_tick_ > 0 ? last_ns_per_tick_ : 1.0;
++    if (last_ticks_ && ticks_now > last_ticks_ && ns_now > last_ns_)
++      ns_per_tick = double(ns_now - last_ns_) / double(ticks_now - last_ticks_);
++    last_ns_per_tick_ = ns_per_tick;
++    last_ticks_ = ticks_now;
++    last_ns_ = ns_now;
++    const double s = seconds > 0 ? seconds : 1;
++    std::array<double, kUploadParts> ms{};
++    for (uint32_t n = 0; n < kUploadParts; ++n) {
++      const uint64_t ticks = upload_part_ticks[n].load(std::memory_order_relaxed);
++      ms[n] = double(ticks - last_parts_[n]) * ns_per_tick / 1e6 / s;
++      last_parts_[n] = ticks;
++    }
++    const uint64_t calls = upload_calls.load(std::memory_order_relaxed);
++    const uint64_t pieces = upload_pieces.load(std::memory_order_relaxed);
++    const uint64_t bytes = upload_bytes.load(std::memory_order_relaxed);
++    const double calls_s = double(calls - last_calls_) / s, pieces_s = double(pieces - last_pieces_) / s;
++    const double bytes_s = double(bytes - last_bytes_) / s;
++    last_calls_ = calls;
++    last_pieces_ = pieces;
++    last_bytes_ = bytes;
++    char text[400];
++    std::snprintf(text, sizeof(text),
++                  "Frame time uploads (GPU thread): %.0f/s, %.0f pieces/s of %.1f KiB on average, %.1f MB/s; "
++                  "barriers %.1f ms/s, upload buffers %.1f ms/s, marking valid %.1f ms/s, copying %.1f ms/s "
++                  "(%.2f GB/s while copying)",
++                  calls_s, pieces_s, pieces_s > 0 ? bytes_s / pieces_s / 1024.0 : 0.0, bytes_s / 1e6,
++                  ms[kUploadBarrier], ms[kUploadBuffer], ms[kUploadValid], ms[kUploadCopy],
++                  ms[kUploadCopy] > 0 ? bytes_s / (ms[kUploadCopy] * 1e6) : 0.0);
++    return text;
++  }
++
++ private:
++  std::array<uint64_t, kUploadParts> last_parts_{};
++  uint64_t last_calls_ = 0, last_pieces_ = 0, last_bytes_ = 0;
++  uint64_t last_ticks_ = 0, last_ns_ = 0;
++  double last_ns_per_tick_ = 0;
++};
++
+ // The detail line: each section's exclusive time and count per second, and the executing time
+ // no section covers (the command processor's packets, register writes, constants).
+ class SectionReporter {
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_shared_memory.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_shared_memory.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_shared_memory.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_shared_memory.cc
+@@ -428,6 +428,13 @@ bool VulkanSharedMemory::UploadRanges(
+ #if XE_PLATFORM_PS5
+   xbox360ps5::frame_cost::SectionScope frame_cost_section(  // fix 49, candidate 6
+       xbox360ps5::frame_cost::kUpload);
++  xbox360ps5::frame_cost::UploadTimer upload_timer;  // fix 62: where an upload's time goes
++#else
++  struct {
++    void Mark(uint32_t) {}
++    void Skip() {}
++    void Copied(uint64_t) {}
++  } upload_timer;
+ #endif
+ 
+   auto& range_front = upload_page_ranges[0];
+@@ -440,6 +447,7 @@ bool VulkanSharedMemory::UploadRanges(
+                      (range_back.first + range_back.second - range_front.first)
+                          << page_size_log2()));
+   command_processor_.SubmitBarriers(true);
++  upload_timer.Mark(xbox360ps5::frame_cost::kUploadBarrier);  // fix 62
+   DeferredCommandBuffer& command_buffer =
+       command_processor_.deferred_command_buffer();
+   uint64_t submission_current = command_processor_.GetCurrentSubmission();
+@@ -512,6 +520,7 @@ bool VulkanSharedMemory::UploadRanges(
+     while (upload_range_length) {
+       VkBuffer upload_buffer;
+       VkDeviceSize upload_buffer_offset, upload_buffer_size;
++      upload_timer.Skip();  // fix 62
+       uint8_t* upload_buffer_mapping = upload_buffer_pool_->RequestPartial(
+           submission_current, upload_range_length << page_size_log2(),
+           size_t(1) << page_size_log2(), upload_buffer, upload_buffer_offset,
+@@ -521,8 +530,10 @@ bool VulkanSharedMemory::UploadRanges(
+         successful = false;
+         break;
+       }
++      upload_timer.Mark(xbox360ps5::frame_cost::kUploadBuffer);  // fix 62
+       MakeRangeValid(upload_range_start << page_size_log2(),
+                      uint32_t(upload_buffer_size), false);
++      upload_timer.Mark(xbox360ps5::frame_cost::kUploadValid);  // fix 62
+ 
+       if (upload_buffer_size < (1ULL << 32) && upload_buffer_size > 8192) {
+         memory::vastcpy(
+@@ -536,6 +547,8 @@ bool VulkanSharedMemory::UploadRanges(
+             memory().TranslatePhysical(upload_range_start << page_size_log2()),
+             upload_buffer_size);
+       }
++      upload_timer.Mark(xbox360ps5::frame_cost::kUploadCopy);  // fix 62
++      upload_timer.Copied(upload_buffer_size);
+       if (upload_buffer_previous != upload_buffer && !upload_regions_.empty()) {
+         assert_true(upload_buffer_previous != VK_NULL_HANDLE);
+         command_buffer.CmdVkCopyBuffer(upload_buffer_previous, buffer_,
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -3371,6 +3371,9 @@ int main(int argc, char** argv) {
+                 // Fix 58: the waits with no cause, by the line that waited.
+                 static xbox360ps5::frame_cost::PlaceReporter frame_cost_places;
+                 XELOGW("{}", frame_cost_places.Line(double(summary_samples)));
++                // Fix 62: what the uploads' time goes to.
++                static xbox360ps5::frame_cost::UploadReporter frame_cost_uploads;
++                XELOGW("{}", frame_cost_uploads.Line(double(summary_samples)));
+               }
+               // Draws made while their shader was still being compiled show
+               // a stand-in: brief gaps in a frame, lasting ones in what a game

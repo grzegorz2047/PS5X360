@@ -64,6 +64,7 @@ on:
       - 'tools/check-fast-readback.cpp'
       - 'tools/check-library-folders.cpp'
       - 'tools/check-fault-stack.cpp'
+      - 'tools/check-upload-cost.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
