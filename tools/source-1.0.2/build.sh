@@ -39,7 +39,15 @@ ninja -C "$build/net-libs" -j"$jobs" wolfssl libcurl_static cacert libminiupnpc-
 log 'Configure core and title'
 cmake -S "$tree/canary" -B "$build/canary" -G Ninja -DCMAKE_BUILD_TYPE=Release "${launcher[@]}" \
   -DCMAKE_TOOLCHAIN_FILE="$sdk/toolchain/prospero.cmake"
-commit=$(git -C "$tree/.deps/xenia-canary" rev-parse HEAD)
+# core commit (begin): git in an assembled tree; the GPL source tarball has no .git, so the
+# commit SOURCES.json records as core.base (the same HEAD, the fixes are not committed).
+if [[ -e "$tree/.deps/xenia-canary/.git" ]]; then
+  commit=$(git -C "$tree/.deps/xenia-canary" rev-parse HEAD)
+else
+  commit=$(python3 -I "$repo/tools/source-1.0.2/core_commit.py" "$tree/SOURCES.json")
+fi
+[[ $commit =~ ^[0-9a-f]{40}$ ]] || { echo "build.sh: core commit '$commit' is not 40-hex" >&2; exit 1; }
+# core commit (end)
 cat > "$build/canary/version.h" <<EOF
 #ifndef GENERATED_VERSION_H_
 #define GENERATED_VERSION_H_
