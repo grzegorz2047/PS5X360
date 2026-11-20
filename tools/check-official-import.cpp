@@ -21,8 +21,13 @@
 //     is still an overlap; a stat that fails with another error than "not found" (the official
 //     folder, its saves, the title's saves, the marker), or a folder stat calls missing that can be
 //     listed, gives no copy and no marker, the error and errno in the summary ("marker not
-//     written: ..."), and the next start imports; a marker that cannot be made says why;
-//   * the summary (Summary) and the launcher's notice (NoticeFor) of each outcome.
+//     written: ..."), and the next start imports; a marker that cannot be made says why; with
+//     neither lstat nor the listing telling links, links to folders (out of the official folder,
+//     or looping back above) are not gone into (stat's ".."), and an interrupted start's staging
+//     folder holding links is removed without following them; lstat calling an existing folder
+//     missing is named in the summary;
+//   * the summary (Summary) and the launcher's notice (NoticeFor) of each outcome;
+//   * the header itself: no realpath, lstat only in RealProbe, no std::filesystem recursive removal.
 // Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh).
 #undef NDEBUG
 #include "../include/xbox360ps5/official_import.hpp"
@@ -456,8 +461,25 @@ oi::Probe StatFails(const fs::path& bad, std::errc why) {
   };
   return probe;
 }
-
-void WithoutLstat(const fs::path& root, bool unreadable) {
+// As NoLstat, and the listing does not say which entries are links (d_type DT_UNKNOWN: libc++
+// then asks lstat, which fails).
+oi::Probe NoLstatNoListedTypes() {
+  oi::Probe probe = NoLstat();
+  probe.listed_link = [](const fs::directory_entry&, std::error_code& error) {
+    error = std::make_error_code(std::errc::function_not_supported);
+    return false;
+  };
+  return probe;
+}
+// lstat answers "not found" for what exists (one way candidate 53's "no official folder" reads).
+oi::Probe LstatNotFound() {
+  oi::Probe probe = NoLstat();
+  probe.link_status = [](const fs::path&, std::error_code& error) {
+    error = std::make_error_code(std::errc::no_such_file_or_directory);
+    return fs::file_status(fs::file_type::not_found);
+  };
+  return probe;
+}
   const fs::path official = root / "official", own = root / "console";
   const auto before = Snapshot(official);
   const auto facts = oi::Gather(official, own, Room(kBig), NoLstat());
@@ -553,6 +575,61 @@ void CannotCheck(const fs::path& root) {
               "in the summary; the next start imports\n");
 }
 
+// Neither lstat nor the listing tells links: links to folders (one out of the official folder,
+// one looping back above) are not gone into, found by stat's "..", and an interrupted start's
+// staging folder holding links is removed without following them.
+void WithoutListedTypes(const fs::path& root, bool unreadable) {
+  const fs::path official = root / "official";
+  const fs::path loop = official / "saves/E000ABCDEF012345/loop", up = official / "skin/up";
+  fs::create_directory_symlink(official / "saves", loop);
+  fs::create_directory_symlink(official, up);
+  const auto before = Snapshot(official);
+  const auto probe = NoLstatNoListedTypes();
+  const auto facts = oi::Gather(official, root / "no-types", Room(kBig), probe);
+  assert(facts.source && facts.source_saves && facts.error.empty());
+  assert(facts.saves_bytes == 4096 + 7 + 10000 + (unreadable ? 6 : 0));  // escape and loop not counted
+  const fs::path own = root / "no-types";
+  // An interrupted start's staging folder, with links into the official folder in it.
+  Write(own / oi::kStaging / "E000ABCDEF012345/half", "half");
+  fs::create_directory_symlink(official / "saves", own / oi::kStaging / "E000ABCDEF012345/into");
+  fs::create_symlink(official / "network.conf", own / oi::kStaging / "conf");
+  const auto result = oi::Run(official, own, Room(kBig), probe);
+  assert(result.plan.decision == Decision::kImport && result.saves_copied && result.error.empty());
+  assert(Snapshot(official) == before);
+  assert(Read(own / kSave) == std::string(4096, 's') && !Exists(own / oi::kStaging));
+  assert(!Exists(own / "saves/E000ABCDEF012345/half") && !Exists(own / "saves/E000ABCDEF012345/into"));
+  assert(!Exists(own / "saves/E000ABCDEF012345/escape") && !Exists(own / "saves/E000ABCDEF012345/loop"));
+  assert(!Exists(own / "skin/up") && Read(own / "skin/sub/tile.png") == "tile");
+  // A link to a file neither could show is read like a file: a file of the title's own.
+  assert(fs::symlink_status(own / "skin/link.png").type() == fs::file_type::regular);
+  assert(Read(own / "skin/link.png") == Read(official / "network.conf"));
+  // Files: 3 saves, network.conf, vibration.conf, ui-dark.on, 3 skin, game art, dash.xex, the icon.
+  assert(result.files == 12 && result.skipped == 3u + (unreadable ? 1u : 0u));  // escape, loop, up
+  assert(result.marker_written);
+  fs::remove(loop);
+  fs::remove(up);
+  // lstat calling an existing folder missing: stat finds it, and the summary names lstat.
+  const fs::path other = root / "lstat-not-found";
+  const auto found = oi::Run(official, other, Room(kBig), LstatNotFound());
+  assert(found.plan.decision == Decision::kImport && found.saves_copied && found.marker_written);
+  assert(Has(oi::Summary(found), "lstat did not answer for " + official.string() + " (No such file or directory"));
+  std::printf("  without lstat and the listing's types: links to folders not gone into (stat's \"..\"), a "
+              "staging folder with links removed without following them; lstat's \"not found\" named\n");
+}
+
+// The header itself: nothing decided by realpath, lstat asked in one place, no recursive removal
+// of the standard library (never used on the console). Run from the tree's root.
+void Source() {
+  const std::string text = Read("include/xbox360ps5/official_import.hpp");
+  assert(!text.empty());
+  size_t count = 0;
+  for (size_t at = text.find("symlink_status("); at != std::string::npos; at = text.find("symlink_status(", at + 1))
+    ++count;
+  assert(count == 1);
+  assert(!Has(text, "canonical(") && !Has(text, "realpath(") && !Has(text, "remove_all("));
+  std::printf("  the header: no realpath, lstat in RealProbe only, no recursive removal\n");
+}
+
 void MarkerRefused(const fs::path& root) {
   if (geteuid() == 0) {
     std::printf("  a marker that cannot be made: not checked as root\n");
@@ -582,7 +659,9 @@ int main() {
   Unsafe(root);
   WithoutLstat(root, geteuid() != 0);
   CannotCheck(root);
+  WithoutListedTypes(root, geteuid() != 0);
   MarkerRefused(root);
+  Source();
   {
     uint64_t free = 0;
     assert(oi::RealFreeSpace(root, &free) && free > 0);

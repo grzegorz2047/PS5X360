@@ -163,10 +163,10 @@ index 5c091ab..a17468a 100644
  //
 diff --git a/include/xbox360ps5/official_import.hpp b/include/xbox360ps5/official_import.hpp
 new file mode 100644
-index 0000000..0533e0c
+index 0000000..b8b6f3a
 --- /dev/null
 +++ b/include/xbox360ps5/official_import.hpp
-@@ -0,0 +1,763 @@
+@@ -0,0 +1,827 @@
 +// SPDX-License-Identifier: MIT
 +// Fix 46 (tools/source-1.0.2/fixes/46-ps5x360reloaded-identity.patch): the first start of
 +// PS5X360Reloaded copies the official PS5X360's saves and small settings files from its folder
@@ -204,8 +204,16 @@ index 0000000..0533e0c
 +// statvfs, directory_iterator; ::open to probe a drive). So here:
 +//   * a path's type comes from stat (std::filesystem::status); lstat is asked too, and when it
 +//     answers a link is a link (never followed); when it fails only stat counts (Look);
-+//   * an entry of a listing takes its type from the listing (d_type), stat only when the listing
-+//     does not say (LookEntry); a link the listing names is left out;
++//   * whether an entry of a listing is a link comes from the listing (directory_entry::is_symlink,
++//     which libc++ answers from the listing's d_type without lstat; its symlink_status member
++//     would ask lstat), its type then from Look (LookEntry); a link the listing names is left out;
++//   * a folder of the official side is gone into only when stat finds its ".." to be the folder
++//     it was listed in (InPlace): a link to a folder elsewhere, or to a folder above it (a loop),
++//     that neither lstat nor the listing could show is left out; a link to a file that neither
++//     could show is read like a file (reading changes nothing);
++//   * an interrupted start's staging folder is removed with listings, unlink and rmdir
++//     (RemoveTree), never through a link, not with the standard library's recursive removal (its
++//     lstat or openat were never used on the console);
 +//   * the write gate compares the paths lexically (both are absolute) and, with stat alone, that
 +//     each existing folder on the way has the one above it as its ".." (Copier::Contained), so a
 +//     link in the title's folder that leads elsewhere is not written through; the folders overlap
@@ -258,11 +266,14 @@ index 0000000..0533e0c
 +  std::function<fs::file_status(const fs::path&, std::error_code&)> status;
 +  // Does not follow links (lstat): asked only to see a link as a link; its failure is ignored.
 +  std::function<fs::file_status(const fs::path&, std::error_code&)> link_status;
++  // Whether a listed entry is a link, as the listing says (an error: the listing does not say).
++  std::function<bool(const fs::directory_entry&, std::error_code&)> listed_link;
 +};
 +inline Probe RealProbe() {
 +  Probe probe;
 +  probe.status = [](const fs::path& path, std::error_code& error) { return fs::status(path, error); };
 +  probe.link_status = [](const fs::path& path, std::error_code& error) { return fs::symlink_status(path, error); };
++  probe.listed_link = [](const fs::directory_entry& entry, std::error_code& error) { return entry.is_symlink(error); };
 +  return probe;
 +}
 +
@@ -396,7 +407,6 @@ index 0000000..0533e0c
 +    kind.type = fs::file_type::symlink;
 +    return kind;
 +  }
-+  if (link_error && !NotFound(link_error)) kind.link_error = Reason(link_error);
 +  std::error_code error;
 +  const fs::file_status status = probe.status(path, error);
 +  if (status.type() == fs::file_type::not_found || (error && NotFound(error))) {
@@ -406,18 +416,26 @@ index 0000000..0533e0c
 +  } else {
 +    kind.type = status.type();
 +  }
++  // lstat's failure is named: any error but "not found", and "not found" too when stat finds it.
++  if (link_error && (!NotFound(link_error) || kind.Present())) kind.link_error = Reason(link_error);
 +  return kind;
 +}
-+// An entry of a listing: its type from the listing when the listing gives one, else Look.
++// An entry of a listing: a link when the listing says so, else Look (stat).
 +inline Kind LookEntry(const Probe& probe, const fs::directory_entry& entry) {
 +  std::error_code error;
-+  const fs::file_type type = entry.symlink_status(error).type();
-+  if (!error && type != fs::file_type::none && type != fs::file_type::not_found) {
++  if (probe.listed_link(entry, error) && !error) {
 +    Kind kind;
-+    kind.type = type;
++    kind.type = fs::file_type::symlink;
 +    return kind;
 +  }
 +  return Look(probe, entry.path());
++}
++// Whether stat finds the ".." of the folder `path` to be `parent`, the folder it is named in. Not
++// so for a link to a folder elsewhere (or above); a mount point's ".." is the folder it is
++// mounted in. False when stat cannot tell.
++inline bool InPlace(const fs::path& path, const fs::path& parent) {
++  std::error_code error;
++  return fs::equivalent(path / "..", parent, error) && !error;
 +}
 +// Whether `inner` is `outer` or inside it, by path components (both made absolute and normal).
 +inline bool Within(const fs::path& inner, const fs::path& outer) {
@@ -585,6 +603,8 @@ index 0000000..0533e0c
 +      const Kind kind = LookEntry(probe_, *it);
 +      if (kind.Failed()) {
 +        LeaveOut(entry, kind.error);
++      } else if (kind.Folder() && !InPlace(entry, from)) {
++        LeaveOut(entry, "a link (not followed): its \"..\" is not the folder it is listed in");
 +      } else if (kind.Folder()) {
 +        std::string why;
 +        if (!MakeFolder(dest, &why)) {
@@ -655,7 +675,7 @@ index 0000000..0533e0c
 +  for (; !error && it != end; it.increment(error)) {
 +    const Kind kind = LookEntry(probe, *it);
 +    if (kind.Folder()) {
-+      total += Bytes(probe, it->path(), depth + 1);
++      if (InPlace(it->path(), folder)) total += Bytes(probe, it->path(), depth + 1);
 +    } else if (kind.File()) {
 +      std::error_code size_error;
 +      const uint64_t size = fs::file_size(it->path(), size_error);
@@ -674,7 +694,7 @@ index 0000000..0533e0c
 +    const Kind kind = LookEntry(probe, *it);
 +    const fs::path dest = to / it->path().filename();
 +    if (kind.Folder()) {
-+      total += MissingBytes(probe, it->path(), dest, depth + 1);
++      if (InPlace(it->path(), from)) total += MissingBytes(probe, it->path(), dest, depth + 1);
 +    } else if (kind.File() && Look(probe, dest).Absent()) {
 +      std::error_code size_error;
 +      const uint64_t size = fs::file_size(it->path(), size_error);
@@ -682,6 +702,40 @@ index 0000000..0533e0c
 +    }
 +  }
 +  return total;
++}
++
++// Removes `path` (a file, a link or a folder this code made: the staging folder) with listings,
++// stat, unlink and rmdir. A link is removed itself, never followed; a folder is gone into only in
++// place. False, with why, at the first entry that could not be removed.
++inline bool RemoveTree(const Probe& probe, const fs::path& path, std::string* why, int depth = 0) {
++  const Kind kind = Look(probe, path);
++  if (kind.Absent()) return true;
++  if (!kind.Folder()) {
++    if (::unlink(path.c_str()) == 0) return true;
++    *why = path.string() + ": " + Errno(errno);
++    return false;
++  }
++  if (depth > kMaxDepth) {
++    *why = path.string() + ": too deep";
++    return false;
++  }
++  std::error_code error;
++  for (fs::directory_iterator it(path, error), end; !error && it != end; it.increment(error)) {
++    const Kind entry = LookEntry(probe, *it);
++    if (entry.Folder() && InPlace(it->path(), path)) {
++      if (!RemoveTree(probe, it->path(), why, depth + 1)) return false;
++    } else if (::unlink(it->path().c_str()) != 0) {
++      *why = it->path().string() + ": " + Errno(errno);
++      return false;
++    }
++  }
++  if (error) {
++    *why = path.string() + ": not listed: " + Reason(error);
++    return false;
++  }
++  if (::rmdir(path.c_str()) == 0) return true;
++  *why = path.string() + ": " + Errno(errno);
++  return false;
 +}
 +
 +// "1.5 MiB" and the like.
@@ -798,7 +852,8 @@ index 0000000..0533e0c
 +  facts.source_saves = facts.source && look(source / kSaves).Folder();
 +  facts.target_saves = look(target / kSaves).Present();
 +  if (facts.source && !facts.marker && !facts.unsafe && facts.error.empty()) {
-+    if (facts.source_saves && !facts.target_saves) facts.saves_bytes = detail::Bytes(probe, source / kSaves);
++    if (facts.source_saves && !facts.target_saves && detail::InPlace(source / kSaves, source))
++      facts.saves_bytes = detail::Bytes(probe, source / kSaves);
 +    for (const char* name : kFiles) {
 +      std::error_code error;
 +      if (detail::Look(probe, source / name).File() && detail::Look(probe, target / name).Absent()) {
@@ -807,7 +862,7 @@ index 0000000..0533e0c
 +      }
 +    }
 +    for (const char* name : kFolders)
-+      if (detail::Look(probe, source / name).Folder())
++      if (detail::Look(probe, source / name).Folder() && detail::InPlace(source / name, (source / name).parent_path()))
 +        facts.small_bytes += detail::MissingBytes(probe, source / name, target / name);
 +    facts.space_known = free_space && free_space(target, &facts.free);
 +  }
@@ -844,12 +899,18 @@ index 0000000..0533e0c
 +  if (result.plan.copy_saves) {
 +    const fs::path staging = target / kStaging, saves = target / kSaves;
 +    std::error_code error;
-+    if (copier.MayWrite(staging)) fs::remove_all(staging, error);  // an interrupted start's
-+    std::string why;
++    std::string why, removed;
++    // An interrupted start's staging folder (only then: nothing is removed when there is none).
++    if (!detail::Look(probe, staging).Absent()) {
++      if (!copier.MayWrite(staging)) removed = "it is not a folder of the title's";
++      else detail::RemoveTree(probe, staging, &removed);
++    }
 +    const detail::Kind left = detail::Look(probe, staging);
-+    if (!left.Absent()) {
++    if (!detail::InPlace(source / kSaves, source)) {
++      result.error = "PS5X360's saves folder is a link (not followed) or its \"..\" could not be checked";
++    } else if (!left.Absent()) {
 +      result.error = "the staging folder of an earlier start could not be removed: " +
-+                     (error ? detail::Reason(error) : left.Failed() ? left.error : std::string("it is still there"));
++                     (!removed.empty() ? removed : left.Failed() ? left.error : std::string("it is still there"));
 +    } else if (!copier.MakeFolder(staging, &why)) {
 +      result.error = "the staging folder could not be made: " + why;
 +    } else {
@@ -865,7 +926,8 @@ index 0000000..0533e0c
 +        if (error) result.error = "the copy was not put in place: " + detail::Reason(error);
 +        else result.saves_copied = true;
 +      }
-+      if (!result.saves_copied) fs::remove_all(staging, error);
++      std::string ignored;
++      if (!result.saves_copied) detail::RemoveTree(probe, staging, &ignored);
 +    }
 +  }
 +  if (result.plan.copy_small) {
@@ -893,6 +955,8 @@ index 0000000..0533e0c
 +        copier.LeaveOut(from, kind.error);
 +      } else if (!kind.Folder()) {
 +        copier.LeaveOut(from, kind.type == fs::file_type::symlink ? "a link (not followed)" : "not a folder");
++      } else if (!detail::InPlace(from, from.parent_path())) {
++        copier.LeaveOut(from, "a link (not followed): its \"..\" is not the folder above it");
 +      } else if (copier.MakeFolder(target / name, &why)) {
 +        copier.Tree(from, target / name, true);
 +      } else {
