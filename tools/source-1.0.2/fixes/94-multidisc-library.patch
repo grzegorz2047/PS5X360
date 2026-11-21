@@ -488,14 +488,14 @@ diff --git a/src/launcher.cpp b/src/launcher.cpp
          if (key == Key::circle || key == Key::triangle) close();
          break;
        }
-@@ -2412,6 +2538,7 @@ void DrawNxeProfile(const Launcher::Canvas& c, const std::string& name, const st
- }  // namespace
- 
- void Launcher::Draw(ImGuiIO& io) {
+@@ -2420,6 +2546,7 @@ void Launcher::Draw(ImGuiIO& io) {
+   intro_ = std::min(1.0f, intro_ + dt / 0.60f);
+   // Downloaded covers show up as soon as the download ends.
+   if (covers_.TakeFinished() && loading_.empty()) Scan();
 +  if (SyncRunningDisc(games_)) SelectionChanged();  // fix 94
-   ApplyTheme(NxeUi());
-   // The search keyboard and the confirmation take the pad: Circle closes them, not the library.
-   shelf_focused = mode_ == Mode::shelf && loading_.empty() && !g_search_open && !g_confirm_open;
+   // Missing covers are fetched as soon as the shelf shows.
+   if (!covers_requested_ && !games_.empty() && loading_.empty() && !covers_.Busy()) {
+     covers_requested_ = true;
 @@ -2977,7 +3104,10 @@ void Launcher::DrawShelf(Canvas& c) {
      std::string line = game.kind;
      if (game.disc) {  // fix 52: the details line is never cut, the name may be
