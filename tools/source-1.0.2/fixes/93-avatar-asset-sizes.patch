@@ -1,0 +1,100 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_avatar.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_avatar.cc
+index 3db7e0f..a7ed384 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_avatar.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_avatar.cc
+@@ -13,6 +13,10 @@
+ #include "xenia/kernel/xam/xam_private.h"
+ #include "xenia/kernel/kinect_title.h"
+ 
++#include <cstring>
++
++#include "xbox360ps5/avatar_assets.hpp"  // fix 93
++
+ DEFINE_bool(allow_avatar_initialization, false,
+             "Enable Avatar Initialization\n"
+             "Only set true when testing Avatar games. Certain games may crash "
+@@ -142,8 +146,24 @@ DECLARE_XAM_EXPORT1(XamAvatarGetManifestsByXuid, kAvatars, kStub)
+ dword_result_t XamAvatarGetAssetsResultSize_entry(
+     dword_t avatar_component_mask, lpdword_t result_buffer_size_ptr,
+     lpdword_t gpu_resource_buffer_size_ptr) {
+-  *result_buffer_size_ptr = 0;
+-  *gpu_resource_buffer_size_ptr = 0;
++  // Xbox360PS5 fix 93 (issue 15): sizes 0 made Kinect Sports (4D5308C9) allocate a 0-byte
++  // XAVATAR_ASSETS, clear 0 bytes of it, and, once XamAvatarGetAssets had failed twice, read the
++  // component count at +8 from the heap block after it and write a 32-byte index buffer header
++  // per "component" (FFFF0000 00000003 10000002 ...) over megabytes of its heap, crashing in its
++  // allocators later (fix 57 starts avatars for Kinect games; the asset calls stay stubs). Room
++  // for an empty XAVATAR_ASSETS (the title clears what it asked for, so the count reads 0 and the
++  // components are skipped) and a small GPU buffer (instead of XPhysicalAlloc(0)).
++  *result_buffer_size_ptr = xbox360ps5::avatar_assets::kResultBytes;
++  *gpu_resource_buffer_size_ptr = xbox360ps5::avatar_assets::kGpuBytes;
++  static bool said = false;
++  if (!said) {
++    said = true;
++    XELOGW(
++        "Avatars: asset buffers asked for (components {:08X}): {} and {} bytes, for an empty "
++        "set (fix 93)",
++        avatar_component_mask.value(), xbox360ps5::avatar_assets::kResultBytes,
++        xbox360ps5::avatar_assets::kGpuBytes);
++  }
+ 
+   return X_STATUS_SUCCESS;
+ }
+@@ -154,6 +174,13 @@ dword_result_t XamAvatarGetAssets_entry(
+     dword_t avatar_component_mask, dword_t flags, lpdword_t result_buffer_ptr,
+     lpdword_t gpu_resource_buffer_ptr,
+     pointer_t<XAM_OVERLAPPED> overlapped_ptr) {
++  // Xbox360PS5 fix 93: the result is an empty asset set even if the title did not clear the
++  // buffer it got from XamAvatarGetAssetsResultSize (its component count and array at +8 and
++  // +0x10 read 0).
++  if (result_buffer_ptr) {
++    std::memset(reinterpret_cast<void*>(result_buffer_ptr.host_address()), 0,
++                xbox360ps5::avatar_assets::kClearedBytes);
++  }
+   // 58410907 doesn't crash if we return failure.
+   if (overlapped_ptr) {
+     kernel_state()->CompleteOverlappedImmediateEx(
+diff --git a/include/xbox360ps5/avatar_assets.hpp b/include/xbox360ps5/avatar_assets.hpp
+new file mode 100644
+index 0000000..b9754df
+--- /dev/null
++++ b/include/xbox360ps5/avatar_assets.hpp
+@@ -0,0 +1,38 @@
++// SPDX-License-Identifier: MIT
++// Fix 93 (1.0.5, issue 15): the sizes XamAvatarGetAssetsResultSize gives while the avatar asset
++// calls are stubs (XamAvatarGetAssets fails), so a title allocates and clears room for an empty
++// XAVATAR_ASSETS instead of 0 bytes.
++//
++// Kinect Sports (4D5308C9, 0x82524388) asks for the sizes, allocates them (the result with its
++// heap, the GPU part with XPhysicalAlloc), clears the result with memset of the size it got, calls
++// XamAvatarGetAssets and, after its second failure, still runs 0x82524770, which reads the set's
++// component count at +8 and its component array at +0x10 and writes a 32-byte index buffer header
++// per component. With sizes 0 the count came from the heap block after the 0-byte allocation, and
++// the headers (FFFF0000 00000003 10000002 ...) went over megabytes of the title's heap: crashes in
++// its allocators right after it opened \AM\AMBundle\bundle\4F45161E (1.0.5_candidate_5, 8 and 10,
++// 1.0.5-work-fix92), which only happened to be next. Found by an external analysis of the title's
++// code and confirmed in those logs' memory dumps.
++#pragma once
++#include <cstdint>
++
++namespace xbox360ps5::avatar_assets {
++
++// Room for an empty set: the header (flags, skeleton, component count, the component array's
++// size and pointer) with plenty to spare.
++constexpr uint32_t kResultBytes = 0x100;
++// A small GPU part, not XPhysicalAlloc(0).
++constexpr uint32_t kGpuBytes = 0x1000;
++// What XamAvatarGetAssets clears of the result before it fails: the header, so the count (+8)
++// and the array pointer (+0x10) read 0 even if the title did not clear the buffer.
++constexpr uint32_t kClearedBytes = 0x20;
++static_assert(kClearedBytes <= kResultBytes, "cleared within what the title was told to allocate");
++
++// The component count and array a title reads from an XAVATAR_ASSETS (big-endian words).
++inline uint32_t ComponentCount(const uint8_t* assets) {
++  return uint32_t(assets[8]) << 24 | uint32_t(assets[9]) << 16 | uint32_t(assets[10]) << 8 | assets[11];
++}
++inline uint32_t ComponentArray(const uint8_t* assets) {
++  return uint32_t(assets[16]) << 24 | uint32_t(assets[17]) << 16 | uint32_t(assets[18]) << 8 | assets[19];
++}
++
++}  // namespace xbox360ps5::avatar_assets
