@@ -128,6 +128,57 @@ int main() {
     }
   }
 
+  // 1.0.5-work-fix91f: occasional keys (Tekken's costume target 0F05C000, about every 25 frames)
+  // against keys resolved every frame or twice a frame.
+  {
+    float average = 0;
+    CHECK(rs::Occasional(0, 100, average) && average == rs::kOccasionalFrames);  // new: own copy
+    bool occasional = true;
+    for (uint64_t frame = 125; frame <= 400; frame += 25) occasional = rs::Occasional(frame - 25, frame, average);
+    CHECK(occasional && average > 20);
+    float every = 0;
+    rs::Occasional(0, 1, every);
+    for (uint64_t frame = 2; frame < 10; ++frame) occasional = rs::Occasional(frame - 1, frame, every);
+    CHECK(!occasional && every < 2);
+    float twice = 0;
+    rs::Occasional(0, 1, twice);
+    for (uint64_t frame = 1; frame < 20; ++frame) {
+      rs::Occasional(frame, frame, twice);                 // the second pass, the same frame
+      occasional = rs::Occasional(frame, frame + 1, twice);  // the next frame's first
+    }
+    CHECK(!occasional && twice < 1);
+    // A burst at load (a resolve a frame) then every 25 frames: occasional again within a few.
+    float burst = 0;
+    rs::Occasional(0, 1, burst);
+    for (uint64_t frame = 2; frame <= 10; ++frame) rs::Occasional(frame - 1, frame, burst);
+    CHECK(burst < rs::kOccasionalFrames);
+    int resolves = 0;
+    for (uint64_t frame = 35; !rs::Occasional(frame - 25, frame, burst); frame += 25) ++resolves;
+    CHECK(resolves <= 1);
+  }
+  CHECK(rs::Overlaps(0x0F05C000, 4194304, 0x0F05D000, 4096) && !rs::Overlaps(0x0F05C000, 4096, 0x0F05D000, 4096) &&
+        !rs::Overlaps(0x0F05C000, 0, 0x0F05C000, 4096));
+  // The fault handler's ring: reads in order, a full ring drops the newest until taken.
+  {
+    rs::ReadRing ring;
+    ring.Push(0x1000, 16);
+    ring.Push(0x2000, 32);
+    int n = 0;
+    ring.Take([&](uint32_t address, uint32_t length) {
+      CHECK(n == 0 ? address == 0x1000 && length == 16 : address == 0x2000 && length == 32);
+      ++n;
+    });
+    CHECK(n == 2);
+    for (uint32_t i = 0; i < rs::ReadRing::kReads + 10; ++i) ring.Push(i, 1);
+    n = 0;
+    ring.Take([&](uint32_t address, uint32_t) { CHECK(address == uint32_t(n)); ++n; });
+    CHECK(n == int(rs::ReadRing::kReads));
+    ring.Push(7, 1);
+    n = 0;
+    ring.Take([&](uint32_t address, uint32_t) { CHECK(address == 7); ++n; });
+    CHECK(n == 1);
+  }
+
   const std::string cp = ReadText(".deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc");
   const std::string h = ReadText(".deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h");
   if (cp.empty() || h.empty()) {
@@ -152,7 +203,25 @@ int main() {
     CHECK(cp.find("is resolved {} times in a frame: each resolve") != std::string::npos);
     // The earlier tries are gone.
     CHECK(cp.find("OwnCopyAfterPause") == std::string::npos && cp.find("RepeatedInFrame") == std::string::npos);
-    std::printf("tree: the fast readback gives each pass the previous frame's copy of itself\n");
+    // 1.0.5-work-fix91f: the read callback registered and unregistered, the reads taken before
+    // the key's frame bookkeeping, the rule in the fast mode only, the watch armed after the copy.
+    CHECK(cp.find("memory_->RegisterPhysicalMemoryReadCallback(ReadbackReadCallback, this);") != std::string::npos);
+    CHECK(cp.find("memory_->UnregisterPhysicalMemoryReadCallback(readback_read_callback_);") != std::string::npos);
+    const size_t take = cp.find("readback_reads_.Take(");
+    const size_t gap = cp.find("readback_slots::Occasional(previous_use_frame, frame_current_, rb.gap_average);");
+    CHECK(take != std::string::npos && take < gap && gap != std::string::npos);
+    CHECK(cp.find("if (readback_mode == ReadbackResolveMode::kFast && !auto_readback && rb.cpu_reads &&\n"
+                  "        occasional && newest_copy >= 0) {") != std::string::npos);
+    const size_t copy = cp.find("memory::vastcpy(memory_->TranslatePhysical(written_address),");
+    const size_t arm = cp.find("memory_->EnablePhysicalMemoryAccessCallbacks(written_address, readback_length, false,");
+    CHECK(copy != std::string::npos && copy < arm && arm != std::string::npos);
+    CHECK(cp.find("!auto_readback && !rb.cpu_reads &&\n            (!rb.armed_frame || frame_current_ - rb.armed_frame >= 600))") !=
+          std::string::npos);
+    const std::string h = ReadText(".deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h");
+    CHECK(h.find("bool cpu_reads = false;") != std::string::npos && h.find("readback_slots::ReadRing readback_reads_;") !=
+          std::string::npos);
+    std::printf("tree: the fast readback gives each pass the previous frame's copy of itself, and an occasional "
+                "key the CPU reads its own\n");
   }
   if (failures) {
     std::printf("%d failure(s)\n", failures);

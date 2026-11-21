@@ -1,8 +1,16 @@
 diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/readback_slots.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/readback_slots.h
-index b4ac0ad..8c77f96 100644
+index b4ac0ad..603e824 100644
 --- a/.deps/xenia-canary/src/xenia/gpu/vulkan/readback_slots.h
 +++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/readback_slots.h
-@@ -90,6 +90,77 @@ inline uint32_t ChooseWrite(const uint64_t* submissions,
+@@ -26,6 +26,7 @@
+ #ifndef XENIA_GPU_VULKAN_READBACK_SLOTS_H_
+ #define XENIA_GPU_VULKAN_READBACK_SLOTS_H_
+ 
++#include <atomic>
+ #include <cstdint>
+ 
+ namespace xe {
+@@ -90,6 +91,132 @@ inline uint32_t ChooseWrite(const uint64_t* submissions,
    return oldest < 0 ? 0 : uint32_t(oldest);
  }
  
@@ -77,11 +85,66 @@ index b4ac0ad..8c77f96 100644
 +  return oldest < 0 ? 0 : uint32_t(oldest);
 +}
 +
++// Fix 91, 1.0.5-work-fix91f: the resolves the CPU reads as data. The per-key readback file of
++// 1.0.5-work-fix91e found Tekken Tag Tournament 2's colours on the console: the 4 MiB key
++// 0F05C000, which the game draws a costume part into about every 25 frames (3 draws) and
++// reads back on the CPU to build a 256x256 DXT texture, one part after another. The fast mode
++// handed each part the previous one's picture; with that key alone in the full mode the colours
++// were right. The shape, for any game: a resolve whose copy the CPU reads (a one-shot read watch
++// on its range after the copy, re-armed now and then while nothing reads it) and that is not
++// resolved every frame or so (its frames between resolves average kOccasionalFrames or more):
++// such a key gets its own copy, waited for. A key resolved every frame stays one frame late even
++// when the CPU reads it (an HDR luminance), as the fast mode means to.
++constexpr float kOccasionalFrames = 4.0f;
++// The key's average frames between resolves (`average`, 0 for a new key) after one at `frame`,
++// its previous at `previous_frame` (0: none); true when it is occasional.
++inline bool Occasional(uint64_t previous_frame, uint64_t frame, float& average) {
++  if (!previous_frame) {
++    average = kOccasionalFrames;  // unknown yet: as occasional
++    return true;
++  }
++  const float gap = float(frame - previous_frame);
++  average = average * 0.75f + gap * 0.25f;
++  return average >= kOccasionalFrames;
++}
++inline bool Overlaps(uint32_t a, uint32_t a_length, uint32_t b, uint32_t b_length) {
++  return a_length && b_length && a < b + b_length && b < a + a_length;
++}
++// The CPU's reads of armed ranges, written in the fault handler (no locks, never blocks) and
++// taken on the GPU command thread. Up to kReads are kept between two takes; more are dropped.
++struct ReadRing {
++  static constexpr uint32_t kReads = 64;
++  struct Read {
++    std::atomic<uint32_t> address{0}, length{0};
++  };
++  Read reads[kReads];
++  std::atomic<uint32_t> written{0};
++  std::atomic<uint32_t> taken{0};  // advanced by the GPU command thread
++  // Called under the global critical region (the fault handler), so one writer at a time.
++  void Push(uint32_t address, uint32_t length) {
++    const uint32_t n = written.load(std::memory_order_relaxed);
++    if (n - taken.load(std::memory_order_acquire) >= kReads) return;  // full: the reader is behind
++    reads[n % kReads].address.store(address, std::memory_order_relaxed);
++    reads[n % kReads].length.store(length, std::memory_order_relaxed);
++    written.store(n + 1, std::memory_order_release);
++  }
++  template <typename Each>
++  void Take(Each each) {
++    const uint32_t n = written.load(std::memory_order_acquire);
++    uint32_t t = taken.load(std::memory_order_relaxed);
++    for (; t != n; ++t) {
++      each(reads[t % kReads].address.load(std::memory_order_relaxed),
++           reads[t % kReads].length.load(std::memory_order_relaxed));
++    }
++    taken.store(t, std::memory_order_release);
++  }
++};
++
  }  // namespace readback_slots
  }  // namespace vulkan
  }  // namespace gpu
 diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
-index 1f508ca..79ee758 100644
+index 1f508ca..bfc7af6 100644
 --- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
 +++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
 @@ -12,6 +12,13 @@
@@ -98,7 +161,39 @@ index 1f508ca..79ee758 100644
  #endif
  
  #include <utility>
-@@ -3918,6 +3925,121 @@ bool AutoReadbackAllowed() {
+@@ -236,11 +243,20 @@ std::future<bool> VulkanCommandProcessor::RequestPipelineCacheSnapshot() {
+   return result;
+ }
+ 
++void VulkanCommandProcessor::ReadbackReadCallback(void* context, uint32_t physical_address,
++                                                  uint32_t length) {
++  // Fix 91: in the fault handler, under the global critical region: only noted.
++  static_cast<VulkanCommandProcessor*>(context)->readback_reads_.Push(physical_address, length);
++}
++
+ bool VulkanCommandProcessor::SetupContext() {
+   if (!CommandProcessor::SetupContext()) {
+     XELOGE("Failed to initialize base command processor context");
+     return false;
+   }
++  // Fix 91: which resolve copies the CPU reads (readback_slots.h, Occasional).
++  readback_read_callback_ =
++      memory_->RegisterPhysicalMemoryReadCallback(ReadbackReadCallback, this);
+ 
+   const ui::vulkan::VulkanDevice* const vulkan_device = GetVulkanDevice();
+   const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
+@@ -1357,6 +1373,10 @@ void VulkanCommandProcessor::FrameCostReadCompleted() {
+ 
+ void VulkanCommandProcessor::ShutdownContext() {
+   AwaitAllQueueOperationsCompletion();
++  if (readback_read_callback_) {  // fix 91
++    memory_->UnregisterPhysicalMemoryReadCallback(readback_read_callback_);
++    readback_read_callback_ = nullptr;
++  }
+ #if XE_PLATFORM_PS5
+   if (frame_cost_query_pool_ != VK_NULL_HANDLE) {  // fix 49
+     GetVulkanDevice()->functions().vkDestroyQueryPool(
+@@ -3918,6 +3938,121 @@ bool AutoReadbackAllowed() {
    }();
    return allowed;
  }
@@ -220,7 +315,7 @@ index 1f508ca..79ee758 100644
  // A folder for the bytes of small resolves (XBOX360PS5_DUMP_RESOLVES), or null.
  const char* ResolveDumpFolder() {
  #if XE_PLATFORM_PS5
-@@ -3974,6 +4096,11 @@ bool VulkanCommandProcessor::IssueCopy() {
+@@ -3974,6 +4109,11 @@ bool VulkanCommandProcessor::IssueCopy() {
    if (auto_readback) {
      readback_mode = ReadbackResolveMode::kFast;
    }
@@ -232,7 +327,37 @@ index 1f508ca..79ee758 100644
    const bool show_resolve = ShowResolve(written_length);
    const DrawsSinceResolve draws = draws_since_resolve_;
    draws_since_resolve_ = DrawsSinceResolve();
-@@ -4144,9 +4271,28 @@ bool VulkanCommandProcessor::IssueCopy() {
+@@ -4135,8 +4275,29 @@ bool VulkanCommandProcessor::IssueCopy() {
+ 
+     uint64_t resolve_key =
+         MakeReadbackResolveKey(written_address, written_length);
++    // Fix 91: the CPU's reads of armed copies since the last resolve mark their keys.
++    readback_reads_.Take([&](uint32_t read_address, uint32_t read_length) {
++      for (auto& [key, buffer] : readback_buffers_) {
++        const uint32_t key_address = uint32_t(key >> 32), key_length = uint32_t(key);
++        if (buffer.armed_frame && !buffer.cpu_reads &&
++            readback_slots::Overlaps(key_address, key_length, read_address, read_length)) {
++          buffer.cpu_reads = true;
++          static uint32_t reads_shown = 0;
++          if (reads_shown < 64) {
++            ++reads_shown;
++            XELOGW(
++                "Readback: the CPU reads the copy of the key {:08X} ({} bytes), resolved about "
++                "every {:.1f} frames (fix 91)",
++                key_address, key_length, buffer.gap_average);
++          }
++        }
++      }
++    });
+     ReadbackBuffer& rb = readback_buffers_[resolve_key];
++    const uint64_t previous_use_frame = rb.last_used_frame;  // fix 91
+     rb.last_used_frame = frame_current_;
++    const bool occasional =
++        readback_slots::Occasional(previous_use_frame, frame_current_, rb.gap_average);
+ 
+     // Xbox360PS5 (fix 35): an unused or the oldest slot, never the newest one
+     // the guest can be given (readback_slots.h); 1.0.2 flipped two slots once
+@@ -4144,9 +4305,28 @@ bool VulkanCommandProcessor::IssueCopy() {
      const uint64_t readback_completed =
          auto_readback ? completion_timeline_.UpdateAndGetCompletedSubmission()
                        : GetCompletedSubmission();
@@ -263,7 +388,7 @@ index 1f508ca..79ee758 100644
      uint32_t size = AlignReadbackBufferSize(readback_length);
  
      // Allocate/resize write buffer if needed
-@@ -4233,6 +4379,8 @@ bool VulkanCommandProcessor::IssueCopy() {
+@@ -4233,6 +4413,8 @@ bool VulkanCommandProcessor::IssueCopy() {
        rb.sizes[write_index] = size;
        rb.valid_sizes[write_index] = 0;
        rb.submissions[write_index] = 0;
@@ -272,7 +397,7 @@ index 1f508ca..79ee758 100644
        rb.host_coherent[write_index] =
            (vulkan_device->memory_types().host_coherent &
             (uint32_t(1) << memory_type_index)) != 0;
-@@ -4243,8 +4391,10 @@ bool VulkanCommandProcessor::IssueCopy() {
+@@ -4243,8 +4425,10 @@ bool VulkanCommandProcessor::IssueCopy() {
      const int newest_copy =
          readback_mode == ReadbackResolveMode::kFast
              ? readback_slots::ChooseRead(rb.submissions, rb.valid_sizes,
@@ -283,7 +408,22 @@ index 1f508ca..79ee758 100644
                                           readback_completed, auto_readback)
              : -1;
      uint32_t read_index =
-@@ -4481,6 +4631,8 @@ bool VulkanCommandProcessor::IssueCopy() {
+@@ -4252,6 +4436,14 @@ bool VulkanCommandProcessor::IssueCopy() {
+     bool read_cache_miss = readback_mode == ReadbackResolveMode::kFast &&
+                            (newest_copy < 0 ||
+                             rb.buffers[read_index] == VK_NULL_HANDLE);
++    // Fix 91 (1.0.5-work-fix91f): a key whose copy the CPU reads and that is not resolved every
++    // frame or so gets its own copy, waited for as on a key's first resolve (readback_slots.h,
++    // Occasional): Tekken Tag Tournament 2's costume parts, drawn into one 4 MiB target and read
++    // back one after another. The automatic copy (readback off) still never waits.
++    if (readback_mode == ReadbackResolveMode::kFast && !auto_readback && rb.cpu_reads &&
++        occasional && newest_copy >= 0) {
++      read_cache_miss = true;
++    }
+ 
+     if (is_scaled) {
+       // Scaled path: downscale on the GPU, then copy the 1x data to the
+@@ -4481,6 +4673,8 @@ bool VulkanCommandProcessor::IssueCopy() {
      // Stamp after the copy: scaled-buffer growth may end a submission above.
      rb.submissions[write_index] = GetCurrentSubmission();
      rb.valid_sizes[write_index] = readback_length;
@@ -292,11 +432,27 @@ index 1f508ca..79ee758 100644
  
      if (readback_mode != ReadbackResolveMode::kFast) {
        // Wait for GPU to finish (accurate but slow)
+@@ -4547,6 +4741,15 @@ bool VulkanCommandProcessor::IssueCopy() {
+         // Memory accessibility already checked at the start of this function.
+         memory::vastcpy(memory_->TranslatePhysical(written_address),
+                         static_cast<uint8_t*>(mapped_data), readback_length);
++        // Fix 91: a one-shot read watch on the copy, to learn whether the CPU reads it (re-armed
++        // every 600 frames while it does not). The copy above goes through the physical view,
++        // which the watch does not cover.
++        if (readback_mode == ReadbackResolveMode::kFast && !auto_readback && !rb.cpu_reads &&
++            (!rb.armed_frame || frame_current_ - rb.armed_frame >= 600)) {
++          rb.armed_frame = frame_current_;
++          memory_->EnablePhysicalMemoryAccessCallbacks(written_address, readback_length, false,
++                                                       true);
++        }
+         if (show_resolve) {
+           const uint8_t* bytes = static_cast<const uint8_t*>(mapped_data);
+           uint32_t nonzero = 0;
 diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
-index d393ff6..9f94a3e 100644
+index d393ff6..59fef1a 100644
 --- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
 +++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
-@@ -908,6 +908,12 @@ class VulkanCommandProcessor final : public CommandProcessor {
+@@ -908,7 +908,23 @@ class VulkanCommandProcessor final : public CommandProcessor {
      uint64_t submissions[readback_slots::kCount] = {};
      bool host_coherent[readback_slots::kCount] = {};
      uint64_t last_used_frame = 0;
@@ -306,9 +462,20 @@ index d393ff6..9f94a3e 100644
 +    uint64_t frames[readback_slots::kCount] = {};
 +    uint64_t pass_frame = 0;
 +    uint32_t pass = 0, most_passes = 1;
++    // Fix 91 (1.0.5-work-fix91f): whether the CPU reads this key's copy (a read watch on its
++    // range after the copy), when it was last armed, and the average frames between resolves.
++    bool cpu_reads = false;
++    uint64_t armed_frame = 0;
++    float gap_average = 0;
    };
++  // Fix 91: the CPU's reads of armed resolve ranges (readback_slots::ReadRing), from the fault
++  // handler through the memory's read callback.
++  readback_slots::ReadRing readback_reads_;
++  void* readback_read_callback_ = nullptr;
++  static void ReadbackReadCallback(void* context, uint32_t physical_address, uint32_t length);
    // Map: (written_address << 32 | written_length) -> ReadbackBuffer
    std::unordered_map<uint64_t, ReadbackBuffer> readback_buffers_;
+ 
 diff --git a/include/xbox360ps5/readback_keys.hpp b/include/xbox360ps5/readback_keys.hpp
 new file mode 100644
 index 0000000..7c381ea
