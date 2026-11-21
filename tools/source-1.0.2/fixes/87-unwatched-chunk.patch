@@ -1,0 +1,77 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/shared_memory.h b/.deps/xenia-canary/src/xenia/gpu/shared_memory.h
+--- a/.deps/xenia-canary/src/xenia/gpu/shared_memory.h
++++ b/.deps/xenia-canary/src/xenia/gpu/shared_memory.h
+@@ -92,6 +92,11 @@ class SharedMemory {
+   // Fix 36: the guest frame, for unwatched units unchanged over frames (GPU
+   // command thread, at each swap).
+   void SetUnwatchedFrame(uint64_t frame) { unwatched_frame_ = uint32_t(frame); }
++  // Fix 87: the GPU command thread starts on a part of the ring the guest has
++  // published (ExecutePrimaryBuffer). Every draw in it was written, with the
++  // data it reads, before the write pointer was; an unwatched unit checked
++  // once in this part needs no second hash for its other draws.
++  void BeginCommandChunk() { ++chunk_epoch_; }
+ #endif
+   // GPU-thread counters only; no clocks, atomics or log writes per upload.
+   void RecordUploadBytes(uint64_t bytes) {
+@@ -278,6 +283,10 @@ class SharedMemory {
+   std::vector<std::pair<uint32_t, uint32_t>> unwatched_filtered_;
+   bool request_allows_unwatched_ = false;  // GPU thread: the request served.
+   uint64_t unwatched_skips_ = 0, unwatched_uploads_ = 0;
++  // Fix 87: the part of the ring each unwatched unit was last checked in.
++  std::vector<uint32_t> unit_chunk_;
++  uint32_t chunk_epoch_ = 1;
++  uint64_t unwatched_chunk_skips_ = 0;
+   // Fix 48: a bit per unit, like the validity bitmaps.
+   std::vector<uint64_t> gpu_only_bits_;  // Exported data guest memory lacks.
+   std::vector<uint64_t> lossy_bits_;     // Exported data was lost here.
+diff --git a/.deps/xenia-canary/src/xenia/gpu/shared_memory.cc b/.deps/xenia-canary/src/xenia/gpu/shared_memory.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/shared_memory.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/shared_memory.cc
+@@ -152,6 +152,7 @@ bool SharedMemory::InitializeCommon() {
+   unit_heat_.assign(kBufferSize >> page_size_log2_, 0);
+   unit_hash_.assign(kBufferSize >> page_size_log2_, 0);
+   unit_changed_frame_.assign(kBufferSize >> page_size_log2_, 0);
++  unit_chunk_.assign(kBufferSize >> page_size_log2_, 0);  // fix 87
+   unwatched_bits_.assign(num_system_page_flags_, 0);
+   unwatched_seen_bits_.assign(num_system_page_flags_, 0);
+   pinned_bits_.assign(num_system_page_flags_, 0);
+@@ -329,7 +330,15 @@ unsigned int SharedMemory::FilterUnwatched(
+     const uint32_t end = uploads[i].first + uploads[i].second;
+     for (uint32_t unit = uploads[i].first; unit < end; ++unit) {
+       bool upload = true;
+-      if (UnitBit(unwatched_bits_, unit)) {
++      // Fix 87: checked already in this part of the ring: what its draws read
++      // was there when the part was published, and the GPU copy has it.
++      // Modern Warfare 2 with "Optimized video memory": a hash of the whole
++      // unit at every draw, 368 ms/s of the GPU command thread.
++      if (UnitBit(unwatched_bits_, unit) && unit_chunk_[unit] == chunk_epoch_) {
++        upload = false;
++        ++unwatched_chunk_skips_;
++      } else if (UnitBit(unwatched_bits_, unit)) {
++        unit_chunk_[unit] = chunk_epoch_;
+         const uint64_t hash = XXH3_64bits(
+             memory().TranslatePhysical(unit << page_size_log2_), unit_bytes);
+         // Fix 36: unchanged at every request for kFramesUnchangedToWatch frames:
+@@ -871,6 +880,9 @@ void SharedMemory::ReportRequestCacheStats() {
+          unwatched_heated_.exchange(0, std::memory_order_relaxed),
+          unwatched_cooled_.exchange(0, std::memory_order_relaxed),
+          unwatched_rewatched_);
++  XELOGW("Performance unwatched (fix 87): {} requests answered by an earlier check in the same part of the ring",
++         unwatched_chunk_skips_);
++  unwatched_chunk_skips_ = 0;
+   upload_bytes_ = upload_chunks_ = lock_free_hits_ = 0;
+   unwatched_skips_ = unwatched_uploads_ = unwatched_rewatched_ = 0;
+   AgeUnwatchedPages();
+diff --git a/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h b/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h
+--- a/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h
++++ b/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h
+@@ -1495,6 +1495,9 @@ uint32_t COMMAND_PROCESSOR::ExecutePrimaryBuffer(uint32_t read_index,
+   end_ptr = (primary_buffer_ptr_ & ~0x1FFFFFFF) | (end_ptr & 0x1FFFFFFF);
+ 
+   trace_writer_.WritePrimaryBufferStart(start_ptr, write_index - read_index);
++#if XE_PLATFORM_PS5
++  shared_memory_->BeginCommandChunk();  // fix 87
++#endif
+ 
+   // Execute commands!
+ 
