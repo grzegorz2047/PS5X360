@@ -210,13 +210,23 @@ int main() {
     const size_t take = cp.find("readback_reads_.Take(");
     const size_t gap = cp.find("readback_slots::Occasional(previous_use_frame, frame_current_, rb.gap_average);");
     CHECK(take != std::string::npos && take < gap && gap != std::string::npos);
-    CHECK(cp.find("if (readback_mode == ReadbackResolveMode::kFast && !auto_readback && rb.cpu_reads &&\n"
-                  "        occasional && newest_copy >= 0) {") != std::string::npos);
+    CHECK(cp.find("if (readback_mode == ReadbackResolveMode::kFast && !auto_readback &&\n"
+                  "        (rb.cpu_reads || g_readback_rules.occasional_own) && occasional && newest_copy >= 0) {") !=
+          std::string::npos);
     const size_t copy = cp.find("memory::vastcpy(memory_->TranslatePhysical(written_address),");
     const size_t arm = cp.find("memory_->EnablePhysicalMemoryAccessCallbacks(written_address, readback_length, false,");
     CHECK(copy != std::string::npos && copy < arm && arm != std::string::npos);
-    CHECK(cp.find("!auto_readback && !rb.cpu_reads &&\n            (!rb.armed_frame || frame_current_ - rb.armed_frame >= 600))") !=
+    CHECK(cp.find("(watch_forced ||\n             (!rb.cpu_reads && (!rb.armed_frame || frame_current_ - rb.armed_frame >= 600)))") !=
           std::string::npos);
+    // 1.0.5-work-fix91g: the read watch observable: fires and drops counted in the callback,
+    // the arms and flagged keys on the GPU thread, a 30 s line, the first reads raw.
+    CHECK(cp.find("self->readback_read_fires_.fetch_add(1, std::memory_order_relaxed);") != std::string::npos);
+    CHECK(cp.find("if (!self->readback_reads_.Push(physical_address, length)) {") != std::string::npos);
+    CHECK(cp.find("++readback_watches_armed_;") != std::string::npos && cp.find("++readback_keys_flagged_;") !=
+          std::string::npos);
+    CHECK(cp.find("\"Readback read watches, last 30 s: armed {}, reads seen {} (dropped {}), keys the CPU \"") !=
+          std::string::npos);
+    CHECK(cp.find("\"Readback read watch: the CPU read {:08X} ({} bytes) (fix 91g)\"") != std::string::npos);
     const std::string h = ReadText(".deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h");
     CHECK(h.find("bool cpu_reads = false;") != std::string::npos && h.find("readback_slots::ReadRing readback_reads_;") !=
           std::string::npos);

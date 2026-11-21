@@ -1,5 +1,5 @@
 diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/readback_slots.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/readback_slots.h
-index b4ac0ad..603e824 100644
+index b4ac0ad..7d85106 100644
 --- a/.deps/xenia-canary/src/xenia/gpu/vulkan/readback_slots.h
 +++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/readback_slots.h
 @@ -26,6 +26,7 @@
@@ -10,7 +10,7 @@ index b4ac0ad..603e824 100644
  #include <cstdint>
  
  namespace xe {
-@@ -90,6 +91,132 @@ inline uint32_t ChooseWrite(const uint64_t* submissions,
+@@ -90,6 +91,134 @@ inline uint32_t ChooseWrite(const uint64_t* submissions,
    return oldest < 0 ? 0 : uint32_t(oldest);
  }
  
@@ -121,12 +121,14 @@ index b4ac0ad..603e824 100644
 +  std::atomic<uint32_t> written{0};
 +  std::atomic<uint32_t> taken{0};  // advanced by the GPU command thread
 +  // Called under the global critical region (the fault handler), so one writer at a time.
-+  void Push(uint32_t address, uint32_t length) {
++  // False when the ring is full (the read is dropped).
++  bool Push(uint32_t address, uint32_t length) {
 +    const uint32_t n = written.load(std::memory_order_relaxed);
-+    if (n - taken.load(std::memory_order_acquire) >= kReads) return;  // full: the reader is behind
++    if (n - taken.load(std::memory_order_acquire) >= kReads) return false;  // the reader is behind
 +    reads[n % kReads].address.store(address, std::memory_order_relaxed);
 +    reads[n % kReads].length.store(length, std::memory_order_relaxed);
 +    written.store(n + 1, std::memory_order_release);
++    return true;
 +  }
 +  template <typename Each>
 +  void Take(Each each) {
@@ -144,7 +146,7 @@ index b4ac0ad..603e824 100644
  }  // namespace vulkan
  }  // namespace gpu
 diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
-index 1f508ca..bfc7af6 100644
+index 1f508ca..522f8ff 100644
 --- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
 +++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
 @@ -12,6 +12,13 @@
@@ -161,14 +163,18 @@ index 1f508ca..bfc7af6 100644
  #endif
  
  #include <utility>
-@@ -236,11 +243,20 @@ std::future<bool> VulkanCommandProcessor::RequestPipelineCacheSnapshot() {
+@@ -236,11 +243,24 @@ std::future<bool> VulkanCommandProcessor::RequestPipelineCacheSnapshot() {
    return result;
  }
  
 +void VulkanCommandProcessor::ReadbackReadCallback(void* context, uint32_t physical_address,
 +                                                  uint32_t length) {
 +  // Fix 91: in the fault handler, under the global critical region: only noted.
-+  static_cast<VulkanCommandProcessor*>(context)->readback_reads_.Push(physical_address, length);
++  auto* self = static_cast<VulkanCommandProcessor*>(context);
++  self->readback_read_fires_.fetch_add(1, std::memory_order_relaxed);
++  if (!self->readback_reads_.Push(physical_address, length)) {
++    self->readback_read_drops_.fetch_add(1, std::memory_order_relaxed);
++  }
 +}
 +
  bool VulkanCommandProcessor::SetupContext() {
@@ -182,7 +188,7 @@ index 1f508ca..bfc7af6 100644
  
    const ui::vulkan::VulkanDevice* const vulkan_device = GetVulkanDevice();
    const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
-@@ -1357,6 +1373,10 @@ void VulkanCommandProcessor::FrameCostReadCompleted() {
+@@ -1357,6 +1377,10 @@ void VulkanCommandProcessor::FrameCostReadCompleted() {
  
  void VulkanCommandProcessor::ShutdownContext() {
    AwaitAllQueueOperationsCompletion();
@@ -193,7 +199,7 @@ index 1f508ca..bfc7af6 100644
  #if XE_PLATFORM_PS5
    if (frame_cost_query_pool_ != VK_NULL_HANDLE) {  // fix 49
      GetVulkanDevice()->functions().vkDestroyQueryPool(
-@@ -3918,6 +3938,121 @@ bool AutoReadbackAllowed() {
+@@ -3918,6 +3942,129 @@ bool AutoReadbackAllowed() {
    }();
    return allowed;
  }
@@ -201,10 +207,12 @@ index 1f508ca..bfc7af6 100644
 +// (xbox360ps5/readback_keys.hpp), read again when it changes (checked once a second), and the
 +// keys in the log: each new one when first seen, and every 30 s the keys of the last 30 s with
 +// their counts and the mode they got. Called on the GPU command thread only.
++// The rules read from readback-keys.txt (also the watch and occasional switches, fix 91g).
++xbox360ps5::readback_keys::Rules g_readback_rules;
 +void ReadbackKeysDiagnostic(uint32_t address, uint32_t length, uint32_t format, uint32_t endian,
 +                            bool automatic, ReadbackResolveMode& mode) {
 +  namespace rk = xbox360ps5::readback_keys;
-+  static rk::Rules rules;
++  rk::Rules& rules = g_readback_rules;
 +  static std::string loaded_from;
 +  static long long loaded_stamp = -1;
 +  static auto checked = std::chrono::steady_clock::time_point();
@@ -243,6 +251,12 @@ index 1f508ca..bfc7af6 100644
 +      for (const rk::Rule& rule : rules.keys) {
 +        XELOGW("Readback keys:   {:08X}/{} {}", rule.address,
 +               rule.length ? std::to_string(rule.length) : std::string("any"), rk::Name(rule.mode));
++      }
++      for (uint32_t watched : rules.watch) {
++        XELOGW("Readback keys:   watch {:08X} (the CPU read watch armed at every resolve)", watched);
++      }
++      if (rules.occasional_own) {
++        XELOGW("Readback keys:   occasional own (every occasional key gets its own copy)");
 +      }
 +    }
 +  }
@@ -315,7 +329,7 @@ index 1f508ca..bfc7af6 100644
  // A folder for the bytes of small resolves (XBOX360PS5_DUMP_RESOLVES), or null.
  const char* ResolveDumpFolder() {
  #if XE_PLATFORM_PS5
-@@ -3974,6 +4109,11 @@ bool VulkanCommandProcessor::IssueCopy() {
+@@ -3974,6 +4121,11 @@ bool VulkanCommandProcessor::IssueCopy() {
    if (auto_readback) {
      readback_mode = ReadbackResolveMode::kFast;
    }
@@ -327,17 +341,24 @@ index 1f508ca..bfc7af6 100644
    const bool show_resolve = ShowResolve(written_length);
    const DrawsSinceResolve draws = draws_since_resolve_;
    draws_since_resolve_ = DrawsSinceResolve();
-@@ -4135,8 +4275,29 @@ bool VulkanCommandProcessor::IssueCopy() {
+@@ -4135,8 +4287,49 @@ bool VulkanCommandProcessor::IssueCopy() {
  
      uint64_t resolve_key =
          MakeReadbackResolveKey(written_address, written_length);
 +    // Fix 91: the CPU's reads of armed copies since the last resolve mark their keys.
 +    readback_reads_.Take([&](uint32_t read_address, uint32_t read_length) {
++      static uint32_t raw_shown = 0;
++      if (raw_shown < 16) {
++        ++raw_shown;
++        XELOGW("Readback read watch: the CPU read {:08X} ({} bytes) (fix 91g)", read_address,
++               read_length);
++      }
 +      for (auto& [key, buffer] : readback_buffers_) {
 +        const uint32_t key_address = uint32_t(key >> 32), key_length = uint32_t(key);
 +        if (buffer.armed_frame && !buffer.cpu_reads &&
 +            readback_slots::Overlaps(key_address, key_length, read_address, read_length)) {
 +          buffer.cpu_reads = true;
++          ++readback_keys_flagged_;
 +          static uint32_t reads_shown = 0;
 +          if (reads_shown < 64) {
 +            ++reads_shown;
@@ -349,6 +370,19 @@ index 1f508ca..bfc7af6 100644
 +        }
 +      }
 +    });
++    {
++      static auto watch_summary = std::chrono::steady_clock::now();
++      const auto now = std::chrono::steady_clock::now();
++      if (now - watch_summary >= std::chrono::seconds(30)) {
++        watch_summary = now;
++        XELOGW(
++            "Readback read watches, last 30 s: armed {}, reads seen {} (dropped {}), keys the CPU "
++            "reads {} (fix 91g)",
++            readback_watches_armed_, readback_read_fires_.exchange(0), readback_read_drops_.exchange(0),
++            readback_keys_flagged_);
++        readback_watches_armed_ = 0;
++      }
++    }
      ReadbackBuffer& rb = readback_buffers_[resolve_key];
 +    const uint64_t previous_use_frame = rb.last_used_frame;  // fix 91
      rb.last_used_frame = frame_current_;
@@ -357,7 +391,7 @@ index 1f508ca..bfc7af6 100644
  
      // Xbox360PS5 (fix 35): an unused or the oldest slot, never the newest one
      // the guest can be given (readback_slots.h); 1.0.2 flipped two slots once
-@@ -4144,9 +4305,28 @@ bool VulkanCommandProcessor::IssueCopy() {
+@@ -4144,9 +4337,28 @@ bool VulkanCommandProcessor::IssueCopy() {
      const uint64_t readback_completed =
          auto_readback ? completion_timeline_.UpdateAndGetCompletedSubmission()
                        : GetCompletedSubmission();
@@ -388,7 +422,7 @@ index 1f508ca..bfc7af6 100644
      uint32_t size = AlignReadbackBufferSize(readback_length);
  
      // Allocate/resize write buffer if needed
-@@ -4233,6 +4413,8 @@ bool VulkanCommandProcessor::IssueCopy() {
+@@ -4233,6 +4445,8 @@ bool VulkanCommandProcessor::IssueCopy() {
        rb.sizes[write_index] = size;
        rb.valid_sizes[write_index] = 0;
        rb.submissions[write_index] = 0;
@@ -397,7 +431,7 @@ index 1f508ca..bfc7af6 100644
        rb.host_coherent[write_index] =
            (vulkan_device->memory_types().host_coherent &
             (uint32_t(1) << memory_type_index)) != 0;
-@@ -4243,8 +4425,10 @@ bool VulkanCommandProcessor::IssueCopy() {
+@@ -4243,8 +4457,10 @@ bool VulkanCommandProcessor::IssueCopy() {
      const int newest_copy =
          readback_mode == ReadbackResolveMode::kFast
              ? readback_slots::ChooseRead(rb.submissions, rb.valid_sizes,
@@ -408,7 +442,7 @@ index 1f508ca..bfc7af6 100644
                                           readback_completed, auto_readback)
              : -1;
      uint32_t read_index =
-@@ -4252,6 +4436,14 @@ bool VulkanCommandProcessor::IssueCopy() {
+@@ -4252,6 +4468,14 @@ bool VulkanCommandProcessor::IssueCopy() {
      bool read_cache_miss = readback_mode == ReadbackResolveMode::kFast &&
                             (newest_copy < 0 ||
                              rb.buffers[read_index] == VK_NULL_HANDLE);
@@ -416,14 +450,14 @@ index 1f508ca..bfc7af6 100644
 +    // frame or so gets its own copy, waited for as on a key's first resolve (readback_slots.h,
 +    // Occasional): Tekken Tag Tournament 2's costume parts, drawn into one 4 MiB target and read
 +    // back one after another. The automatic copy (readback off) still never waits.
-+    if (readback_mode == ReadbackResolveMode::kFast && !auto_readback && rb.cpu_reads &&
-+        occasional && newest_copy >= 0) {
++    if (readback_mode == ReadbackResolveMode::kFast && !auto_readback &&
++        (rb.cpu_reads || g_readback_rules.occasional_own) && occasional && newest_copy >= 0) {
 +      read_cache_miss = true;
 +    }
  
      if (is_scaled) {
        // Scaled path: downscale on the GPU, then copy the 1x data to the
-@@ -4481,6 +4673,8 @@ bool VulkanCommandProcessor::IssueCopy() {
+@@ -4481,6 +4705,8 @@ bool VulkanCommandProcessor::IssueCopy() {
      // Stamp after the copy: scaled-buffer growth may end a submission above.
      rb.submissions[write_index] = GetCurrentSubmission();
      rb.valid_sizes[write_index] = readback_length;
@@ -432,16 +466,20 @@ index 1f508ca..bfc7af6 100644
  
      if (readback_mode != ReadbackResolveMode::kFast) {
        // Wait for GPU to finish (accurate but slow)
-@@ -4547,6 +4741,15 @@ bool VulkanCommandProcessor::IssueCopy() {
+@@ -4547,6 +4773,19 @@ bool VulkanCommandProcessor::IssueCopy() {
          // Memory accessibility already checked at the start of this function.
          memory::vastcpy(memory_->TranslatePhysical(written_address),
                          static_cast<uint8_t*>(mapped_data), readback_length);
 +        // Fix 91: a one-shot read watch on the copy, to learn whether the CPU reads it (re-armed
 +        // every 600 frames while it does not). The copy above goes through the physical view,
 +        // which the watch does not cover.
-+        if (readback_mode == ReadbackResolveMode::kFast && !auto_readback && !rb.cpu_reads &&
-+            (!rb.armed_frame || frame_current_ - rb.armed_frame >= 600)) {
++        const bool watch_forced =
++            xbox360ps5::readback_keys::Watched(g_readback_rules, written_address);  // fix 91g
++        if (readback_mode == ReadbackResolveMode::kFast && !auto_readback &&
++            (watch_forced ||
++             (!rb.cpu_reads && (!rb.armed_frame || frame_current_ - rb.armed_frame >= 600)))) {
 +          rb.armed_frame = frame_current_;
++          ++readback_watches_armed_;
 +          memory_->EnablePhysicalMemoryAccessCallbacks(written_address, readback_length, false,
 +                                                       true);
 +        }
@@ -449,10 +487,10 @@ index 1f508ca..bfc7af6 100644
            const uint8_t* bytes = static_cast<const uint8_t*>(mapped_data);
            uint32_t nonzero = 0;
 diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
-index d393ff6..59fef1a 100644
+index d393ff6..0ee6007 100644
 --- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
 +++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
-@@ -908,7 +908,23 @@ class VulkanCommandProcessor final : public CommandProcessor {
+@@ -908,7 +908,27 @@ class VulkanCommandProcessor final : public CommandProcessor {
      uint64_t submissions[readback_slots::kCount] = {};
      bool host_coherent[readback_slots::kCount] = {};
      uint64_t last_used_frame = 0;
@@ -472,16 +510,20 @@ index d393ff6..59fef1a 100644
 +  // handler through the memory's read callback.
 +  readback_slots::ReadRing readback_reads_;
 +  void* readback_read_callback_ = nullptr;
++  // 1.0.5-work-fix91g: the read watch made observable: callbacks fired (in the fault handler),
++  // reads dropped (ring full), watches armed and keys flagged (GPU command thread).
++  std::atomic<uint32_t> readback_read_fires_{0}, readback_read_drops_{0};
++  uint32_t readback_watches_armed_ = 0, readback_keys_flagged_ = 0;
 +  static void ReadbackReadCallback(void* context, uint32_t physical_address, uint32_t length);
    // Map: (written_address << 32 | written_length) -> ReadbackBuffer
    std::unordered_map<uint64_t, ReadbackBuffer> readback_buffers_;
  
 diff --git a/include/xbox360ps5/readback_keys.hpp b/include/xbox360ps5/readback_keys.hpp
 new file mode 100644
-index 0000000..7c381ea
+index 0000000..5210d54
 --- /dev/null
 +++ b/include/xbox360ps5/readback_keys.hpp
-@@ -0,0 +1,109 @@
+@@ -0,0 +1,136 @@
 +// SPDX-License-Identifier: MIT
 +// Fix 91 diagnostic (issue 14, 1.0.5-work-fix91e): the resolve readback mode per key, from a file
 +// the user writes over FTP between runs, for finding which resolve Tekken Tag Tournament 2's
@@ -514,6 +556,11 @@ index 0000000..7c381ea
 +  Mode default_mode = Mode::kAsSet;
 +  std::vector<Rule> keys;
 +  int not_understood = 0;  // lines that were neither empty, a comment, nor a rule
++  // 1.0.5-work-fix91g: "watch <address>" arms the CPU read watch on that key at every resolve
++  // (testing the watch alone); "occasional own" gives every occasional key its own copy whether
++  // or not the CPU is seen reading it (the simpler rule, for measuring its cost).
++  std::vector<uint32_t> watch;
++  bool occasional_own = false;
 +};
 +
 +inline bool ParseMode(const std::string& word, Mode* mode) {
@@ -543,6 +590,22 @@ index 0000000..7c381ea
 +    std::string first, second, extra;
 +    if (!(words >> first)) continue;  // empty
 +    Mode mode;
++    if (first == "watch" || first == "occasional") {
++      uint32_t address = 0;
++      const bool ok =
++          (words >> second) && !(words >> extra) &&
++          (first == "watch"
++               ? ParseNumber(second.rfind("0x", 0) == 0 ? second.substr(2) : second, 16, &address)
++               : (second == "own" || second == "off"));
++      if (!ok) {
++        ++rules.not_understood;
++      } else if (first == "watch") {
++        rules.watch.push_back(address);
++      } else {
++        rules.occasional_own = second == "own";
++      }
++      continue;
++    }
 +    if (!(words >> second) || (words >> extra) || !ParseMode(second, &mode)) {
 +      ++rules.not_understood;
 +      continue;
@@ -584,6 +647,12 @@ index 0000000..7c381ea
 +    }
 +  }
 +  return any_address ? by_address : rules.default_mode;
++}
++
++inline bool Watched(const Rules& rules, uint32_t address) {
++  for (uint32_t watched : rules.watch)
++    if (watched == address) return true;
++  return false;
 +}
 +
 +inline const char* Name(Mode mode) {

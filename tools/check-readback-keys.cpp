@@ -73,6 +73,16 @@ int main() {
     CHECK(rk::Lookup(bad, 0x0D0F0000, 3768320) == rk::Mode::kFast);
   }
   CHECK(std::string(rk::Name(rk::Mode::kFull)) == "full" && std::string(rk::Name(rk::Mode::kFast)) == "fast");
+  // 1.0.5-work-fix91g: the read watch forced on keys, and the simpler rule switched on.
+  {
+    const rk::Rules rules = rk::Parse("watch 0F05C000\nwatch 0x0E338000\noccasional own\ndefault fast\n");
+    CHECK(rules.not_understood == 0 && rules.watch.size() == 2 && rules.occasional_own &&
+          rules.default_mode == rk::Mode::kFast && rules.keys.empty());
+    CHECK(rk::Watched(rules, 0x0F05C000) && rk::Watched(rules, 0x0E338000) && !rk::Watched(rules, 0x10020000));
+    CHECK(!rk::Parse("occasional off\n").occasional_own && !rk::Parse("").occasional_own);
+    const rk::Rules bad = rk::Parse("watch\nwatch zz\nwatch 0F05C000 full\noccasional\noccasional maybe\n");
+    CHECK(bad.not_understood == 5 && bad.watch.empty() && !bad.occasional_own);
+  }
 
   const std::string cp = ReadText(".deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc");
   if (cp.empty()) {
@@ -93,6 +103,11 @@ int main() {
     CHECK(auto_set != std::string::npos && auto_set < call && call < used && used != std::string::npos);
     CHECK(cp.find("first seen (fix 91") != std::string::npos);
     CHECK(cp.find("\"Readback keys, last 30 s: {}\"") != std::string::npos);
+    // The switches reach the command processor (fix 91g).
+    CHECK(cp.find("xbox360ps5::readback_keys::Rules g_readback_rules;") != std::string::npos);
+    CHECK(cp.find("xbox360ps5::readback_keys::Watched(g_readback_rules, written_address);  // fix 91g") !=
+          std::string::npos);
+    CHECK(cp.find("(rb.cpu_reads || g_readback_rules.occasional_own)") != std::string::npos);
     std::printf("tree: the readback mode per key from readback-keys.txt, and the keys logged\n");
   }
   if (failures) {
