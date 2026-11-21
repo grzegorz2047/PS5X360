@@ -179,28 +179,43 @@ DOTNET_ROLL_FORWARD=Major dotnet <work-dir>/UFS2Tool/.build/UFS2Tool.dll newfs -
 
 The tool (one image, only after the user said the app is closed or idle):
 ```bash
-CONSOLE_IP=<console-ip> FTP_PORT=<ftp-port> PENDRIVE=<pendrive> \
+CONSOLE_IP=<console-ip> FTP_PORT=<ftp-port> IMAGE_DRIVE=<image-drive> SIDE_DIR=<side-dir> \
   bash tools/upload-console-image.sh --app-closed <work-dir>/PPSA83600-<label>.ffpkg <label>
-# also make it the active image (only swaps when nothing is mounted):
-CONSOLE_IP=<console-ip> FTP_PORT=<ftp-port> PENDRIVE=<pendrive> \
+# also make it the active image:
+CONSOLE_IP=<console-ip> FTP_PORT=<ftp-port> IMAGE_DRIVE=<image-drive> SIDE_DIR=<side-dir> \
   bash tools/upload-console-image.sh --app-closed <image> <label> --activate <label of the current active image>
 ```
-It lists the pendrive first and refuses an existing name. It deletes a partial file at once
-when an upload fails (curl 55 = pendrive full) and verifies SHA-256 by downloading the file back.
+It lists `<side-dir>` first and refuses an existing name. It deletes a partial file at once when
+an upload fails (curl 55 = USB stick full) and verifies SHA-256 by downloading the file back.
+`--activate` swaps only when:
+- `/mnt/shadowmnt/` lists nothing;
+- no other drive (`/mnt/usb0-7`, `/mnt/ext0-1`; `OTHER_DRIVES` overrides the list) holds a `PPSA83600.ffpkg`;
+- on `/mnt/extN`, `/data/shadowmount/manual.lst` lists the image's path.
+`SIDE_DIR` defaults to `IMAGE_DRIVE`; `PENDRIVE` is still accepted for `IMAGE_DRIVE`.
 
 By hand:
 ```bash
-curl -s --list-only "$FTP<pendrive>/"                           # names
-curl -s "$FTP<pendrive>/" | grep -i ppsa                        # sizes (spot partial files)
-curl -s "$FTP/mnt/shadowmnt/"                                   # empty = nothing mounted
-# upload as a side file, then verify by downloading it back
-curl -sS --max-time 900 -T <img> "$FTP<pendrive>/PPSA83600.ffpkg.v<label>"
-a=$(sha256sum <img> | cut -c1-64); b=$(curl -s --max-time 900 "$FTP<pendrive>/PPSA83600.ffpkg.v<label>" | sha256sum | cut -c1-64); [ "$a" = "$b" ] && echo OK || echo MISMATCH
+curl -s --list-only "$FTP<side-dir>/"                              # names
+curl -s "$FTP<side-dir>/" | grep -i ppsa                           # sizes (spot partial files)
+curl -s "$FTP/mnt/shadowmnt/"                                      # empty = nothing mounted
+for d in /mnt/usb0 /mnt/usb1 /mnt/usb2 /mnt/usb3 /mnt/ext0 /mnt/ext1; do   # exactly ONE active image
+  curl -s --list-only "$FTP$d/" 2>/dev/null | grep -qx 'PPSA83600.ffpkg' && echo "active image on $d"; done
+# upload as a side file (creating the subfolder if needed), then verify by downloading it back
+curl -sS --max-time 900 --ftp-create-dirs -T <img> "$FTP<side-dir>/PPSA83600.ffpkg.v<label>"
+a=$(sha256sum <img> | cut -c1-64); b=$(curl -s --max-time 900 "$FTP<side-dir>/PPSA83600.ffpkg.v<label>" | sha256sum | cut -c1-64); [ "$a" = "$b" ] && echo OK || echo MISMATCH
 # delete (a partial or superseded image; never the mounted one)
-curl -s "$FTP/" -Q "DELE <pendrive>/PPSA83600.ffpkg.v<old-label>" > /dev/null
-# swap the active image (only when /mnt/shadowmnt/ is empty and the app is closed)
-curl -s "$FTP/" -Q "RNFR <pendrive>/PPSA83600.ffpkg" -Q "RNTO <pendrive>/PPSA83600.ffpkg.v<current-label>" \
-               -Q "RNFR <pendrive>/PPSA83600.ffpkg.v<new-label>" -Q "RNTO <pendrive>/PPSA83600.ffpkg" > /dev/null
+curl -s "$FTP/" -Q "DELE <side-dir>/PPSA83600.ffpkg.v<old-label>" > /dev/null
+# swap the active image (only when /mnt/shadowmnt/ is empty, the app is closed and no other drive has one)
+curl -s "$FTP/" -Q "RNFR <image-drive>/PPSA83600.ffpkg" -Q "RNTO <side-dir>/PPSA83600.ffpkg.v<current-label>" \
+               -Q "RNFR <side-dir>/PPSA83600.ffpkg.v<new-label>" -Q "RNTO <image-drive>/PPSA83600.ffpkg" > /dev/null
+```
+
+ShadowMountPlus (images on the extended storage, and checking what it mounted):
+```bash
+curl -s "$FTP/data/shadowmount/manual.lst"                          # one image path per line (ext storage only)
+# add <image-drive>/PPSA83600.ffpkg there only with the user's yes: download, append the line, upload back
+curl -s "$FTP/data/shadowmount/debug.log" | grep 'mount_img.lnk created' | tail -3   # after the app starts
+curl -s "$FTP/data/shadowmount/debug.log" | grep -i 'duplicate' | tail -3            # a second active image was ignored
 ```
 Wait for the console to come back after a reboot or crash (gently, in the background):
 ```bash

@@ -30,10 +30,12 @@
 ## Console test run
 
 - [ ] The label is in `eboot.elf`. The stage size is close to the base size. The image is built.
-- [ ] The user says the app is closed or idle. No other upload is running.
-- [ ] Pendrive listed: room for one more image, no partial files, superseded images pruned (keep release, official, active and confirmed ones).
-- [ ] Uploaded as `PPSA83600.ffpkg.v<label>`, SHA-256 verified by download. Local stage and image deleted.
-- [ ] Swap only when `/mnt/shadowmnt/` is empty. The old active image is kept as `.v<its-label>`.
+- [ ] The user says the app is closed or idle, and is not testing or quitting a game. No other upload is running.
+- [ ] `<side-dir>` listed: no partial files, superseded images pruned (keep release, official, active and confirmed ones). On a USB stick, room for one more (about 17 fit).
+- [ ] Uploaded as `<side-dir>/PPSA83600.ffpkg.v<label>`, SHA-256 verified by download. Local stage and image deleted.
+- [ ] Swap only when `/mnt/shadowmnt/` is empty and no other drive holds a `PPSA83600.ffpkg`. The old active image is kept as `.v<its-label>`.
+- [ ] Extended storage: `/data/shadowmount/manual.lst` lists `<image-drive>/PPSA83600.ffpkg` (adding it needs the user's yes).
+- [ ] After the start: `debug.log`'s `mount_img.lnk created: … -> <path>` names this image.
 - [ ] The user gets: the label they should see on the home screen, the game, the scene, the settings, how long to play, and what to look at.
 - [ ] Afterwards: fetch the logs (all parts), check the label in the log, convert the screenshots and look at them yourself.
 - [ ] Note: label · branch@commit · run id · SHA · result.
@@ -47,6 +49,7 @@
 ## Diagnostic switch on the console (bisect without rebuilding)
 
 - [ ] The diagnostic reads a small text file in `<data-root>/` when it changes and logs what it loaded.
+- [ ] Its detection is proven to work: a "fired"/"armed" counter is non-zero on a case made to trigger it. A silent counter is not evidence until then.
 - [ ] The default reproduces the bug. Each line flips one key, address or feature.
 - [ ] Halve the candidate set per run and keep a table of what each run had and the result.
 - [ ] When found: write the real fix by code shape, and delete the file from the console.

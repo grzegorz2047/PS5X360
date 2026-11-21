@@ -15,7 +15,7 @@ a `pip install --user` package is usually fine to propose.
 | Verified PFS container (`.ffpfsc`, releases only) | **MkPFS** | Fetched and built by `tools/binary-release/make_images.sh` in CI. Local console tests do not need it. |
 | SHA-256 | `sha256sum` (Git Bash, Linux), `shasum -a 256` (macOS), `Get-FileHash` (PowerShell) | Already present. |
 | FTP on the console | an **FTP server payload** on the PS5 (the one the user already runs alongside ShadowMountPlus; it listens on `<ftp-port>`) | The user runs it. Ask for `<console-ip>` and `<ftp-port>`, and never guess them. |
-| Image mounter on the console | **ShadowMountPlus** | The user's setup. It mounts `<pendrive>/<TITLE_ID>.ffpkg` when the app starts. |
+| Image mounter on the console | **ShadowMountPlus** | The user's setup. It mounts `<image-drive>/<TITLE_ID>.ffpkg` when the app starts: from a USB root by itself, from the extended storage only when listed in `/data/shadowmount/manual.lst`. Its log is `/data/shadowmount/debug.log`. |
 | PS5 screenshots (`.jxr`, JPEG-XR) | A JXR decoder: **Windows** WIC/WPF (built in, PowerShell snippet in [commands.md](commands.md#screenshots-jxr-to-png)); **Linux** `JxrDecApp` from jxrlib (`apt install libjxr-tools`), then any converter for the TIFF it writes; **ImageMagick** 7 when built with the JXR delegate (`magick in.jxr out.png`); **macOS** `brew install jxrlib` | |
 | Node.js (some checks are `.mjs`) | **node** 18+ | nodejs.org, or the package manager. Only needed for the `.mjs` checks. |
 

@@ -207,7 +207,7 @@ def upload_setup(root):
 
 def run_upload(root, *args, **env):
     bin_dir = root / 'bin'
-    environment = dict(os.environ, CONSOLE_IP='console.invalid', FTP_PORT='2', PENDRIVE='/mnt/usbX',
+    environment = dict(os.environ, CONSOLE_IP='console.invalid', FTP_PORT='2', IMAGE_DRIVE='/mnt/usbX',
                        FAKE_FTP_ROOT=str(root / 'ftp'), FAKE_FTP_LOG=str(root / 'curl.log'))
     environment['PATH'] = str(bin_dir) + os.pathsep + environment['PATH']
     environment.update(env)
@@ -301,6 +301,40 @@ def upload_checks():
         r = run_upload(root, '--app-closed', image(root), 'L7', '--activate', 'L0')
         check(r.returncode == 0 and (pen(ftp) / 'PPSA83600.ffpkg').read_bytes() == (root / 'img.ffpkg').read_bytes(),
               'upload: --activate with no active image yet makes this one active')
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp); _, ftp = upload_setup(root)
+        r = run_upload(root, '--app-closed', image(root), 'L8', IMAGE_DRIVE='', PENDRIVE='/mnt/usbX')
+        check(r.returncode == 0 and (pen(ftp) / 'PPSA83600.ffpkg.vL8').exists(), 'upload: PENDRIVE still works as the old name')
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp); _, ftp = upload_setup(root)
+        write(pen(ftp) / 'PPSA83600.ffpkg', b'OLD ACTIVE')
+        r = run_upload(root, '--app-closed', image(root), 'L9', '--activate', 'L0', SIDE_DIR='/mnt/usbX/ps5x360-images')
+        sub = pen(ftp) / 'ps5x360-images'
+        check(r.returncode == 0 and (pen(ftp) / 'PPSA83600.ffpkg').read_bytes() == (root / 'img.ffpkg').read_bytes()
+              and (sub / 'PPSA83600.ffpkg.vL0').read_bytes() == b'OLD ACTIVE' and not (sub / 'PPSA83600.ffpkg.vL9').exists(),
+              f'upload: side images in a subfolder, the active one at the drive root ({r.stderr.strip()[:160]})')
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp); _, ftp = upload_setup(root)
+        write(ftp / 'mnt/ext1/PPSA83600.ffpkg', b'OTHER DRIVE ACTIVE')
+        r = run_upload(root, '--app-closed', image(root), 'L10', '--activate', 'L0')
+        check(r.returncode != 0 and 'exists too' in r.stderr and not (pen(ftp) / 'PPSA83600.ffpkg').exists(),
+              'upload: no swap while another drive holds an active image (ShadowMount would ignore the duplicate)')
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp); _, ftp = upload_setup(root)
+        ext = ftp / 'mnt/ext1'
+        ext.mkdir(parents=True)
+        write(ftp / 'data/shadowmount/manual.lst', '/mnt/ext0/Other.ffpkg\n')
+        r = run_upload(root, '--app-closed', image(root), 'L11', '--activate', 'L0', IMAGE_DRIVE='/mnt/ext1')
+        check(r.returncode != 0 and 'manual.lst' in r.stderr and not (ext / 'PPSA83600.ffpkg').exists(),
+              'upload: no swap on extended storage the image is not listed for in manual.lst')
+        write(ftp / 'data/shadowmount/manual.lst', '/mnt/ext0/Other.ffpkg\r\n/mnt/ext1/PPSA83600.ffpkg\r\n')
+        r = run_upload(root, '--app-closed', image(root), 'L12', '--activate', 'L0', IMAGE_DRIVE='/mnt/ext1')
+        check(r.returncode == 0 and (ext / 'PPSA83600.ffpkg').read_bytes() == (root / 'img.ffpkg').read_bytes()
+              and 'mount_img.lnk' in r.stdout, f'upload: swap on extended storage listed in manual.lst ({r.stderr.strip()[:160]})')
 
 
 def main():
