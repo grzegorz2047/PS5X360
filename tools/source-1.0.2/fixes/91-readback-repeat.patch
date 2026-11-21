@@ -1,0 +1,77 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/readback_slots.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/readback_slots.h
+index b4ac0ad..589947d 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/readback_slots.h
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/readback_slots.h
+@@ -90,6 +90,17 @@ inline uint32_t ChooseWrite(const uint64_t* submissions,
+   return oldest < 0 ? 0 : uint32_t(oldest);
+ }
+ 
++// Fix 91: the fast mode's copy "one resolve late" is the previous frame's picture only when the
++// key is resolved once a frame. Tekken Tag Tournament 2 builds its costume colours as a match
++// loads by resolving the same 240 KiB (0FE7C000) three times in a row, one draw each, and reads
++// the last: the fast mode gave it the second step's copy (zeros), so King and Bob came out
++// cyan and blue (issue 14), right with the full mode. A key resolved again in the frame of its
++// newest copy gets this resolve's own copy (waited for, as on a key's first resolve). Frame 0:
++// no copy (the command processor counts frames from 1).
++inline bool RepeatedInFrame(uint64_t newest_copy_frame, uint64_t frame) {
++  return newest_copy_frame != 0 && newest_copy_frame == frame;
++}
++
+ }  // namespace readback_slots
+ }  // namespace vulkan
+ }  // namespace gpu
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+index 1f508ca..d4d4333 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+@@ -4233,6 +4233,7 @@ bool VulkanCommandProcessor::IssueCopy() {
+       rb.sizes[write_index] = size;
+       rb.valid_sizes[write_index] = 0;
+       rb.submissions[write_index] = 0;
++      rb.frames[write_index] = 0;
+       rb.host_coherent[write_index] =
+           (vulkan_device->memory_types().host_coherent &
+            (uint32_t(1) << memory_type_index)) != 0;
+@@ -4252,6 +4253,22 @@ bool VulkanCommandProcessor::IssueCopy() {
+     bool read_cache_miss = readback_mode == ReadbackResolveMode::kFast &&
+                            (newest_copy < 0 ||
+                             rb.buffers[read_index] == VK_NULL_HANDLE);
++    // Fix 91: a key resolved again in the frame of its newest copy is a picture built in steps
++    // (Tekken Tag Tournament 2's costume colours, issue 14): the fast mode gives this resolve's
++    // own copy, waiting for it as on a key's first resolve (readback_slots.h). The automatic
++    // copy (readback off) still never waits.
++    if (readback_mode == ReadbackResolveMode::kFast && !auto_readback && newest_copy >= 0 &&
++        readback_slots::RepeatedInFrame(rb.frames[newest_copy], frame_current_)) {
++      read_cache_miss = true;
++      static uint32_t repeated_shown = 0;
++      if (repeated_shown < 8 || (repeated_shown % 500) == 0) {
++        XELOGW(
++            "Readback: resolve to {:08X} of {} bytes again in the same frame: the fast mode "
++            "gives this copy, not the previous one ({} so far, fix 91)",
++            written_address, readback_length, repeated_shown + 1);
++      }
++      ++repeated_shown;
++    }
+ 
+     if (is_scaled) {
+       // Scaled path: downscale on the GPU, then copy the 1x data to the
+@@ -4481,6 +4498,7 @@ bool VulkanCommandProcessor::IssueCopy() {
+     // Stamp after the copy: scaled-buffer growth may end a submission above.
+     rb.submissions[write_index] = GetCurrentSubmission();
+     rb.valid_sizes[write_index] = readback_length;
++    rb.frames[write_index] = frame_current_;  // fix 91
+ 
+     if (readback_mode != ReadbackResolveMode::kFast) {
+       // Wait for GPU to finish (accurate but slow)
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
+index d393ff6..9020e17 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
+@@ -907,6 +907,7 @@ class VulkanCommandProcessor final : public CommandProcessor {
+     uint32_t valid_sizes[readback_slots::kCount] = {};
+     uint64_t submissions[readback_slots::kCount] = {};
+     bool host_coherent[readback_slots::kCount] = {};
++    uint64_t frames[readback_slots::kCount] = {};  // fix 91: the frame of each copy
+     uint64_t last_used_frame = 0;
+   };
+   // Map: (written_address << 32 | written_length) -> ReadbackBuffer
