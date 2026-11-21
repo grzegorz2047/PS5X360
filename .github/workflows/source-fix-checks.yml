@@ -77,6 +77,7 @@ on:
       - 'tools/check-page-version.cpp'
       - 'tools/check-page-version.mjs'
       - 'tools/check-alloc-failure-lines.cpp'
+      - 'tools/check-enumerator-release.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
