@@ -442,8 +442,7 @@ void CheckTree() {
     Expect(raw_body.find(part) != std::string::npos, std::string("the raw writer has: ") + part);
   for (const char* part : {"XELOG", "Stage(", "NetLog(", "std::fopen", "lock"})
     Expect(raw_body.find(part) == std::string::npos, std::string("the raw writer never uses: ") + part);
-  // Fix 93b captures the XAM module too (which notice to show): the capture list's start only.
-  const size_t hook = main_text.find("xe::kernel::xam::XamModule::restart_hook = [exit_cache");
+  const size_t hook = main_text.find("xe::kernel::xam::XamModule::restart_hook = [exit_cache] {");
   Expect(hook != std::string::npos, "the restart hook");
   const std::string hook_body = main_text.substr(hook, main_text.find("};", hook) - hook);
   const size_t step1 = hook_body.find("hang_watch::Raw(\"Title switch: the game ends or relaunches the title");
