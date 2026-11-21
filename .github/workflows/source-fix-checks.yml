@@ -87,6 +87,7 @@ on:
       - 'tools/check-enum-trace.cpp'
       - 'tools/check-enumerator-buffers.cpp'
       - 'tools/check-wait-reg-wakeup.cpp'
+      - 'tools/check-arming-one-lock.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

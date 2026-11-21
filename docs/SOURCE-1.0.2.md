@@ -217,6 +217,7 @@ also listed here.
 | 81 (`81-enum-trace`) | a diagnostic: which step Battlefield 3's kept enumerators never reach (made, enumerated, taken, given back, closed, destroyed), by app id and open message | host-checked (`tools/check-enum-trace.cpp`); console: `1.0.5_candidate_59`, Battlefield 3 |
 | 82 (`82-enumerator-buffers`) | Battlefield 3 still ran out of the guest's 4 KiB heap with fix 80: the XamAlloc buffer kept with each enumerator is now freed with it, as the console's XAM app does on the close message | host-checked (`tools/check-enumerator-buffers.cpp`); console: Battlefield 3 >= 15 min |
 | 83 (`83-wait-reg-wakeup`) | a 1.0.5 performance fix: `WAIT_REG_MEM` on guest memory ends within 100 us of the guest's write instead of up to a whole 1 ms or more sleep later (Battlefield 3: 29 waits a second on the GPU thread's critical path; Tekken and DBZ many more) | host-checked (`tools/check-wait-reg-wakeup.cpp`); console: Tekken, DBZ, Battlefield 3 |
+| 84 (`84-arming-one-lock`) | a 1.0.5 performance fix: arming a write watch takes the global lock once for the four views of physical memory instead of once each (Modern Warfare 2: 21 ms/s of lock waits for a view with nothing to protect) | host-checked (`tools/check-arming-one-lock.cpp`); console: Modern Warfare 2, Battlefield 3 |
 
 ## Comparison with the official executable
 
