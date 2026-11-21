@@ -90,6 +90,8 @@ on:
       - 'tools/check-arming-one-lock.cpp'
       - 'tools/check-default-app-relaunch.cpp'
       - 'tools/check-draw-lock-deferred.cpp'
+      - 'tools/check-unwatched-chunk.cpp'
+      - 'tools/check-boost-presets.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
