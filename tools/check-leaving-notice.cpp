@@ -127,7 +127,9 @@ void CheckTree() {
   const size_t made = main.find("new LeavingNoticeOverlay(&drawer);  // fix 93b");
   Expect(guide != std::string::npos && made != std::string::npos && made > guide, "(d) the overlay is made after the guide (drawn over it)");
   const std::string way_out = Between(main, "hang_watch_thread.reset();  // fix 47", "if (!restart && emulator.is_title_open())");
-  Expect(Has(way_out, "leaving::Show(restart ? leaving::Kind::menu : leaving::Kind::closing);"),
+  // Fix 93d: "Restarting the game..." when the guide restarts this game.
+  Expect(Has(way_out, "leaving::Show(restart ? leaving::Kind::menu : leaving::Kind::closing);") ||
+             Has(way_out, "leaving::Show(restart ? (restart_same_game ? leaving::Kind::restart_game : leaving::Kind::menu)"),
          "(d) the notice as the game loop ends");
   Expect(way_out.find("leaving::Show(restart") < way_out.find("controller_keyboard::Cancel()"),
          "(d) shown before the first wait");

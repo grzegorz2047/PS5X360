@@ -253,6 +253,12 @@ Returning to the menu... = Voltando ao menu...
 Restarting the game... = Reiniciando o jogo...
 Closing the emulator... = Fechando o emulador...
 Please wait, this can take a few seconds. = Aguarde, isso pode levar alguns segundos.
+Problem with a game? Logs for a bug report = Problema com um jogo? Registros para relatório de erro
+The next game you start records more details. Afterwards a screen lists the files to attach to your bug report. = O próximo jogo que você iniciar anota mais detalhes. Depois, uma tela lista os arquivos para anexar ao seu relatório de erro.
+Problem with this game? Logs for a bug report = Problema com este jogo? Registros para relatório de erro
+Next start = Próximo início
+This game's next start records more details. Afterwards a screen lists the files to attach to your bug report. = O próximo início deste jogo anota mais detalhes. Depois, uma tela lista os arquivos para anexar ao seu relatório de erro.
+Restart this game with logs for a bug report = Reiniciar este jogo com registros para relatório de erro
 
 [added pt]
 Console storage = Armazenamento da consola
@@ -318,6 +324,12 @@ Returning to the menu... = A voltar ao menu...
 Restarting the game... = A reiniciar o jogo...
 Closing the emulator... = A fechar o emulador...
 Please wait, this can take a few seconds. = Aguarde, isto pode demorar alguns segundos.
+Problem with a game? Logs for a bug report = Problema com um jogo? Registos para relatório de erro
+The next game you start records more details. Afterwards a screen lists the files to attach to your bug report. = O próximo jogo que iniciar regista mais detalhes. Depois, um ecrã mostra os ficheiros a anexar ao seu relatório de erro.
+Problem with this game? Logs for a bug report = Problema com este jogo? Registos para relatório de erro
+Next start = Próximo arranque
+This game's next start records more details. Afterwards a screen lists the files to attach to your bug report. = O próximo arranque deste jogo regista mais detalhes. Depois, um ecrã mostra os ficheiros a anexar ao seu relatório de erro.
+Restart this game with logs for a bug report = Reiniciar este jogo com registos para relatório de erro
 
 [added es]
 Console storage = Almacenamiento de la consola
@@ -383,6 +395,12 @@ Returning to the menu... = Volviendo al menú...
 Restarting the game... = Reiniciando el juego...
 Closing the emulator... = Cerrando el emulador...
 Please wait, this can take a few seconds. = Espera, esto puede tardar unos segundos.
+Problem with a game? Logs for a bug report = ¿Problemas con un juego? Registros para un informe de error
+The next game you start records more details. Afterwards a screen lists the files to attach to your bug report. = El próximo juego que inicies anota más detalles. Después, una pantalla muestra los archivos que debes adjuntar a tu informe de error.
+Problem with this game? Logs for a bug report = ¿Problemas con este juego? Registros para un informe de error
+Next start = Próximo inicio
+This game's next start records more details. Afterwards a screen lists the files to attach to your bug report. = El próximo inicio de este juego anota más detalles. Después, una pantalla muestra los archivos que debes adjuntar a tu informe de error.
+Restart this game with logs for a bug report = Reiniciar este juego con registros para un informe de error
 
 [added es-419]
 Console storage = Almacenamiento de la consola
@@ -448,6 +466,12 @@ Returning to the menu... = Volviendo al menú...
 Restarting the game... = Reiniciando el juego...
 Closing the emulator... = Cerrando el emulador...
 Please wait, this can take a few seconds. = Espera, esto puede tardar unos segundos.
+Problem with a game? Logs for a bug report = ¿Problemas con un juego? Registros para un informe de error
+The next game you start records more details. Afterwards a screen lists the files to attach to your bug report. = El próximo juego que inicies anota más detalles. Después, una pantalla muestra los archivos que debes adjuntar a tu informe de error.
+Problem with this game? Logs for a bug report = ¿Problemas con este juego? Registros para un informe de error
+Next start = Próximo inicio
+This game's next start records more details. Afterwards a screen lists the files to attach to your bug report. = El próximo inicio de este juego anota más detalles. Después, una pantalla muestra los archivos que debes adjuntar a tu informe de error.
+Restart this game with logs for a bug report = Reiniciar este juego con registros para un informe de error
 
 [added de]
 Console storage = Konsolenspeicher
@@ -513,6 +537,12 @@ Returning to the menu... = Zurück zum Menü...
 Restarting the game... = Spiel wird neu gestartet...
 Closing the emulator... = Emulator wird beendet...
 Please wait, this can take a few seconds. = Bitte warten, das kann einige Sekunden dauern.
+Problem with a game? Logs for a bug report = Problem mit einem Spiel? Protokolle für einen Fehlerbericht
+The next game you start records more details. Afterwards a screen lists the files to attach to your bug report. = Das nächste Spiel, das du startest, schreibt mehr Details mit. Danach zeigt ein Bildschirm die Dateien für deinen Fehlerbericht.
+Problem with this game? Logs for a bug report = Problem mit diesem Spiel? Protokolle für einen Fehlerbericht
+Next start = Nächster Start
+This game's next start records more details. Afterwards a screen lists the files to attach to your bug report. = Der nächste Start dieses Spiels schreibt mehr Details mit. Danach zeigt ein Bildschirm die Dateien für deinen Fehlerbericht.
+Restart this game with logs for a bug report = Dieses Spiel mit Protokollen für einen Fehlerbericht neu starten
 
 [added fr]
 Console storage = Stockage de la console
@@ -578,6 +608,12 @@ Returning to the menu... = Retour au menu...
 Restarting the game... = Redémarrage du jeu...
 Closing the emulator... = Fermeture de l'émulateur...
 Please wait, this can take a few seconds. = Veuillez patienter, cela peut prendre quelques secondes.
+Problem with a game? Logs for a bug report = Un problème avec un jeu ? Journaux pour un rapport de bug
+The next game you start records more details. Afterwards a screen lists the files to attach to your bug report. = Le prochain jeu que vous lancez note plus de détails. Ensuite, un écran liste les fichiers à joindre à votre rapport de bug.
+Problem with this game? Logs for a bug report = Un problème avec ce jeu ? Journaux pour un rapport de bug
+Next start = Prochain lancement
+This game's next start records more details. Afterwards a screen lists the files to attach to your bug report. = Le prochain lancement de ce jeu note plus de détails. Ensuite, un écran liste les fichiers à joindre à votre rapport de bug.
+Restart this game with logs for a bug report = Relancer ce jeu avec des journaux pour un rapport de bug
 
 [added it]
 Console storage = Memoria della console
@@ -643,6 +679,12 @@ Returning to the menu... = Ritorno al menu...
 Restarting the game... = Riavvio del gioco...
 Closing the emulator... = Chiusura dell'emulatore...
 Please wait, this can take a few seconds. = Attendi, potrebbe richiedere qualche secondo.
+Problem with a game? Logs for a bug report = Problemi con un gioco? Log per una segnalazione di bug
+The next game you start records more details. Afterwards a screen lists the files to attach to your bug report. = Il prossimo gioco che avvii annota più dettagli. Poi una schermata elenca i file da allegare alla tua segnalazione di bug.
+Problem with this game? Logs for a bug report = Problemi con questo gioco? Log per una segnalazione di bug
+Next start = Prossimo avvio
+This game's next start records more details. Afterwards a screen lists the files to attach to your bug report. = Il prossimo avvio di questo gioco annota più dettagli. Poi una schermata elenca i file da allegare alla tua segnalazione di bug.
+Restart this game with logs for a bug report = Riavvia questo gioco con i log per una segnalazione di bug
 
 [added ja]
 Console storage = 本体ストレージ
@@ -708,6 +750,12 @@ Returning to the menu... = メニューに戻っています...
 Restarting the game... = ゲームを再起動しています...
 Closing the emulator... = エミュレーターを終了しています...
 Please wait, this can take a few seconds. = しばらくお待ちください。数秒かかることがあります。
+Problem with a game? Logs for a bug report = ゲームに問題がありますか？不具合報告用のログ
+The next game you start records more details. Afterwards a screen lists the files to attach to your bug report. = 次に起動するゲームで、より詳しい記録を取ります。その後、不具合報告に添付するファイルが画面に表示されます。
+Problem with this game? Logs for a bug report = このゲームに問題がありますか？不具合報告用のログ
+Next start = 次回の起動
+This game's next start records more details. Afterwards a screen lists the files to attach to your bug report. = このゲームの次回の起動で、より詳しい記録を取ります。その後、不具合報告に添付するファイルが画面に表示されます。
+Restart this game with logs for a bug report = 不具合報告用のログを取ってこのゲームを再起動
 
 [added ko]
 Console storage = 본체 저장 공간
@@ -773,6 +821,12 @@ Returning to the menu... = 메뉴로 돌아가는 중...
 Restarting the game... = 게임을 다시 시작하는 중...
 Closing the emulator... = 에뮬레이터를 닫는 중...
 Please wait, this can take a few seconds. = 잠시 기다려 주세요. 몇 초 걸릴 수 있습니다.
+Problem with a game? Logs for a bug report = 게임에 문제가 있나요? 버그 신고용 로그
+The next game you start records more details. Afterwards a screen lists the files to attach to your bug report. = 다음에 시작하는 게임에서 더 자세히 기록합니다. 그 후 버그 신고에 첨부할 파일 목록이 화면에 표시됩니다.
+Problem with this game? Logs for a bug report = 이 게임에 문제가 있나요? 버그 신고용 로그
+Next start = 다음 시작
+This game's next start records more details. Afterwards a screen lists the files to attach to your bug report. = 이 게임의 다음 시작에서 더 자세히 기록합니다. 그 후 버그 신고에 첨부할 파일 목록이 화면에 표시됩니다.
+Restart this game with logs for a bug report = 버그 신고용 로그와 함께 이 게임 다시 시작
 
 [added nl]
 Console storage = Consoleopslag
@@ -838,6 +892,12 @@ Returning to the menu... = Terug naar het menu...
 Restarting the game... = Het spel wordt opnieuw gestart...
 Closing the emulator... = De emulator wordt gesloten...
 Please wait, this can take a few seconds. = Even geduld, dit kan een paar seconden duren.
+Problem with a game? Logs for a bug report = Probleem met een spel? Logs voor een foutmelding
+The next game you start records more details. Afterwards a screen lists the files to attach to your bug report. = Het volgende spel dat je start, schrijft meer details op. Daarna toont een scherm de bestanden voor je foutmelding.
+Problem with this game? Logs for a bug report = Probleem met dit spel? Logs voor een foutmelding
+Next start = Volgende start
+This game's next start records more details. Afterwards a screen lists the files to attach to your bug report. = De volgende start van dit spel schrijft meer details op. Daarna toont een scherm de bestanden voor je foutmelding.
+Restart this game with logs for a bug report = Dit spel opnieuw starten met logs voor een foutmelding
 
 [added pl]
 Console storage = Pamięć konsoli
@@ -903,6 +963,12 @@ Returning to the menu... = Powrót do menu...
 Restarting the game... = Ponowne uruchamianie gry...
 Closing the emulator... = Zamykanie emulatora...
 Please wait, this can take a few seconds. = Proszę czekać, to może potrwać kilka sekund.
+Problem with a game? Logs for a bug report = Problem z grą? Dzienniki do zgłoszenia błędu
+The next game you start records more details. Afterwards a screen lists the files to attach to your bug report. = Następna uruchomiona gra zapisze więcej szczegółów. Potem ekran pokaże pliki do dołączenia do zgłoszenia błędu.
+Problem with this game? Logs for a bug report = Problem z tą grą? Dzienniki do zgłoszenia błędu
+Next start = Następne uruchomienie
+This game's next start records more details. Afterwards a screen lists the files to attach to your bug report. = Następne uruchomienie tej gry zapisze więcej szczegółów. Potem ekran pokaże pliki do dołączenia do zgłoszenia błędu.
+Restart this game with logs for a bug report = Uruchom tę grę ponownie z dziennikami do zgłoszenia błędu
 
 [added ru]
 Console storage = Память консоли
@@ -968,6 +1034,12 @@ Returning to the menu... = Возврат в меню...
 Restarting the game... = Перезапуск игры...
 Closing the emulator... = Закрытие эмулятора...
 Please wait, this can take a few seconds. = Подождите, это может занять несколько секунд.
+Problem with a game? Logs for a bug report = Проблема с игрой? Журналы для отчёта об ошибке
+The next game you start records more details. Afterwards a screen lists the files to attach to your bug report. = Следующая запущенная игра запишет больше подробностей. Затем на экране появится список файлов для отчёта об ошибке.
+Problem with this game? Logs for a bug report = Проблема с этой игрой? Журналы для отчёта об ошибке
+Next start = Следующий запуск
+This game's next start records more details. Afterwards a screen lists the files to attach to your bug report. = Следующий запуск этой игры запишет больше подробностей. Затем на экране появится список файлов для отчёта об ошибке.
+Restart this game with logs for a bug report = Перезапустить эту игру с журналами для отчёта об ошибке
 
 [added tr]
 Console storage = Konsol depolama alanı
@@ -1033,6 +1105,12 @@ Returning to the menu... = Menüye dönülüyor...
 Restarting the game... = Oyun yeniden başlatılıyor...
 Closing the emulator... = Emülatör kapatılıyor...
 Please wait, this can take a few seconds. = Lütfen bekleyin, bu birkaç saniye sürebilir.
+Problem with a game? Logs for a bug report = Bir oyunla sorun mu var? Hata bildirimi için günlükler
+The next game you start records more details. Afterwards a screen lists the files to attach to your bug report. = Başlatacağınız bir sonraki oyun daha fazla ayrıntı kaydeder. Ardından bir ekran, hata bildiriminize ekleyeceğiniz dosyaları listeler.
+Problem with this game? Logs for a bug report = Bu oyunla sorun mu var? Hata bildirimi için günlükler
+Next start = Sonraki başlatma
+This game's next start records more details. Afterwards a screen lists the files to attach to your bug report. = Bu oyunun bir sonraki başlatılması daha fazla ayrıntı kaydeder. Ardından bir ekran, hata bildiriminize ekleyeceğiniz dosyaları listeler.
+Restart this game with logs for a bug report = Bu oyunu hata bildirimi günlükleriyle yeniden başlat
 
 [added zh-Hans]
 Console storage = 主机存储空间
@@ -1098,6 +1176,12 @@ Returning to the menu... = 正在返回菜单...
 Restarting the game... = 正在重新启动游戏...
 Closing the emulator... = 正在关闭模拟器...
 Please wait, this can take a few seconds. = 请稍候，这可能需要几秒钟。
+Problem with a game? Logs for a bug report = 游戏有问题？用于错误报告的日志
+The next game you start records more details. Afterwards a screen lists the files to attach to your bug report. = 你下次启动的游戏会记录更多细节。之后会有一个画面列出需要附加到错误报告中的文件。
+Problem with this game? Logs for a bug report = 这个游戏有问题？用于错误报告的日志
+Next start = 下次启动
+This game's next start records more details. Afterwards a screen lists the files to attach to your bug report. = 这个游戏下次启动时会记录更多细节。之后会有一个画面列出需要附加到错误报告中的文件。
+Restart this game with logs for a bug report = 带错误报告日志重新启动此游戏
 
 [added zh-Hant]
 Console storage = 主機儲存空間
@@ -1163,3 +1247,9 @@ Returning to the menu... = 正在返回選單...
 Restarting the game... = 正在重新啟動遊戲...
 Closing the emulator... = 正在關閉模擬器...
 Please wait, this can take a few seconds. = 請稍候，這可能需要幾秒鐘。
+Problem with a game? Logs for a bug report = 遊戲有問題？用於錯誤回報的記錄
+The next game you start records more details. Afterwards a screen lists the files to attach to your bug report. = 你下次啟動的遊戲會記錄更多細節。之後會有一個畫面列出要附加到錯誤回報中的檔案。
+Problem with this game? Logs for a bug report = 這個遊戲有問題？用於錯誤回報的記錄
+Next start = 下次啟動
+This game's next start records more details. Afterwards a screen lists the files to attach to your bug report. = 這個遊戲下次啟動時會記錄更多細節。之後會有一個畫面列出要附加到錯誤回報中的檔案。
+Restart this game with logs for a bug report = 以錯誤回報記錄重新啟動此遊戲

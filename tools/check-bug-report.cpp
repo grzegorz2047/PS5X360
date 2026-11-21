@@ -332,8 +332,10 @@ void CheckTree() {
   const std::string launcher = Read("src/launcher.cpp"), main = Read("src/canary_game_main.cpp"),
                     web = Read("platform/ps5/web_settings.cpp"), header = Read("include/xbox360ps5/launcher.hpp");
   Expect(Has(header, "int bug_report = 0;"), "(f) the setting is off by default");
-  Expect(Has(launcher, "{\"bug_report\", &S::bug_report, 4, W::live, 0, false, \"Logs for a bug report\","),
-         "(f) the System row: live, off recommended, general only");
+  // Fix 93d moves it out of System's list (category -1) and lets a game have it.
+  Expect(Has(launcher, "{\"bug_report\", &S::bug_report, 4, W::live, 0, false, \"Logs for a bug report\",") ||
+             Has(launcher, "{\"bug_report\", &S::bug_report, -1, W::live, 0, true, \"Logs for a bug report\","),
+         "(f) the option: live, off recommended (System's row, or fix 93d's own rows)");
   Expect(Has(launcher, "{\"Off||plural\", \"Next game\"}},"), "(f) its two choices");
   Expect(Has(launcher, "cvars::log_level = detailed_logs ? 3 : bug_report::Active() ? 2 : 1;"),
          "(f) information lines in a session, every system call still the Detailed logs option's");
