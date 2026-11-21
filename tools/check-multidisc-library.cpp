@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Fix 94 (tools/source-1.0.2/fixes/94-multidisc-library.patch): the library shows the discs of
+// Fix 89 (tools/source-1.0.2/fixes/89-multidisc-library.patch): the library shows the discs of
 // one game as one entry (Battlefield 3: two tiles, Final Fantasy XIII: three), and the game's
 // sheet chooses the disc to start.
 //  (a) port/disc_catalog.cpp's GroupLibraryDiscs, with each disc's XEX execution info parsed from
@@ -249,12 +249,12 @@ void CheckTree() {
                             "game.hash = disc.hash;", "game.disc = disc.disc;", "game.chosen_disc = index;"})
     Expect(Has(body, field), std::string("ChooseDisc sets ") + field);
   Expect(!Has(body, "game.name") && !Has(body, "game.cover"), "ChooseDisc keeps the set's name and cover");
-  Expect(Has(launcher, "for (const auto& disc : game.discs) paths.push_back(disc.path);  // fix 94: every disc of a set"),
+  Expect(Has(launcher, "for (const auto& disc : game.discs) paths.push_back(disc.path);  // fix 89: every disc of a set"),
          "GamePaths lists every disc");
   Expect(Has(launcher, "if (HasDiscPath(games_[size_t(view_[size_t(n)])], keep)) selected_ = n;"),
          "the selection is kept by any disc's path");
   Expect(Has(launcher, "if (HasDiscPath(game, recents_[at])) best = at;"), "a set's place: its most recent disc");
-  Expect(Has(launcher, "if (SyncRunningDisc(games_)) SelectionChanged();  // fix 94"), "a running disc is chosen");
+  Expect(Has(launcher, "if (SyncRunningDisc(games_)) SelectionChanged();  // fix 89"), "a running disc is chosen");
   const size_t play = Find(launcher, "if (key == Key::right) game_tab_ = 1;");
   const size_t step = Find(launcher, "StepDisc(key == Key::down ? 1 : -1);", play);
   Expect(play != std::string::npos && step != std::string::npos && step - play < 200,

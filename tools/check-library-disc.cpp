@@ -66,7 +66,7 @@ void CheckTree() {
   const std::string header = Read("include/xbox360ps5/launcher.hpp");
   Expect(header.find("unsigned disc = 0;") != std::string::npos, "GameEntry has the disc");
   const std::string launcher = Read("src/launcher.cpp");
-  // Fix 94 adds, on the same line, that this game's name came from its first launch.
+  // Fix 89 adds, on the same line, that this game's name came from its first launch.
   const size_t cached = launcher.find("if (std::getline(info, title) && !title.empty()) { game.name = title;");
   const size_t grouped = launcher.find("game.name = fs::path(game.folder).filename().string();", cached);
   const size_t disc = launcher.find(

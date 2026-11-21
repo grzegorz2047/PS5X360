@@ -5,7 +5,7 @@ diff --git a/include/xbox360ps5/covers.hpp b/include/xbox360ps5/covers.hpp
  // requires Kinect (XEX system flags 32: skeletal tracking required). False for
  // packages and anything unreadable.
  bool GameRequiresKinect(const std::filesystem::path& game);
-+// Fix 94: the XEX2 header of an executable (.xex) or of a disc image's default.xex (.iso),
++// Fix 89: the XEX2 header of an executable (.xex) or of a disc image's default.xex (.iso),
 +// at most 1 MiB, empty for anything else or unreadable. The library reads a disc's number and
 +// count from it (disc_catalog.hpp, ParseXexExecutionInfo).
 +std::vector<uint8_t> ReadGameXexHeader(const std::filesystem::path& game);
@@ -19,18 +19,18 @@ diff --git a/include/xbox360ps5/launcher.hpp b/include/xbox360ps5/launcher.hpp
    uint64_t hash = 0;           // Executable hash, known after the first launch.
    int cover = -1;              // Index into the launcher's textures.
    unsigned disc = 0;           // Fix 52: the disc number in the image's name, 0 for none.
-+  // Fix 94: the discs of a set shown as this one entry, ordered by disc number (each as the
++  // Fix 89: the discs of a set shown as this one entry, ordered by disc number (each as the
 +  // library found it: its path, format, title ID, size, hash; `disc` its number), empty for a
 +  // game of one disc. The entry's own path, format, title ID, size, hash and disc are those of
 +  // the chosen disc (ChooseDisc), so starting it, its settings, patches and achievements follow
 +  // that disc; the name and the cover are the set's.
 +  std::vector<GameEntry> discs;
-+  // Fix 94: the index into `discs` of the chosen disc.
++  // Fix 89: the index into `discs` of the chosen disc.
 +  size_t chosen_disc = 0;
  };
-+// Fix 94: makes discs[index] the entry's disc (its path, format, folder, title ID, size, hash).
++// Fix 89: makes discs[index] the entry's disc (its path, format, folder, title ID, size, hash).
 +void ChooseDisc(GameEntry& game, size_t index);
-+// Fix 94: whether `path` is one of the entry's discs (its own path for a game of one disc).
++// Fix 89: whether `path` is one of the entry's discs (its own path for a game of one disc).
 +bool HasDiscPath(const GameEntry& game, const std::string& path);
  // Options kept in /download0/xbox360ps5/settings.txt. Every choice is a small
  // integer. Options() describes the ones the menus show: the settings sheet's
@@ -39,7 +39,7 @@ diff --git a/include/xbox360ps5/launcher.hpp b/include/xbox360ps5/launcher.hpp
    // Every game found, as the shelf lists them (recently played first): a
    // forwarder's game is started as the library's own entry (forward.hpp).
    const std::vector<GameEntry>& Entries() const { return games_; }
-+  // Fix 94: Entries() and, after them, every disc of a set that is not its entry's chosen disc,
++  // Fix 89: Entries() and, after them, every disc of a set that is not its entry's chosen disc,
 +  // as an entry of its own with no folder (a forwarder may name any disc's image; a folder still
 +  // finds the set's one entry).
 +  std::vector<GameEntry> EntriesWithDiscs() const;
@@ -50,7 +50,7 @@ diff --git a/include/xbox360ps5/launcher.hpp b/include/xbox360ps5/launcher.hpp
    enum class Mode { shelf, game, settings, options, profiles, name, paths, folders, saves };
    struct PatchRow { size_t file, patch; };
    void SelectionChanged();
-+  // Fix 94: the selected entry's next (+1) or previous (-1) disc.
++  // Fix 89: the selected entry's next (+1) or previous (-1) disc.
 +  void StepDisc(int step);
    void ApplyFilter();
    // Automatic: nothing is said when no game lacks a cover.
@@ -62,7 +62,7 @@ diff --git a/port/disc_catalog.cpp b/port/disc_catalog.cpp
  #include <map>
  #include <set>
  #include <stdexcept>
-+#include <tuple>  // fix 94
++#include <tuple>  // fix 89
  #include <utility>
  
  namespace ps5x360_disc {
@@ -70,7 +70,7 @@ diff --git a/port/disc_catalog.cpp b/port/disc_catalog.cpp
    if (!disc || ps5x360_disc::DiscNumberFromName(name) == disc) return name;
    return name + " (Disc " + std::to_string(disc) + ")";
  }
-+// Fix 94.
++// Fix 89.
 +std::vector<std::vector<size_t>> GroupLibraryDiscs(const std::vector<LibraryDisc>& discs,
 +                                                   const LibraryProbe& probe) {
 +  using namespace ps5x360_disc;
@@ -166,7 +166,7 @@ diff --git a/port/disc_catalog.hpp b/port/disc_catalog.hpp
  // game never look alike, also after the first launch has named them after the game.
  unsigned DiscOfImage(const std::filesystem::path& image);
  std::string LibraryName(const std::string& name, unsigned disc);
-+// Fix 94: the library shows the discs of one game as one entry. One disc the library found: the
++// Fix 89: the library shows the discs of one game as one entry. One disc the library found: the
 +// folder that holds its set (an .iso's folder; for an extracted disc, "<set>/Disc 2/default.xex",
 +// the folder above its own), its image's or folder's name, and the title ID the library knows
 +// ("" when none). The XEX execution info (title ID, disc number and count, save game ID) is read
@@ -197,7 +197,7 @@ diff --git a/port/disc_library.cpp b/port/disc_library.cpp
        Require(canonical_members.insert(fs::canonical(original)).second, "Duplicate physical disc");
        Require(Region(original) == region, "Disc region masks differ; individual entries retained");
        result.directories.push_back(dirs.at(number));
-+      result.launch_paths.push_back(original);  // fix 94: every disc is a choice of the one entry
++      result.launch_paths.push_back(original);  // fix 89: every disc is a choice of the one entry
      }
      result.title_id = set.candidates.front().execution.title_id;
      result.disc_count = unsigned(set.candidates.size());
@@ -208,7 +208,7 @@ diff --git a/port/disc_library.hpp b/port/disc_library.hpp
  struct ExtractedDiscGroup {
    std::filesystem::path launch_path; // Original Disc 1 path, never canonicalized for cache identity.
    std::vector<std::filesystem::path> directories; // Exact sibling paths to suppress in this scan only.
-+  std::vector<std::filesystem::path> launch_paths; // Fix 94: each disc's default.xex, by disc number (Disc 1's is launch_path).
++  std::vector<std::filesystem::path> launch_paths; // Fix 89: each disc's default.xex, by disc number (Disc 1's is launch_path).
    uint32_t title_id = 0;
    unsigned disc_count = 0;
  };
@@ -220,7 +220,7 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
        if (game.empty() && !forward_request.empty()) {
          launcher.Scan();
 -        const auto& entries = launcher.Entries();
-+        // Fix 94: a disc set is one entry; its other discs follow, so a forwarder may name any disc.
++        // Fix 89: a disc set is one entry; its other discs follow, so a forwarder may name any disc.
 +        const auto entries = launcher.EntriesWithDiscs();
          std::vector<xbox360ps5::forward::LibraryGame> listed;
          listed.reserve(entries.size());
@@ -232,7 +232,7 @@ diff --git a/src/covers.cpp b/src/covers.cpp
  
  std::string ReadIsoTitleId(const fs::path& iso) { return TitleIdFromHeader(IsoXexHeader(iso)); }
  
-+// Fix 94.
++// Fix 89.
 +std::vector<uint8_t> ReadGameXexHeader(const fs::path& game) {
 +  std::string extension = game.extension().string();
 +  std::transform(extension.begin(), extension.end(), extension.begin(),
@@ -250,7 +250,7 @@ diff --git a/src/launcher.cpp b/src/launcher.cpp
    return lower(game.name).find(wanted) != std::string::npos || lower(game.title_id).find(wanted) != std::string::npos;
  }
  bool IsRunning(const GameEntry& game) { return !g_running_path.empty() && game.path.string() == g_running_path; }
-+// Fix 94: a set whose disc runs behind the library chooses that disc, once each time the running
++// Fix 89: a set whose disc runs behind the library chooses that disc, once each time the running
 +// game or the list changes (a disc chosen afterwards in the game's sheet is left as it is).
 +std::string g_running_synced;
 +bool SyncRunningDisc(std::vector<GameEntry>& games) {
@@ -269,7 +269,7 @@ diff --git a/src/launcher.cpp b/src/launcher.cpp
  }
  }
  
-+// Fix 94.
++// Fix 89.
 +void ChooseDisc(GameEntry& game, size_t index) {
 +  if (index >= game.discs.size()) return;
 +  const GameEntry& disc = game.discs[index];
@@ -296,7 +296,7 @@ diff --git a/src/launcher.cpp b/src/launcher.cpp
    textures_.clear();
    arts_.clear();
    std::set<std::string> seen_games, seen_roots;
-+  std::set<std::string> titled;  // fix 94: the games named by their first launch
++  std::set<std::string> titled;  // fix 89: the games named by their first launch
    const auto add = [&](GameEntry game, const std::vector<uint8_t>& embedded_cover) {
      // All scan paths are absolute. Keep the complete lexical path as the
      // key without depending on the console's libc realpath implementation.
@@ -316,7 +316,7 @@ diff --git a/src/launcher.cpp b/src/launcher.cpp
 -      GameEntry game{directory.filename().string(), group->launch_path, "XEX", directory.string()};
 -      game.size = std::to_string(group->disc_count) + " discs";
 -      add(std::move(game), {});
-+      // Fix 94: each disc of the checked set is listed (named after the set's folder, Disc 1's
++      // Fix 89: each disc of the checked set is listed (named after the set's folder, Disc 1's
 +      // path and cache as before); the sets are made into one entry each after the scan.
 +      for (const auto& launch : group->launch_paths)
 +        add({directory.filename().string(), launch, "XEX", directory.string()}, {});
@@ -328,7 +328,7 @@ diff --git a/src/launcher.cpp b/src/launcher.cpp
    std::ifstream input(kStorage / "recent.txt");
    for (std::string line; std::getline(input, line);) if (!line.empty()) recents_.push_back(line);
 -  // Recently played first, in that order; the rest by name.
-+  // Fix 94: the discs of one game become one entry. Its disc is the one last started from the
++  // Fix 89: the discs of one game become one entry. Its disc is the one last started from the
 +  // library (recent.txt), else the first; the game's sheet chooses another (Play: up / down).
 +  {
 +    std::vector<multidisc::LibraryDisc> found(games_.size());
@@ -408,7 +408,7 @@ diff --git a/src/launcher.cpp b/src/launcher.cpp
 -  for (const auto& game : games_) before.insert(game.path.string());
 +  for (const auto& game : games_) {
 +    before.insert(game.path.string());
-+    for (const auto& disc : game.discs) before.insert(disc.path.string());  // fix 94
++    for (const auto& disc : game.discs) before.insert(disc.path.string());  // fix 89
 +  }
    Scan();
    int added = 0;
@@ -426,7 +426,7 @@ diff --git a/src/launcher.cpp b/src/launcher.cpp
    for (int n = 0; n < int(games_.size()); ++n) {
      const GameEntry& game = games_[size_t(n)];
 -    const bool recent = std::find(recents_.begin(), recents_.end(), game.path.string()) != recents_.end();
-+    bool recent = false;  // fix 94: a set when any of its discs was played
++    bool recent = false;  // fix 89: a set when any of its discs was played
 +    for (const auto& path : recents_) recent = recent || HasDiscPath(game, path);
      const bool shown = filter_ == 0 || (filter_ == 1 && recent) || (filter_ == 2 && game.kind == "XEX") ||
                         (filter_ == 3 && game.kind == "ISO") || (filter_ == 4 && game.kind == "GOD/STFS");
@@ -445,13 +445,13 @@ diff --git a/src/launcher.cpp b/src/launcher.cpp
 -  for (const auto& game : games_) paths.push_back(game.path);
 +  for (const auto& game : games_) {
 +    if (game.discs.empty()) paths.push_back(game.path);
-+    for (const auto& disc : game.discs) paths.push_back(disc.path);  // fix 94: every disc of a set
++    for (const auto& disc : game.discs) paths.push_back(disc.path);  // fix 89: every disc of a set
 +  }
    std::sort(paths.begin(), paths.end());
    return paths;
  }
  
-+// Fix 94.
++// Fix 89.
 +std::vector<GameEntry> Launcher::EntriesWithDiscs() const {
 +  std::vector<GameEntry> entries = games_;
 +  for (const auto& game : games_)
@@ -484,7 +484,7 @@ diff --git a/src/launcher.cpp b/src/launcher.cpp
          }
          if (key == Key::right) game_tab_ = 1;
 +        if ((key == Key::up || key == Key::down) && Selected() && Selected()->discs.size() > 1)
-+          StepDisc(key == Key::down ? 1 : -1);  // fix 94: the disc to start
++          StepDisc(key == Key::down ? 1 : -1);  // fix 89: the disc to start
          if (key == Key::circle || key == Key::triangle) close();
          break;
        }
@@ -492,7 +492,7 @@ diff --git a/src/launcher.cpp b/src/launcher.cpp
    intro_ = std::min(1.0f, intro_ + dt / 0.60f);
    // Downloaded covers show up as soon as the download ends.
    if (covers_.TakeFinished() && loading_.empty()) Scan();
-+  if (SyncRunningDisc(games_)) SelectionChanged();  // fix 94
++  if (SyncRunningDisc(games_)) SelectionChanged();  // fix 89
    // Missing covers are fetched as soon as the shelf shows.
    if (!covers_requested_ && !games_.empty() && loading_.empty() && !covers_.Busy()) {
      covers_requested_ = true;
@@ -501,7 +501,7 @@ diff --git a/src/launcher.cpp b/src/launcher.cpp
      if (game.disc) {  // fix 52: the details line is never cut, the name may be
        char disc[64];
 -      std::snprintf(disc, sizeof(disc), Tr("Disc %u"), game.disc);
-+      if (game.discs.size() > 1)  // fix 94: one entry for the set, the disc it starts
++      if (game.discs.size() > 1)  // fix 89: one entry for the set, the disc it starts
 +        std::snprintf(disc, sizeof(disc), Tr("Disc %u of %u"), game.disc, unsigned(game.discs.size()));
 +      else
 +        std::snprintf(disc, sizeof(disc), Tr("Disc %u"), game.disc);
@@ -512,7 +512,7 @@ diff --git a/src/launcher.cpp b/src/launcher.cpp
    if (running) c.Text(Tr("Running: the game resumes where it stopped"), x + 430, 432, 20, kAccent, 1.0f, 1);
    else if (!g_running_name.empty())
      c.Text(g_running_name + Tr(" is open: it will be closed"), x + 430, 432, 20, kWarning, 1.0f, 1, 760);
-+  // Fix 94: a game of several discs: the disc Play starts, chosen with up / down.
++  // Fix 89: a game of several discs: the disc Play starts, chosen with up / down.
 +  const bool discs = game.discs.size() > 1;
 +  const float shift = discs ? 64.0f : 0.0f;
 +  if (discs) {
@@ -557,7 +557,7 @@ diff --git a/src/launcher.cpp b/src/launcher.cpp
           patch_summary_.empty() ? kFaint : kAccent, 1.0f, 0, 750);
    c.Text(Tr("L1 / R1 show this game's patches and settings."), x + 56, 922, 20, kMuted, 1.0f, 0, 750);
    float hint = c.Hint('x', running ? Tr("Continue") : Tr("Play"), x + 56, 1004);
-+  if (discs) hint = c.Hint('v', Tr("Choose the disc"), hint, 1004);  // fix 94
++  if (discs) hint = c.Hint('v', Tr("Choose the disc"), hint, 1004);  // fix 89
    c.Hint('o', game_return_ == Mode::settings ? Tr("Back") : Tr("Close"), hint, 1004);
  }
  
