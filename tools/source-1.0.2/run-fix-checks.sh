@@ -79,6 +79,7 @@ checks=(
   check-pending-resume.cpp         # fix 71
   check-page-version.cpp           # fix 72
   check-alloc-failure-lines.cpp    # fix 76
+  check-enumerator-release.cpp     # fix 80
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -122,6 +123,7 @@ declare -A fix_of=(
   [check-pending-resume.cpp]=71
   [check-page-version.cpp]=72
   [check-alloc-failure-lines.cpp]=76
+  [check-enumerator-release.cpp]=80
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
