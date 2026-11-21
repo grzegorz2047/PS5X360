@@ -94,6 +94,7 @@ on:
       - 'tools/check-boost-presets.cpp'
       - 'tools/check-multidisc-library.cpp'
       - 'tools/check-global-lock-callers.cpp'
+      - 'tools/check-event-writes.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
