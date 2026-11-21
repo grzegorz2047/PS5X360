@@ -215,6 +215,7 @@ also listed here.
 | 79 (`79-system-heap-holders`) | a diagnostic: which emulator code keeps allocating in the guest's 4 KiB heap (Battlefield 3 runs out of it after about 14 minutes on 1.0.4-based builds) | host-checked (`tools/check-system-heap.cpp`); console: next 1.0.5 candidate, Battlefield 3 |
 | 80 (`80-enumerator-release`) | Battlefield 3 ran out of the guest's 4 KiB heap after about 14 minutes (an enumerator and its buffer kept 15 times a second): `ObDereferenceObject` now finds an enumerator by its address, so the reference `XamGetPrivateEnumStructureFromHandle` took is given back and the game's close frees it | host-checked (`tools/check-enumerator-release.cpp`); console: `1.0.4_candidate_33` / `1.0.5_candidate_56`, Battlefield 3 |
 | 81 (`81-enum-trace`) | a diagnostic: which step Battlefield 3's kept enumerators never reach (made, enumerated, taken, given back, closed, destroyed), by app id and open message | host-checked (`tools/check-enum-trace.cpp`); console: `1.0.5_candidate_59`, Battlefield 3 |
+| 84 (`84-arming-one-lock`) | a 1.0.5 performance fix: arming a write watch takes the global lock once for the four views of physical memory instead of once each (Modern Warfare 2: 21 ms/s of lock waits for a view with nothing to protect) | host-checked (`tools/check-arming-one-lock.cpp`); console: Modern Warfare 2, Battlefield 3 |
 
 ## Comparison with the official executable
 
