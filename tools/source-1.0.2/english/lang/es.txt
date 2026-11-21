@@ -76,6 +76,7 @@ Change\sgame = Cambiar\sde\sjuego
 Choose\sa\sgame = Elige\sun\sjuego
 Choose\sa\sgamertag:\sup\sto\s15\sletters\sand\snumbers,\sstarting\swith\sa\sletter. = Elige\sun\sgamertag:\shasta\s15\sletras\sy\snúmeros,\scomenzando\scon\suna\sletra.
 Choose\sfolder = Elegir\scarpeta
+Choose\sthe\sdisc = Elegir\sel\sdisco
 Choose\sthe\sprofile\sfor\sthis\sgame. = Elige\sel\sperfil\spara\seste\sjuego.
 Clear = Limpiar
 Close = Cerrar
@@ -128,7 +129,9 @@ Delete\sletters\sfrom\sthe\ssearch\sor\schange\sthe\sfilter\swith\sL1\sand\sR1. 
 Depth\sprecision = Precisión\sde\sla\sprofundidad
 Destination\sexists\sor\scannot\sbe\spublished. = El\sdestino\sya\sexiste\so\sno\spermite\sfinalizar\sla\sinstalación.
 Detailed\slogs = Registros\sdetallados
+Disc = Disco
 Disc\s%u = Disco\s%u
+Disc\s%u\sof\s%u = Disco\s%u\sde\s%u
 Disconnected\sor\sunavailable = Desconectada\so\sno\sdisponible
 Dithers\sthe\soutput\sso\sskies\sand\sshadows\sdo\snot\sshow\sbands. = Mezcla\slos\scolores\sen\sla\ssalida\spara\sque\sel\scielo\sy\slas\ssombras\sno\sformen\sfranjas.
 Done = Hecho

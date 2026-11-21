@@ -94,6 +94,7 @@ checks=(
   check-draw-lock-deferred.cpp     # fix 86
   check-unwatched-chunk.cpp        # fix 87
   check-boost-presets.cpp          # fix 95
+  check-multidisc-library.cpp      # fix 89
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -105,6 +106,7 @@ declare -A arguments=(
   [check-phone-qr-panel.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-measure-10s.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-library-disc.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-multidisc-library.cpp]="$repo/tools/source-1.0.2/english/lang"
 )
 # The fix each of these checks belongs to: when a test build leaves that fix out
 # (assemble.py --skip-fix, SOURCES.json fixes_skipped) its check is not run.
@@ -152,6 +154,7 @@ declare -A fix_of=(
   [check-draw-lock-deferred.cpp]=86
   [check-unwatched-chunk.cpp]=87
   [check-boost-presets.cpp]=95
+  [check-multidisc-library.cpp]=89
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
