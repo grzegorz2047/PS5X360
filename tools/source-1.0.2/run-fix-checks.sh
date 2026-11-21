@@ -98,6 +98,8 @@ checks=(
   check-boost-presets.cpp          # fix 95
   check-event-writes.cpp           # fix 96
   check-timer-apc.cpp              # fix 97
+  check-readback-repeat.cpp        # fix 91
+  check-readback-keys.cpp          # fix 91 (diagnostic)
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -161,6 +163,8 @@ declare -A fix_of=(
   [check-boost-presets.cpp]=95
   [check-event-writes.cpp]=96
   [check-timer-apc.cpp]=97
+  [check-readback-repeat.cpp]=91
+  [check-readback-keys.cpp]=91
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
