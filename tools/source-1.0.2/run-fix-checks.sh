@@ -93,9 +93,9 @@ checks=(
   check-default-app-relaunch.cpp   # fix 85
   check-draw-lock-deferred.cpp     # fix 86
   check-unwatched-chunk.cpp        # fix 87
-  check-boost-presets.cpp          # fix 95
-  check-multidisc-library.cpp      # fix 89
   check-global-lock-callers.cpp    # fix 88
+  check-multidisc-library.cpp      # fix 89
+  check-boost-presets.cpp          # fix 95
   check-event-writes.cpp           # fix 96
   check-timer-apc.cpp              # fix 97
 )
@@ -156,9 +156,9 @@ declare -A fix_of=(
   [check-default-app-relaunch.cpp]=85
   [check-draw-lock-deferred.cpp]=86
   [check-unwatched-chunk.cpp]=87
-  [check-boost-presets.cpp]=95
-  [check-multidisc-library.cpp]=89
   [check-global-lock-callers.cpp]=88
+  [check-multidisc-library.cpp]=89
+  [check-boost-presets.cpp]=95
   [check-event-writes.cpp]=96
   [check-timer-apc.cpp]=97
 )
