@@ -124,7 +124,7 @@ void CheckTree() {
                            "notice::DotAlpha(dot, 8, seconds)", "if (kind == notice::Kind::none) return;"})
     Expect(Has(overlay, text), std::string("(d) the overlay has ") + text);
   const size_t guide = main.find("new Guide(&drawer, guide,");
-  const size_t made = main.find("new LeavingNoticeOverlay(&drawer);");
+  const size_t made = main.find("new LeavingNoticeOverlay(&drawer);  // fix 93b");
   Expect(guide != std::string::npos && made != std::string::npos && made > guide, "(d) the overlay is made after the guide (drawn over it)");
   const std::string way_out = Between(main, "hang_watch_thread.reset();  // fix 47", "if (!restart && emulator.is_title_open())");
   Expect(Has(way_out, "leaving::Show(restart ? leaving::Kind::menu : leaving::Kind::closing);"),
@@ -142,7 +142,7 @@ void CheckTree() {
          "(d) no checkpoint of the way out blocks the screen");
   Expect(Has(main, "if (restart && xbox360ps5::leaving_notice::Current() != xbox360ps5::leaving_notice::Kind::none) {"),
          "(d) the return's checkpoint is drawn through");
-  const std::string hook = Between(main, "XamModule::restart_hook = [exit_cache, xam] {", "CheckpointExitCache(exit_cache);");
+  const std::string hook = Between(main, "XamModule::restart_hook = [exit_cache, xam", "CheckpointExitCache(exit_cache);");
   Expect(Has(hook, "xbox360ps5::leaving_notice::Show(xam->loader_data().launch_path.empty()"),
          "(d) a title switch shows the notice before its checkpoint");
 }

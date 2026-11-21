@@ -92,6 +92,7 @@ on:
       - 'tools/check-draw-lock-deferred.cpp'
       - 'tools/check-bug-report.cpp'
       - 'tools/check-leaving-notice.cpp'
+      - 'tools/check-boot-notice.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
