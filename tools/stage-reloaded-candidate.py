@@ -1,6 +1,6 @@
 """Stages a PS5X360Reloaded (PPSA83600) console test package from a build-source-1.0.2.yml artifact.
 
-    python -I stage_candidate.py --base <work-dir>/base/PPSA50011 \
+    python -I tools/stage-reloaded-candidate.py --base <work-dir>/base/PPSA50011 \
         --artifact <work-dir>/art-<label> --label <label> \
         --package-repo <checkout of a release/source-* branch> --out <work-dir>/stage-<label>
 

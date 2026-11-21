@@ -5,7 +5,7 @@
 # you must pass --app-closed, i.e. the user told you so.
 #
 #   CONSOLE_IP=<console-ip> FTP_PORT=<ftp-port> PENDRIVE=<pendrive> \
-#     bash upload_image.sh --app-closed <image.ffpkg> <label> [--activate <label-of-current-active>]
+#     bash tools/upload-console-image.sh --app-closed <image.ffpkg> <label> [--activate <label-of-current-active>]
 #
 # Environment: CONSOLE_IP, FTP_PORT, PENDRIVE (e.g. /mnt/usbN) are required; TITLE_ID defaults to
 # PPSA83600; MOUNT_DIR defaults to /mnt/shadowmnt (ShadowMountPlus's mount folder).
@@ -58,11 +58,20 @@ fi
 echo "OK $PENDRIVE/$side sha256 $local_sha"
 
 if [[ -n $activate ]]; then
-  mounted=$(curl -s --max-time 30 --list-only "$ftp$MOUNT_DIR/" | tr -d '\r' | grep -vxE '\.{1,2}' || true)
+  # An unreadable mount folder is not proof that nothing is mounted: refuse then too.
+  listing=$(curl -s --max-time 30 --list-only "$ftp$MOUNT_DIR/") ||
+    die "cannot list $MOUNT_DIR: not swapping (is ShadowMountPlus running? set MOUNT_DIR)"
+  mounted=$(printf '%s\n' "$listing" | tr -d '\r' | grep -vxE '\.{0,2}' || true)
   [[ -z $mounted ]] || die "something is mounted in $MOUNT_DIR ($mounted): not swapping; ask the user to close the app"
-  ftp_cmd -Q "RNFR $PENDRIVE/$TITLE_ID.ffpkg" -Q "RNTO $PENDRIVE/$TITLE_ID.ffpkg.v$old_label"
+  names=$(curl -s --max-time 30 --list-only "$ftp$PENDRIVE/" | tr -d '\r')
+  if printf '%s\n' "$names" | grep -qxF "$TITLE_ID.ffpkg"; then
+    printf '%s\n' "$names" | grep -qxF "$TITLE_ID.ffpkg.v$old_label" &&
+      die "$PENDRIVE/$TITLE_ID.ffpkg.v$old_label already exists: not overwriting it; check the current active image's label"
+    ftp_cmd -Q "RNFR $PENDRIVE/$TITLE_ID.ffpkg" -Q "RNTO $PENDRIVE/$TITLE_ID.ffpkg.v$old_label"
+    echo "previous active image kept as $TITLE_ID.ffpkg.v$old_label"
+  fi
   ftp_cmd -Q "RNFR $PENDRIVE/$side" -Q "RNTO $PENDRIVE/$TITLE_ID.ffpkg"
-  echo "active image is now $label (previous kept as $TITLE_ID.ffpkg.v$old_label)"
+  echo "active image is now $label"
 fi
 
 echo "== $PENDRIVE after:"

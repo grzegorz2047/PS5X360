@@ -3,7 +3,7 @@
 ## Before you start a fix
 
 - [ ] Got the fix number (and, later, the candidate label) from the version line's owner, as an explicit value.
-- [ ] Own worktree, branch `fix/<slug>` cut from the **current** integration branch.
+- [ ] Own worktree, branch `fix/<slug>` cut from the **current** tip of the branch it will merge into (`<line-branch>` or `<integration-branch>`; ask the owner).
 - [ ] Read the shared notes for this area. Nobody else is on the same files.
 - [ ] Have the failing log, with its label confirmed.
 
@@ -55,12 +55,12 @@
 
 - [ ] Working branch build green **and** console confirmed.
 - [ ] `BUILD_VERSION` = `1.0.x_candidate_N` (the next free N in your range, after checking what was already given out).
-- [ ] Merged into the integration branch. Fix rows in number order. Candidate build green.
+- [ ] Merged into `<line-branch>`. Fix rows in number order. Candidate build green.
 - [ ] Image uploaded and labelled. Status updated.
 
 ## Release
 
-- [ ] `release/source-X.Y.Z[.W]` cut from the previous release branch, with the integration branch merged in.
+- [ ] `release/source-X.Y.Z[.W]` cut from `<release-branch>` (the previous release), with `<line-branch>` merged in.
 - [ ] `package.py` `SHIPPED_CONTENT_VERSIONS` has the previous version. `docs/release-notes/vX.Y.Z.md` written in English (player-facing; workarounds with UI labels).
 - [ ] The user said yes to the push. `release-source.yml` green, and the **draft** exists.
 - [ ] Draft checked: target commit, assets (`PPSA83600.zip`, `.ffpkg`, `.ffpfsc`, source tarball, toolchain sources, `SHA256SUMS.txt`), notes, and the version in the ELF.

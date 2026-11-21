@@ -9,6 +9,28 @@ FTP="ftp://<console-ip>:<ftp-port>"
 TREE=<work-dir>/tree          # assembled 1.0.2 tree (~2.6 GB)
 ```
 
+## Find the branches
+
+Never hardcode a branch name from an earlier session or from this skill. Look the branches up:
+```bash
+git fetch -q origin
+# <integration-branch>: the non-glob entry of source-fix-checks.yml's push trigger, read from the
+# most recently updated remote branch that has that workflow (the default branch may not have it)
+for b in $(git branch -r --sort=-committerdate --format='%(refname:short)' | grep -v HEAD | head -20); do
+  git show "$b:.github/workflows/source-fix-checks.yml" 2>/dev/null | sed -n '/^  push:/,/paths:/p' \
+    | grep -m1 branches && echo "  (read from $b)" && break
+done
+# <release-branch>: the highest release/source-* (version sort, hotfixes included)
+git branch -r --list 'origin/release/source-*' --sort=-v:refname | head -1
+# the repository's default branch (docs landing page; it does not carry the patch stack)
+gh repo view $REPO --json defaultBranchRef --jq .defaultBranchRef.name
+# candidates for <line-branch>: recent combined branches. Confirm with the line's owner or the shared notes.
+git branch -r --sort=-committerdate | head -15
+# which version a branch builds: its label
+git show origin/<branch>:tools/source-1.0.2/BUILD_VERSION
+```
+When two sessions disagree about a branch, the line's owner decides.
+
 ## Assemble the source tree
 
 ```bash
@@ -125,16 +147,19 @@ grep -aoE 'PS5X360Reloaded v[0-9][0-9A-Za-z._-]*' <work-dir>/art-<label>/src102-
 ## Stage a test package
 
 ```bash
-python -I .claude/skills/emulator-agent-workflow/scripts/stage_candidate.py \
+git worktree add <work-dir>/release-tools origin/<release-branch>     # once; refresh with git -C ... checkout
+python -I tools/stage-reloaded-candidate.py \
   --base <work-dir>/base/PPSA50011 \        # unpacked official v1.0.2 package (the user's copy)
   --artifact <work-dir>/art-<label> \
   --label <label> \
-  --package-repo <checkout of the latest release/source-* branch> \
+  --package-repo <work-dir>/release-tools \
   --out <work-dir>/stage-<label>
 ```
 It refuses an eboot without the label, or one that still carries the official label. It also
-refuses an artifact without exactly 16 language files, and it prints the stage and base sizes
-for you to compare.
+refuses an artifact without exactly 16 language files, refuses when there is too little free
+space, and stops when the stage's size or file count is far from the base's.
+`param.json`'s `contentVersion` comes from the label (`1.0.5-work-fix91e` → `1.0.5`). A test of
+a hotfix line needs `--content-version` above every shipped version (e.g. `1.0.4.2`).
 
 ## UFS2 image
 
@@ -152,7 +177,18 @@ DOTNET_ROLL_FORWARD=Major dotnet <work-dir>/UFS2Tool/.build/UFS2Tool.dll newfs -
 
 ## FTP on the console
 
-`scripts/upload_image.sh` wraps the steps below with the safety checks. By hand:
+The tool (one image, only after the user said the app is closed or idle):
+```bash
+CONSOLE_IP=<console-ip> FTP_PORT=<ftp-port> PENDRIVE=<pendrive> \
+  bash tools/upload-console-image.sh --app-closed <work-dir>/PPSA83600-<label>.ffpkg <label>
+# also make it the active image (only swaps when nothing is mounted):
+CONSOLE_IP=<console-ip> FTP_PORT=<ftp-port> PENDRIVE=<pendrive> \
+  bash tools/upload-console-image.sh --app-closed <image> <label> --activate <label of the current active image>
+```
+It lists the pendrive first and refuses an existing name. It deletes a partial file at once
+when an upload fails (curl 55 = pendrive full) and verifies SHA-256 by downloading the file back.
+
+By hand:
 ```bash
 curl -s --list-only "$FTP<pendrive>/"                           # names
 curl -s "$FTP<pendrive>/" | grep -i ppsa                        # sizes (spot partial files)
@@ -232,8 +268,8 @@ look at it yourself (a 4K shot is about 12 MB; crop the region of interest when 
 ## Releases
 
 ```bash
-git switch -c release/source-X.Y.Z origin/release/source-<previous>     # in its own worktree
-# merge the integration branch; add the previous version to package.py SHIPPED_CONTENT_VERSIONS;
+git worktree add -b release/source-X.Y.Z <work-dir>/rel-X.Y.Z origin/<release-branch>   # the previous release
+# merge <line-branch>; add the previous version to package.py SHIPPED_CONTENT_VERSIONS;
 # write docs/release-notes/vX.Y.Z.md (English); commit; push (with the user's yes)
 gh run list --repo $REPO --workflow release-source.yml --branch release/source-X.Y.Z --limit 1
 gh release view vX.Y.Z --repo $REPO --json isDraft,targetCommitish,assets --jq '.isDraft, .targetCommitish, (.assets[].name)'
