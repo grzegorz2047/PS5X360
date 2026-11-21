@@ -95,6 +95,7 @@ on:
       - 'tools/check-multidisc-library.cpp'
       - 'tools/check-global-lock-callers.cpp'
       - 'tools/check-event-writes.cpp'
+      - 'tools/check-timer-apc.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
