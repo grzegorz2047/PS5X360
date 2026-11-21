@@ -88,6 +88,7 @@ checks=(
   check-enumerator-release.cpp     # fix 80
   check-enum-trace.cpp             # fix 81
   check-enumerator-buffers.cpp     # fix 82
+  check-default-app-relaunch.cpp   # fix 85
   check-draw-lock-deferred.cpp     # fix 86
 )
 declare -A arguments=(
@@ -141,6 +142,7 @@ declare -A fix_of=(
   [check-enumerator-release.cpp]=80
   [check-enum-trace.cpp]=81
   [check-enumerator-buffers.cpp]=82
+  [check-default-app-relaunch.cpp]=85
   [check-draw-lock-deferred.cpp]=86
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
