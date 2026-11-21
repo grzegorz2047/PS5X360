@@ -80,6 +80,7 @@ on:
       - 'tools/check-enumerator-release.cpp'
       - 'tools/check-enumerator-buffers.cpp'
       - 'tools/check-default-app-relaunch.cpp'
+      - 'tools/check-timer-apc.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
