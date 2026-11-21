@@ -85,6 +85,7 @@ checks=(
   check-wait-reg.cpp               # fix 77
   check-hot-memory.cpp             # fix 78
   check-system-heap.cpp            # fix 79
+  check-enumerator-release.cpp     # fix 80
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -134,6 +135,7 @@ declare -A fix_of=(
   [check-wait-reg.cpp]=77
   [check-hot-memory.cpp]=78
   [check-system-heap.cpp]=79
+  [check-enumerator-release.cpp]=80
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))

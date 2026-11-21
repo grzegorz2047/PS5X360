@@ -213,6 +213,7 @@ also listed here.
 | 77 (`77-wait-reg-and-sampling`) | a diagnostic for 1.0.5: draws and packets sampled at random (a repeating ring fooled the every-n-th counter: Tekken's `WAIT_REG_MEM` over 1,000 ms/s, Battlefield 3's packets near 0); how long the GPU thread polls and sleeps in `WAIT_REG_MEM` | host-checked (`tools/check-wait-reg.cpp`); console: next 1.0.5 perf candidate |
 | 78 (`78-hot-memory`) | a diagnostic for 1.0.5: the 64 KiB blocks of memory the write watches are armed on most (Modern Warfare 2: 6,000 protection calls a second), their write notices and the kind of GPU request (vertex data, memexport, textures, other) | host-checked (`tools/check-hot-memory.cpp`); console: next 1.0.5 perf candidate |
 | 79 (`79-system-heap-holders`) | a diagnostic: which emulator code keeps allocating in the guest's 4 KiB heap (Battlefield 3 runs out of it after about 14 minutes on 1.0.4-based builds) | host-checked (`tools/check-system-heap.cpp`); console: next 1.0.5 candidate, Battlefield 3 |
+| 80 (`80-enumerator-release`) | Battlefield 3 ran out of the guest's 4 KiB heap after about 14 minutes (an enumerator and its buffer kept 15 times a second): `ObDereferenceObject` now finds an enumerator by its address, so the reference `XamGetPrivateEnumStructureFromHandle` took is given back and the game's close frees it | host-checked (`tools/check-enumerator-release.cpp`); console: `1.0.4_candidate_33` / `1.0.5_candidate_56`, Battlefield 3 |
 
 ## Comparison with the official executable
 
