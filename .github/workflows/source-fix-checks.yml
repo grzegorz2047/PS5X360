@@ -91,6 +91,7 @@ on:
       - 'tools/check-default-app-relaunch.cpp'
       - 'tools/check-draw-lock-deferred.cpp'
       - 'tools/check-bug-report.cpp'
+      - 'tools/check-leaving-notice.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
