@@ -84,6 +84,7 @@ on:
       - 'tools/check-hot-memory.cpp'
       - 'tools/check-system-heap.cpp'
       - 'tools/check-enumerator-release.cpp'
+      - 'tools/check-enum-trace.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
