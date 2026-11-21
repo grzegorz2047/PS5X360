@@ -1,110 +1,163 @@
 diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/readback_slots.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/readback_slots.h
-index b4ac0ad..c61cde1 100644
+index b4ac0ad..8c77f96 100644
 --- a/.deps/xenia-canary/src/xenia/gpu/vulkan/readback_slots.h
 +++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/readback_slots.h
-@@ -90,6 +90,46 @@ inline uint32_t ChooseWrite(const uint64_t* submissions,
+@@ -90,6 +90,77 @@ inline uint32_t ChooseWrite(const uint64_t* submissions,
    return oldest < 0 ? 0 : uint32_t(oldest);
  }
  
-+// Fix 91: the fast mode hands a resolve's copy over at the next resolve of its key, which is the
-+// previous frame's picture for a key resolved every frame, but for a key resolved a few times and
-+// then left, the last copy is never handed over. Tekken Tag Tournament 2 builds its costume
-+// colours as a match loads by resolving one 240 KiB key (0FE7C000) three times over a few
-+// frames and reads them: with the fast mode it got each one's predecessor (zeros first), so King
-+// and Bob came out cyan and blue (issue 14), right with the full mode. So every resolve of a key
-+// in the kFreshFrames frames from its first resolve after a pause (none for more than
-+// kIdleFrames frames, or a key never resolved) gets its own copy, waited for; then the key is
-+// fast. A key resolved every frame pays for kFreshFrames frames of waits when it starts (a
-+// fight's first third of a second). Frame 0 means "never" (frames count from 1).
-+// Tried on the console: "again in the same frame" (1.0.5-work-fix91) missed Tekken's resolves,
-+// which are frames apart, and fired all through its fights (keys resolved twice a frame: slow
-+// motion); "the first 4 resolves after a pause" (1.0.5-work-fix91b) fixed the third logged
-+// costume copy (175,476 bytes, as in the full mode) and still left the colours wrong: the log
-+// shows only 3 resolves of a length, the costumes take more.
-+constexpr uint64_t kIdleFrames = 30;
-+constexpr uint64_t kFreshFrames = 20;
-+struct FreshRun {
-+  uint64_t start = 0;     // the frame of the run's first resolve
-+  uint32_t own = 0;       // resolves given their own copy in this run
-+  bool reported = true;   // the run's count was handed to the log
-+};
-+// Whether this resolve gets its own copy. *ended (if given) receives the count of own copies of
-+// a run that has just ended (its window passed, or a new run started after a pause), else 0.
-+inline bool OwnCopyAfterPause(uint64_t previous_use_frame, uint64_t frame, FreshRun& run,
-+                              uint32_t* ended = nullptr) {
-+  if (ended) *ended = 0;
-+  if (!previous_use_frame || frame - previous_use_frame > kIdleFrames) {
-+    if (ended && !run.reported) *ended = run.own;
-+    run = FreshRun{frame, 0, false};
++// Fix 91: the fast mode gives a resolve the copy one resolve late, which is the previous frame's
++// picture only for a key resolved once a frame. Tekken Tag Tournament 2 resolves several keys
++// twice a frame through its fights (two passes drawn into the same place: 10020000 and
++// 0FD7C000 of 4096 bytes, 0D0F0000 of 3 MiB, 0E338000 and 0E740000 of 4 MiB, ...), so each pass
++// got the other pass's picture, and King's yellow and purple and Bob's clothes came out cyan and
++// blue (issue 14); the full mode, which gives every resolve its own copy, was right and about
++// 10 fps slower. Each copy now carries its pass (the n-th resolve of the key in its frame, from
++// 1) and frame, and a resolve gets the newest copy of its own pass from an earlier frame: still
++// one frame late, never another pass's. A key resolved once a frame gets exactly what it got
++// before. A pass with no earlier copy yet (a key's first frame) gets its own copy, waited for as
++// on a key's first resolve.
++// (Tried on the console before: giving the same frame's repeats their own copy (1.0.5-work-
++// fix91: the first pass still got the other one's; waits all through the fights), and every
++// resolve of a key in its first frames after a pause (1.0.5-work-fix91b/c: the costume key
++// 0FE7C000 got byte-for-byte the full mode's copies, and the colours stayed wrong).)
++
++// The newest slot other than `exclude` holding a copy of pass `pass`, of at least `length`
++// bytes, made in a frame before `frame`, completed by `completed` if `completed_only`. -1 if none.
++inline int ChooseRead(const uint64_t* submissions, const uint32_t* valid_sizes,
++                      const uint32_t* passes, const uint64_t* frames, uint32_t count,
++                      int exclude, uint32_t length, uint32_t pass, uint64_t frame,
++                      uint64_t completed, bool completed_only) {
++  int best = -1;
++  for (uint32_t i = 0; i < count; ++i) {
++    if (int(i) == exclude || !submissions[i] || valid_sizes[i] < length || passes[i] != pass ||
++        frames[i] >= frame || (completed_only && submissions[i] > completed)) {
++      continue;
++    }
++    if (best < 0 || submissions[i] > submissions[best]) {
++      best = int(i);
++    }
 +  }
-+  if (frame - run.start <= kFreshFrames) {
-+    ++run.own;
-+    return true;
++  return best;
++}
++
++// The slot this copy goes to: never the newest copy of any pass (each is kept for its pass's
++// next resolve): an unused slot, else the oldest copy not kept; when every slot is some pass's
++// newest (more passes than slots), the oldest.
++inline uint32_t ChooseWrite(const uint64_t* submissions, const uint32_t* valid_sizes,
++                            const uint32_t* passes, uint32_t count, uint32_t length) {
++  bool kept[16] = {};
++  for (uint32_t i = 0; i < count && i < 16; ++i) {
++    if (!submissions[i] || valid_sizes[i] < length) {
++      continue;
++    }
++    bool newest_of_pass = true;
++    for (uint32_t j = 0; j < count; ++j) {
++      if (j != i && submissions[j] && valid_sizes[j] >= length && passes[j] == passes[i] &&
++          submissions[j] > submissions[i]) {
++        newest_of_pass = false;
++        break;
++      }
++    }
++    kept[i] = newest_of_pass;
 +  }
-+  if (ended && !run.reported) *ended = run.own;
-+  run.reported = true;
-+  return false;
++  int unused = -1, oldest_free = -1, oldest = -1;
++  for (uint32_t i = 0; i < count && i < 16; ++i) {
++    if (!submissions[i]) {
++      if (unused < 0) unused = int(i);
++      continue;
++    }
++    if (oldest < 0 || submissions[i] < submissions[oldest]) oldest = int(i);
++    if (!kept[i] && (oldest_free < 0 || submissions[i] < submissions[oldest_free])) {
++      oldest_free = int(i);
++    }
++  }
++  if (unused >= 0) return uint32_t(unused);
++  if (oldest_free >= 0) return uint32_t(oldest_free);
++  return oldest < 0 ? 0 : uint32_t(oldest);
 +}
 +
  }  // namespace readback_slots
  }  // namespace vulkan
  }  // namespace gpu
 diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
-index 1f508ca..24c4012 100644
+index 1f508ca..2c5db46 100644
 --- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
 +++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
-@@ -4136,6 +4136,7 @@ bool VulkanCommandProcessor::IssueCopy() {
-     uint64_t resolve_key =
-         MakeReadbackResolveKey(written_address, written_length);
-     ReadbackBuffer& rb = readback_buffers_[resolve_key];
-+    const uint64_t previous_use_frame = rb.last_used_frame;  // fix 91
-     rb.last_used_frame = frame_current_;
- 
-     // Xbox360PS5 (fix 35): an unused or the oldest slot, never the newest one
-@@ -4252,6 +4253,34 @@ bool VulkanCommandProcessor::IssueCopy() {
-     bool read_cache_miss = readback_mode == ReadbackResolveMode::kFast &&
-                            (newest_copy < 0 ||
-                             rb.buffers[read_index] == VK_NULL_HANDLE);
-+    // Fix 91: every resolve of a key in the first frames after a pause gets its own copy, waited
-+    // for as on a key's first resolve (readback_slots.h, OwnCopyAfterPause): a key resolved a few
-+    // times and then left (Tekken Tag Tournament 2's costume colours, issue 14) never got its
-+    // last copies. The automatic copy (readback off) still never waits.
-+    if (readback_mode == ReadbackResolveMode::kFast && !auto_readback) {
-+      uint32_t ended = 0;
-+      const bool own = readback_slots::OwnCopyAfterPause(previous_use_frame, frame_current_,
-+                                                         rb.fresh, &ended);
-+      static uint32_t runs_shown = 0, small_shown = 0;
-+      if (ended && runs_shown < 96) {
-+        ++runs_shown;
+@@ -4144,9 +4144,28 @@ bool VulkanCommandProcessor::IssueCopy() {
+     const uint64_t readback_completed =
+         auto_readback ? completion_timeline_.UpdateAndGetCompletedSubmission()
+                       : GetCompletedSubmission();
++    // Fix 91: this resolve's pass, the n-th resolve of the key in this frame; it gets the
++    // previous frame's copy of the same pass (readback_slots.h), never another pass's.
++    if (rb.pass_frame != frame_current_) {
++      rb.pass_frame = frame_current_;
++      rb.pass = 0;
++    }
++    const uint32_t pass = ++rb.pass;
++    if (pass > rb.most_passes) {
++      rb.most_passes = pass;
++      static uint32_t passes_shown = 0;
++      if (passes_shown < 48) {
++        ++passes_shown;
 +        XELOGW(
-+            "Readback: the key {:08X} ({} bytes) had {} resolves given their own copy in its "
-+            "first {} frames after a pause (fix 91)",
-+            written_address, readback_length, ended, readback_slots::kFreshFrames);
-+      }
-+      if (own && newest_copy >= 0) {
-+        read_cache_miss = true;
-+        // The small keys one by one (a costume's 240 KiB), so their count shows in the log.
-+        if (readback_length <= kAutoReadbackMaxLength && small_shown < 64) {
-+          ++small_shown;
-+          XELOGW(
-+              "Readback: resolve {} of the key {:08X} ({} bytes) in its first frames after a "
-+              "pause: the fast mode gives this copy (fix 91)",
-+              rb.fresh.own, written_address, readback_length);
-+        }
++            "Readback: the key {:08X} ({} bytes) is resolved {} times in a frame: each resolve "
++            "gets the previous frame's copy of its own pass (fix 91)",
++            written_address, readback_length, pass);
 +      }
 +    }
++    // Every pass's newest copy is kept for its next resolve, done or not.
+     uint32_t write_index = readback_slots::ChooseWrite(
+-        rb.submissions, rb.valid_sizes, readback_slots::kCount,
+-        readback_length, readback_completed);
++        rb.submissions, rb.valid_sizes, rb.passes, readback_slots::kCount,
++        readback_length);
+     uint32_t size = AlignReadbackBufferSize(readback_length);
  
-     if (is_scaled) {
-       // Scaled path: downscale on the GPU, then copy the 1x data to the
+     // Allocate/resize write buffer if needed
+@@ -4233,6 +4252,8 @@ bool VulkanCommandProcessor::IssueCopy() {
+       rb.sizes[write_index] = size;
+       rb.valid_sizes[write_index] = 0;
+       rb.submissions[write_index] = 0;
++      rb.passes[write_index] = 0;  // fix 91
++      rb.frames[write_index] = 0;
+       rb.host_coherent[write_index] =
+           (vulkan_device->memory_types().host_coherent &
+            (uint32_t(1) << memory_type_index)) != 0;
+@@ -4243,8 +4264,10 @@ bool VulkanCommandProcessor::IssueCopy() {
+     const int newest_copy =
+         readback_mode == ReadbackResolveMode::kFast
+             ? readback_slots::ChooseRead(rb.submissions, rb.valid_sizes,
++                                         rb.passes, rb.frames,
+                                          readback_slots::kCount,
+                                          int(write_index), readback_length,
++                                         pass, frame_current_,
+                                          readback_completed, auto_readback)
+             : -1;
+     uint32_t read_index =
+@@ -4481,6 +4504,8 @@ bool VulkanCommandProcessor::IssueCopy() {
+     // Stamp after the copy: scaled-buffer growth may end a submission above.
+     rb.submissions[write_index] = GetCurrentSubmission();
+     rb.valid_sizes[write_index] = readback_length;
++    rb.passes[write_index] = pass;  // fix 91
++    rb.frames[write_index] = frame_current_;
+ 
+     if (readback_mode != ReadbackResolveMode::kFast) {
+       // Wait for GPU to finish (accurate but slow)
 diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
-index d393ff6..8b3f5d5 100644
+index d393ff6..9f94a3e 100644
 --- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
 +++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
-@@ -908,6 +908,7 @@ class VulkanCommandProcessor final : public CommandProcessor {
+@@ -908,6 +908,12 @@ class VulkanCommandProcessor final : public CommandProcessor {
      uint64_t submissions[readback_slots::kCount] = {};
      bool host_coherent[readback_slots::kCount] = {};
      uint64_t last_used_frame = 0;
-+    readback_slots::FreshRun fresh;  // fix 91: the key's run since its pause
++    // Fix 91: each copy's pass (the n-th resolve of the key in its frame) and frame; the
++    // pass counter of the current frame; the most passes seen in a frame (for the log).
++    uint32_t passes[readback_slots::kCount] = {};
++    uint64_t frames[readback_slots::kCount] = {};
++    uint64_t pass_frame = 0;
++    uint32_t pass = 0, most_passes = 1;
    };
    // Map: (written_address << 32 | written_length) -> ReadbackBuffer
    std::unordered_map<uint64_t, ReadbackBuffer> readback_buffers_;
