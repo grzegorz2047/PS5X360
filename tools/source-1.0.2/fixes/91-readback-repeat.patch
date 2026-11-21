@@ -81,10 +81,158 @@ index b4ac0ad..8c77f96 100644
  }  // namespace vulkan
  }  // namespace gpu
 diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
-index 1f508ca..2c5db46 100644
+index 1f508ca..79ee758 100644
 --- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
 +++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
-@@ -4144,9 +4144,28 @@ bool VulkanCommandProcessor::IssueCopy() {
+@@ -12,6 +12,13 @@
+ #include "xbox360ps5/gpu_diagnostics.hpp"
+ #include "xbox360ps5/memexport_loss.hpp"  // fix 48
+ #include "xbox360ps5/app_identity.hpp"  // fix 46: the title's folder
++#include "xbox360ps5/readback_keys.hpp"  // fix 91 diagnostic
++#include <sys/stat.h>
++#include <algorithm>
++#include <chrono>
++#include <map>
++#include <string>
++#include <vector>
+ #endif
+ 
+ #include <utility>
+@@ -3918,6 +3925,121 @@ bool AutoReadbackAllowed() {
+   }();
+   return allowed;
+ }
++// Fix 91 diagnostic (issue 14): the readback mode per key from readback-keys.txt
++// (xbox360ps5/readback_keys.hpp), read again when it changes (checked once a second), and the
++// keys in the log: each new one when first seen, and every 30 s the keys of the last 30 s with
++// their counts and the mode they got. Called on the GPU command thread only.
++void ReadbackKeysDiagnostic(uint32_t address, uint32_t length, uint32_t format, uint32_t endian,
++                            bool automatic, ReadbackResolveMode& mode) {
++  namespace rk = xbox360ps5::readback_keys;
++  static rk::Rules rules;
++  static std::string loaded_from;
++  static long long loaded_stamp = -1;
++  static auto checked = std::chrono::steady_clock::time_point();
++  const auto now = std::chrono::steady_clock::now();
++  if (now - checked >= std::chrono::seconds(1)) {
++    checked = now;
++    std::string found;
++    long long stamp = -1;
++    for (const char* path : {XBOX360PS5_DATA_ROOT "/readback-keys.txt",
++                             "/download0/xbox360ps5/readback-keys.txt"}) {
++      struct stat info;
++      if (::stat(path, &info) == 0) {
++        found = path;
++        stamp = (long long)info.st_mtime * 1000003LL + (long long)info.st_size;
++        break;
++      }
++    }
++    if (found != loaded_from || stamp != loaded_stamp) {
++      loaded_from = found;
++      loaded_stamp = stamp;
++      std::string text;
++      if (!found.empty()) {
++        if (FILE* file = std::fopen(found.c_str(), "rb")) {
++          char chunk[4096];
++          size_t got;
++          while ((got = std::fread(chunk, 1, sizeof(chunk), file)) > 0) text.append(chunk, got);
++          std::fclose(file);
++        }
++      }
++      rules = rk::Parse(text);
++      XELOGW(
++          "Readback keys: {}: default {}, {} keys listed, {} lines not understood (fix 91 "
++          "diagnostic)",
++          found.empty() ? std::string("no readback-keys.txt") : found, rk::Name(rules.default_mode),
++          rules.keys.size(), rules.not_understood);
++      for (const rk::Rule& rule : rules.keys) {
++        XELOGW("Readback keys:   {:08X}/{} {}", rule.address,
++               rule.length ? std::to_string(rule.length) : std::string("any"), rk::Name(rule.mode));
++      }
++    }
++  }
++  if (!automatic && length &&
++      (mode == ReadbackResolveMode::kFast || mode == ReadbackResolveMode::kFull)) {
++    const rk::Mode chosen = rk::Lookup(rules, address, length);
++    if (chosen == rk::Mode::kFull) mode = ReadbackResolveMode::kFull;
++    else if (chosen == rk::Mode::kFast) mode = ReadbackResolveMode::kFast;
++  }
++  struct Seen {
++    uint32_t format = 0, endian = 0;
++    uint64_t total = 0, window = 0;
++    ReadbackResolveMode mode = ReadbackResolveMode::kDisabled;
++    bool automatic = false;
++  };
++  static std::map<uint64_t, Seen> seen;
++  static uint32_t new_shown = 0;
++  static auto window_start = now;
++  const uint64_t key = (uint64_t(address) << 32) | length;
++  auto found_key = seen.find(key);
++  if (found_key == seen.end()) {
++    found_key = seen.emplace(key, Seen{}).first;
++    if (new_shown < 400) {
++      ++new_shown;
++      XELOGW(
++          "Readback key: {:08X}/{} bytes, format {}, endian {}, mode {}: first seen (fix 91 "
++          "diagnostic)",
++          address, length, format, endian,
++          automatic                                 ? "automatic"
++          : mode == ReadbackResolveMode::kFull     ? "full"
++          : mode == ReadbackResolveMode::kFast     ? "fast"
++                                                   : "off");
++    }
++  }
++  Seen& s = found_key->second;
++  s.format = format;
++  s.endian = endian;
++  ++s.total;
++  ++s.window;
++  s.mode = mode;
++  s.automatic = automatic;
++  if (now - window_start >= std::chrono::seconds(30)) {
++    window_start = now;
++    std::vector<std::pair<uint64_t, uint64_t>> order;
++    for (const auto& [k, v] : seen)
++      if (v.window) order.emplace_back(v.window, k);
++    std::sort(order.begin(), order.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
++    std::string line;
++    int listed = 0;
++    for (const auto& [count, k] : order) {
++      if (listed == 48) break;
++      const Seen& v = seen[k];
++      char text[96];
++      std::snprintf(text, sizeof(text), "%s%08X/%u f%u e%u x%llu %s", listed % 6 ? "; " : "",
++                    uint32_t(k >> 32), uint32_t(k), v.format, v.endian, (unsigned long long)count,
++                    v.automatic ? "auto"
++                    : v.mode == ReadbackResolveMode::kFull ? "full"
++                    : v.mode == ReadbackResolveMode::kFast ? "fast"
++                                                           : "off");
++      line += text;
++      if (++listed % 6 == 0) {
++        XELOGW("Readback keys, last 30 s: {}", line);
++        line.clear();
++      }
++    }
++    if (!line.empty()) XELOGW("Readback keys, last 30 s: {}", line);
++    for (auto& [k, v] : seen) v.window = 0;
++  }
++}
+ // A folder for the bytes of small resolves (XBOX360PS5_DUMP_RESOLVES), or null.
+ const char* ResolveDumpFolder() {
+ #if XE_PLATFORM_PS5
+@@ -3974,6 +4096,11 @@ bool VulkanCommandProcessor::IssueCopy() {
+   if (auto_readback) {
+     readback_mode = ReadbackResolveMode::kFast;
+   }
++  // Fix 91 diagnostic (issue 14): readback-keys.txt may set this key's mode; the keys go to the log.
++  ReadbackKeysDiagnostic(written_address, written_length,
++                         uint32_t(copy_dest_info.copy_dest_format),
++                         uint32_t(copy_dest_info.copy_dest_endian), auto_readback,
++                         readback_mode);
+   const bool show_resolve = ShowResolve(written_length);
+   const DrawsSinceResolve draws = draws_since_resolve_;
+   draws_since_resolve_ = DrawsSinceResolve();
+@@ -4144,9 +4271,28 @@ bool VulkanCommandProcessor::IssueCopy() {
      const uint64_t readback_completed =
          auto_readback ? completion_timeline_.UpdateAndGetCompletedSubmission()
                        : GetCompletedSubmission();
@@ -115,7 +263,7 @@ index 1f508ca..2c5db46 100644
      uint32_t size = AlignReadbackBufferSize(readback_length);
  
      // Allocate/resize write buffer if needed
-@@ -4233,6 +4252,8 @@ bool VulkanCommandProcessor::IssueCopy() {
+@@ -4233,6 +4379,8 @@ bool VulkanCommandProcessor::IssueCopy() {
        rb.sizes[write_index] = size;
        rb.valid_sizes[write_index] = 0;
        rb.submissions[write_index] = 0;
@@ -124,7 +272,7 @@ index 1f508ca..2c5db46 100644
        rb.host_coherent[write_index] =
            (vulkan_device->memory_types().host_coherent &
             (uint32_t(1) << memory_type_index)) != 0;
-@@ -4243,8 +4264,10 @@ bool VulkanCommandProcessor::IssueCopy() {
+@@ -4243,8 +4391,10 @@ bool VulkanCommandProcessor::IssueCopy() {
      const int newest_copy =
          readback_mode == ReadbackResolveMode::kFast
              ? readback_slots::ChooseRead(rb.submissions, rb.valid_sizes,
@@ -135,7 +283,7 @@ index 1f508ca..2c5db46 100644
                                           readback_completed, auto_readback)
              : -1;
      uint32_t read_index =
-@@ -4481,6 +4504,8 @@ bool VulkanCommandProcessor::IssueCopy() {
+@@ -4481,6 +4631,8 @@ bool VulkanCommandProcessor::IssueCopy() {
      // Stamp after the copy: scaled-buffer growth may end a submission above.
      rb.submissions[write_index] = GetCurrentSubmission();
      rb.valid_sizes[write_index] = readback_length;
@@ -161,3 +309,118 @@ index d393ff6..9f94a3e 100644
    };
    // Map: (written_address << 32 | written_length) -> ReadbackBuffer
    std::unordered_map<uint64_t, ReadbackBuffer> readback_buffers_;
+diff --git a/include/xbox360ps5/readback_keys.hpp b/include/xbox360ps5/readback_keys.hpp
+new file mode 100644
+index 0000000..7c381ea
+--- /dev/null
++++ b/include/xbox360ps5/readback_keys.hpp
+@@ -0,0 +1,109 @@
++// SPDX-License-Identifier: MIT
++// Fix 91 diagnostic (issue 14, 1.0.5-work-fix91e): the resolve readback mode per key, from a file
++// the user writes over FTP between runs, for finding which resolve Tekken Tag Tournament 2's
++// colours need without a build per guess (four rules tried on the console, none right).
++//
++// readback-keys.txt (the title folder, or /download0/xbox360ps5/), read again when it changes:
++//   # a comment
++//   default full            every key not listed below: full (or fast); without it, the setting
++//   0E338000 fast           one address, any length
++//   0FE7C000/245760 full    one address and length (bytes, decimal, or hex with 0x)
++// A key's line with a length wins over its address-only line, which wins over the default. Only
++// the fast and full settings are changed (readback off, and its automatic copy, stay as they are).
++#pragma once
++#include <cstdint>
++#include <cstdlib>
++#include <sstream>
++#include <string>
++#include <vector>
++
++namespace xbox360ps5::readback_keys {
++
++enum class Mode { kAsSet, kFast, kFull };
++
++struct Rule {
++  uint32_t address = 0;
++  uint32_t length = 0;  // 0: any length
++  Mode mode = Mode::kAsSet;
++};
++struct Rules {
++  Mode default_mode = Mode::kAsSet;
++  std::vector<Rule> keys;
++  int not_understood = 0;  // lines that were neither empty, a comment, nor a rule
++};
++
++inline bool ParseMode(const std::string& word, Mode* mode) {
++  if (word == "full") *mode = Mode::kFull;
++  else if (word == "fast") *mode = Mode::kFast;
++  else return false;
++  return true;
++}
++
++inline bool ParseNumber(const std::string& text, int base, uint32_t* value) {
++  if (text.empty()) return false;
++  char* end = nullptr;
++  const unsigned long long n = std::strtoull(text.c_str(), &end, base);
++  if (!end || *end || n > 0xFFFFFFFFull) return false;
++  *value = uint32_t(n);
++  return true;
++}
++
++inline Rules Parse(const std::string& text) {
++  Rules rules;
++  std::istringstream lines(text);
++  std::string line;
++  while (std::getline(lines, line)) {
++    const size_t hash = line.find('#');
++    if (hash != std::string::npos) line.resize(hash);
++    std::istringstream words(line);
++    std::string first, second, extra;
++    if (!(words >> first)) continue;  // empty
++    Mode mode;
++    if (!(words >> second) || (words >> extra) || !ParseMode(second, &mode)) {
++      ++rules.not_understood;
++      continue;
++    }
++    if (first == "default") {
++      rules.default_mode = mode;
++      continue;
++    }
++    Rule rule;
++    rule.mode = mode;
++    const size_t slash = first.find('/');
++    const std::string address = first.substr(0, slash);
++    bool ok = ParseNumber(address.rfind("0x", 0) == 0 ? address.substr(2) : address, 16, &rule.address);
++    if (ok && slash != std::string::npos) {
++      const std::string length = first.substr(slash + 1);
++      ok = length.rfind("0x", 0) == 0 ? ParseNumber(length.substr(2), 16, &rule.length)
++                                      : ParseNumber(length, 10, &rule.length);
++      ok = ok && rule.length;
++    }
++    if (!ok) {
++      ++rules.not_understood;
++      continue;
++    }
++    rules.keys.push_back(rule);
++  }
++  return rules;
++}
++
++// The mode for a key: its address-and-length line, else its address line, else the default.
++inline Mode Lookup(const Rules& rules, uint32_t address, uint32_t length) {
++  Mode by_address = Mode::kAsSet;
++  bool any_address = false;
++  for (const Rule& rule : rules.keys) {
++    if (rule.address != address) continue;
++    if (rule.length == length) return rule.mode;
++    if (!rule.length) {
++      by_address = rule.mode;
++      any_address = true;
++    }
++  }
++  return any_address ? by_address : rules.default_mode;
++}
++
++inline const char* Name(Mode mode) {
++  return mode == Mode::kFull ? "full" : mode == Mode::kFast ? "fast" : "as set";
++}
++
++}  // namespace xbox360ps5::readback_keys

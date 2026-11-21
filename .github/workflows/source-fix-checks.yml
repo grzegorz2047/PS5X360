@@ -87,6 +87,7 @@ on:
       - 'tools/check-enum-trace.cpp'
       - 'tools/check-enumerator-buffers.cpp'
       - 'tools/check-readback-repeat.cpp'
+      - 'tools/check-readback-keys.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

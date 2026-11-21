@@ -89,6 +89,7 @@ checks=(
   check-enum-trace.cpp             # fix 81
   check-enumerator-buffers.cpp     # fix 82
   check-readback-repeat.cpp        # fix 91
+  check-readback-keys.cpp          # fix 91 (diagnostic)
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -142,6 +143,7 @@ declare -A fix_of=(
   [check-enum-trace.cpp]=81
   [check-enumerator-buffers.cpp]=82
   [check-readback-repeat.cpp]=91
+  [check-readback-keys.cpp]=91
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
