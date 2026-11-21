@@ -12,10 +12,10 @@ index 17cbe05..a75d1b2 100644
    int xma_inline = 0;           // XMA is decoded without a thread of its own.
 diff --git a/include/xbox360ps5/phone_qr_panel.hpp b/include/xbox360ps5/phone_qr_panel.hpp
 new file mode 100644
-index 0000000..500ae64
+index 0000000..60d50a6
 --- /dev/null
 +++ b/include/xbox360ps5/phone_qr_panel.hpp
-@@ -0,0 +1,64 @@
+@@ -0,0 +1,71 @@
 +// SPDX-License-Identifier: MIT
 +// Fix 63: the motion panel over a running game shows how to connect a phone while none is.
 +//
@@ -65,6 +65,13 @@ index 0000000..500ae64
 +// "Motion panel: Top left": the same box moved to x 24-374 (below the FPS counter, which ends
 +// at y 94), for games that draw their own camera view at the top right (Dragon Ball Z).
 +constexpr float kQrPanelLeftShift = 24 - 1550;
++// 1.0.5_candidate_10: the panel's skeleton is a mirror, as the player expects: their left hand on
++// the left. The phone's (and the game's) X grows towards the player's left, which the panel drew
++// on the right, as a camera sees them ("my left should be the skeleton's left", DBZ on
++// 1.0.5_candidate_8). Only the drawing turns; the game gets the skeleton as before.
++inline float PanelMirrorX(float centre, float joint_x, float pixels_per_metre) {
++  return centre - joint_x * pixels_per_metre;
++}
 +
 +// Whole pixels per QR module on a card of `card` units at `scale` (8 units of white margin
 +// each side); 0 when the code does not fit.
@@ -81,7 +88,7 @@ index 0000000..500ae64
 +
 +}  // namespace xbox360ps5::motion
 diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
-index 95e86eb..ef3bec2 100644
+index 95e86eb..afcf7ab 100644
 --- a/src/canary_game_main.cpp
 +++ b/src/canary_game_main.cpp
 @@ -135,6 +135,11 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
@@ -171,7 +178,7 @@ index 95e86eb..ef3bec2 100644
 +      if (pose.tracked && hands.valid) DrawTargetArms(draw, scale, pose, hands);
        if (pose.tracked) {
 -        const auto point = [&](int n) { return ImVec2((1725 + pose.joints[n].x*170)*scale,(405-pose.joints[n].y*170)*scale); };
-+        const auto point = [&](int n) { return ImVec2((1725 + shift_ + pose.joints[n].x*kPanelPixelsPerMetre)*scale,(405-pose.joints[n].y*kPanelPixelsPerMetre)*scale); };
++        const auto point = [&](int n) { return ImVec2(xbox360ps5::motion::PanelMirrorX(1725 + shift_, pose.joints[n].x, kPanelPixelsPerMetre)*scale,(405-pose.joints[n].y*kPanelPixelsPerMetre)*scale); };
          const int bones[][2]={{0,1},{1,2},{2,3},{2,4},{4,5},{5,6},{6,7},{2,8},{8,9},{9,10},{10,11},{0,12},{12,13},{13,14},{14,15},{0,16},{16,17},{17,18},{18,19}};
 -        draw->PushClipRect(ImVec2(1550*scale,170*scale),ImVec2(1900*scale,640*scale),true);
 +        draw->PushClipRect(ImVec2((1550 + shift_)*scale,185*scale),ImVec2((1900 + shift_)*scale,hands.valid ? 565*scale : 640*scale),true);
@@ -184,7 +191,7 @@ index 95e86eb..ef3bec2 100644
      }
      // Fix 45: after a guest crash the game does not come back; the notice says so and how to
      // leave it, in place of "no new frames" (the FPS counter alone showed 0).
-@@ -435,11 +483,117 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
+@@ -435,11 +483,118 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
      list->AddText(ImGui::GetFont(), 22 * scale, ImVec2(36 * scale, 65 * scale), IM_COL32(220, 230, 240, 255), output_text);
    }
   private:
@@ -242,11 +249,12 @@ index 95e86eb..ef3bec2 100644
 +      if (shoulder.confidence < .5f) continue;
 +      const float length = std::max(0.55f, xbox360ps5::motion::PhoneArmLength(pose, right));
 +      const auto& hand = right ? hands.right : hands.left;
-+      const ImVec2 from((1725 + shift_ + shoulder.x * kPanelPixelsPerMetre) * scale,
++      const ImVec2 from(xbox360ps5::motion::PanelMirrorX(1725 + shift_, shoulder.x, kPanelPixelsPerMetre) * scale,
 +                        (405 - shoulder.y * kPanelPixelsPerMetre) * scale);
-+      // The player's right is the picture's left (phone X), the game's +X (bit 2); left: bit 1.
++      // The player's right is the phone's -X, the game's +X (bit 2); left: bit 1. The panel is a
++      // mirror (PanelMirrorX): the right arm points out to the panel's right.
 +      const int outward = right ? 1 : 0, up = 2;  // counters: 0 left(-X) 1 right(+X) 2 up 3 down 4 front
-+      for (const auto& [dx, dy, counter] : {std::tuple<float, float, int>{right ? -1.f : 1.f, 0.f, outward},
++      for (const auto& [dx, dy, counter] : {std::tuple<float, float, int>{right ? 1.f : -1.f, 0.f, outward},
 +                                            std::tuple<float, float, int>{0.f, 1.f, up}}) {
 +        const bool counting = hand.counters[counter] > 0;
 +        const ImVec2 to(from.x + dx * length * kPanelPixelsPerMetre * scale,
@@ -302,7 +310,7 @@ index 95e86eb..ef3bec2 100644
  };
  // The emulator's guide over a running game, after the Xbox 360's: a light
  // panel that unfolds from the middle of the screen, a page of actions and a page
-@@ -1886,6 +2040,25 @@ static void StorageNotice(const std::string& drive) {
+@@ -1886,6 +2041,25 @@ static void StorageNotice(const std::string& drive) {
                            " " + drive,
                        "", false});
  }
@@ -328,7 +336,7 @@ index 95e86eb..ef3bec2 100644
  // Fix 57: a game whose executable requires Kinect asked for its camera with "Camera motion"
  // off (a start that did not pass the library's question: a forwarder, a package, a title switch).
  static void KinectNeededNotice() {
-@@ -2910,7 +3083,7 @@ int main(int argc, char** argv) {
+@@ -2910,7 +3084,7 @@ int main(int argc, char** argv) {
          xbox360ps5::gpu_diag::Reset();
          float fps = 0.0f;
          bool stalled_notice=false;
@@ -337,7 +345,7 @@ index 95e86eb..ef3bec2 100644
          // The emulator's guide over the game.
          GuideState guide;
          if (autotest.active) guide.hint = 0.0f;
-@@ -3029,6 +3202,7 @@ int main(int argc, char** argv) {
+@@ -3029,6 +3203,7 @@ int main(int argc, char** argv) {
              close_library = true;
            } else if (trigger && !trigger_was) {
              guide.open = !guide.open;

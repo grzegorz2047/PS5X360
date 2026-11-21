@@ -42,6 +42,9 @@ void CheckView() {
   const auto now = clock_type::now();
   using std::chrono::milliseconds;
   // No frame since the setting was turned on: the code.
+  // The panel is a mirror: the player's left (the phone's +X) on the left of the centre.
+  CHECK(m::PanelMirrorX(1725, 0.2f, 130) < 1725 && m::PanelMirrorX(1725, -0.2f, 130) > 1725);
+  CHECK(m::PanelMirrorX(1725, 0, 130) == 1725 && m::PanelMirrorX(1725, 0.5f, 100) == 1675);
   CHECK(m::ChoosePanelView(clock_type::time_point{}, now, url) == m::PanelView::kPhoneQr);
   // Frames arriving (tracked or not: a phone without a body in view is connected): the skeleton.
   CHECK(m::ChoosePanelView(now - milliseconds(30), now, url) == m::PanelView::kSkeleton);
@@ -187,6 +190,13 @@ void CheckTree() {
   // The phone's own distance at the panel's top right (amber outside DBZ's zone).
   CHECK(game.find("Tr(\"Distance %.1f m\")") != std::string::npos);
   CHECK(game.find("const auto pose = xbox360ps5::motion::NormalizedSnapshot();") != std::string::npos);
+  // 1.0.5_candidate_10: the skeleton and the target arms are drawn as a mirror.
+  CHECK(game.find("ImVec2(xbox360ps5::motion::PanelMirrorX(1725 + shift_, pose.joints[n].x, kPanelPixelsPerMetre)*scale") !=
+        std::string::npos);
+  CHECK(game.find("xbox360ps5::motion::PanelMirrorX(1725 + shift_, shoulder.x, kPanelPixelsPerMetre) * scale") !=
+        std::string::npos);
+  CHECK(game.find("std::tuple<float, float, int>{right ? 1.f : -1.f, 0.f, outward}") != std::string::npos);
+  CHECK(game.find("1725 + shift_ + pose.joints[n].x") == std::string::npos);
   CHECK(launcher.find("{\"motion_panel\", &S::motion_panel, 3, W::live, 0, true, \"Motion panel\",") != std::string::npos);
   CHECK(launcher.find("{\"Top right\", \"Top left\", \"Off\"}") != std::string::npos);
   // Its texts go through Tr (English keys, fix 25).

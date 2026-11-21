@@ -300,7 +300,33 @@ void CheckBodyScale() {
     for (auto& j : step.joints) j.z += 0.3f;
     m::ObserveBody(sd, step);
     const float now_z = m::NormalizeBody(sd, step).joints[0].z;
-    CHECK(now_z > 0.28f && now_z < 0.3f);
+    CHECK(now_z > 0.299f && now_z < 0.301f);  // whole (1.0.5_candidate_10: the average waits)
+    // 1.0.5_candidate_10: a dodge back (0.35 m for a second) and back again: the average waits,
+    // all of it reaches the title, and nothing of it stays.
+    {
+      m::BodyScaleState dodge = sd;
+      for (int n = 0; n < 10; ++n) m::ObserveBody(dodge, far);  // back from the step first
+      const float before = dodge.hip_z;
+      m::Frame back_step = far;
+      for (auto& j : back_step.joints) j.z -= 0.35f;
+      float deepest = 0;
+      for (int n = 0; n < 30; ++n) {
+        m::ObserveBody(dodge, back_step);
+        deepest = std::min(deepest, m::NormalizeBody(dodge, back_step).joints[0].z);
+      }
+      CHECK(deepest < -0.349f && deepest > -0.351f);
+      CHECK(dodge.hip_z == before);
+      for (int n = 0; n < 30; ++n) m::ObserveBody(dodge, far);
+      CHECK(std::fabs(m::NormalizeBody(dodge, far).joints[0].z) < 0.01f && dodge.away_frames == 0);
+      // ...but an offset that lasts (the player stays 0.38 m further back) is taken after 2 s.
+      m::Frame stays = far;
+      for (auto& j : stays.joints) j.z -= 0.38f;
+      for (int n = 0; n < m::kAwayFrames; ++n) m::ObserveBody(dodge, stays);
+      CHECK(dodge.hip_z == before);
+      for (int n = 0; n < 900; ++n) m::ObserveBody(dodge, stays);
+      CHECK(std::fabs(m::NormalizeBody(dodge, stays).joints[0].z) < 0.05f);
+      CHECK(dodge.jumps == sd.jumps);  // a step, not a jump
+    }
     // A jump no body can make (the page's "Recenter" says 2.5 m now): the new depth at once.
     m::Frame recalibrated = far;
     for (auto& j : recalibrated.joints) j.z += 1.3f;

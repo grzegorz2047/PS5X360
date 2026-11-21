@@ -634,10 +634,10 @@ index 20be75b..b6a9759 100644
  }
 diff --git a/include/xbox360ps5/body_scale.hpp b/include/xbox360ps5/body_scale.hpp
 new file mode 100644
-index 0000000..ba27598
+index 0000000..4e31ff8
 --- /dev/null
 +++ b/include/xbox360ps5/body_scale.hpp
-@@ -0,0 +1,276 @@
+@@ -0,0 +1,289 @@
 +// SPDX-License-Identifier: MIT
 +// Fix 57: the phone's pose brought to a plausible body size before a game sees it.
 +//
@@ -683,6 +683,13 @@ index 0000000..ba27598
 +// 1.0.5_candidate_4: a jump of the hips' depth between two frames no body can make (the phone
 +// page's "Recenter", a new calibration) takes the new depth at once instead of over seconds.
 +constexpr float kDepthJumpMetres = 0.4f;
++// 1.0.5_candidate_10: a step away or towards the camera that comes back is the player's move, not
++// an offset: Dragon Ball Z's back dodge on 1.0.5_candidate_8 took the hips 0.27-0.37 m back for
++// about a second, and the average took 0.04 m of it. While the hips are more than kAwayMetres
++// from the average the average waits, unless they have stayed there for kAwayFrames (2 s at
++// 30 frames/s): then the offset is a lasting one and is taken over the usual five seconds.
++constexpr float kAwayMetres = 0.15f;
++constexpr int kAwayFrames = 60;
 +// 1.0.5_candidate_8: a forearm cannot get from pointing towards the camera to pointing away from
 +// it without passing the picture plane, where its depth is small. In the 13 recordings of
 +// 1.0.5_candidate_1..5 the phone did that rarely (3 jumps, one left forearm in one file; upper
@@ -717,6 +724,7 @@ index 0000000..ba27598
 +  float hip_z = 0;                 // the hips' depth, averaged over about five seconds
 +  bool hip_z_set = false;
 +  float last_hip_z = 0;            // the hips' depth in the frame before
++  int away_frames = 0;             // frames in a row the hips were kAwayMetres from hip_z
 +  uint32_t jumps = 0;              // depth jumps taken at once (1.0.5_candidate_6: logged)
 +  float jump_from = 0, jump_to = 0;
 +  DepthSide forearm[2];            // [left, right]
@@ -756,7 +764,12 @@ index 0000000..ba27598
 +      state.jump_from = state.last_hip_z;
 +      state.jump_to = z;
 +    }
-+    state.hip_z = state.hip_z_set && !jump ? state.hip_z + kDepthCentreWeight * (z - state.hip_z) : z;
++    const bool away = state.hip_z_set && std::fabs(z - state.hip_z) > kAwayMetres;
++    state.away_frames = away && !jump ? state.away_frames + 1 : 0;
++    const bool waits = away && state.away_frames <= kAwayFrames;
++    state.hip_z = !state.hip_z_set || jump ? z
++                  : waits                 ? state.hip_z
++                                          : state.hip_z + kDepthCentreWeight * (z - state.hip_z);
 +    state.hip_z_set = true;
 +    state.last_hip_z = z;
 +  }
