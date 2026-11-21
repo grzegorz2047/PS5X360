@@ -1,0 +1,129 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/apps/xam_app.cc b/.deps/xenia-canary/src/xenia/kernel/xam/apps/xam_app.cc
+index 3b7d507..7e2474b 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/apps/xam_app.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/apps/xam_app.cc
+@@ -166,6 +166,22 @@ X_HRESULT XamApp::ExecuteDispatchMessage(uint32_t message, uint32_t buffer_ptr,
+       XELOGD("XNuiDelayUI unimplemented({:08X})", ms_delay);
+       return X_E_SUCCESS;
+     }
++    case 0x0002A005:
++    case 0x0002A006:
++    case 0x0002A007:
++    case 0x0002A008: {
++      // Xbox360PS5 fix 99b (issue 15): the Kinect identity library's requests to the system
++      // (Kinect Sports 4D5308C9: 829D5144, 829D75E8, 829E1970, 24 bytes each, with an overlapped)
++      // as the player is picked and enrolled. There is no identity service here: they succeed
++      // with nothing done, as a Kinect ID with nothing stored, instead of E_FAIL that left the
++      // game waiting after "Pick main player". Logged (the first 16).
++      static std::atomic<uint32_t> shown{0};
++      if (shown.fetch_add(1) < 16)
++        XELOGW("Kinect identity: XMsg FE/{:05X} ({} bytes) answered with success, nothing stored "
++               "(fix 99b)",
++               message, buffer_length);
++      return X_E_SUCCESS;
++    }
+     case 0x0002B002: {
+       // Xbox360PS5 (fix 57): the Kinect SDK sends each skeleton frame the title made to the
+       // system's identity service, once a frame (Dragon Ball Z for Kinect: 824A46E8 builds
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_nui.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_nui.cc
+index 036f17a..2cb5708 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_nui.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_nui.cc
+@@ -24,6 +24,12 @@ namespace xe {
+ namespace kernel {
+ namespace xam {
+ namespace {
++// Fix 99b: the Kinect ID and system calls answered below, logged (the first 32).
++void KinectIdentityLog(const char* call, uint32_t a, uint32_t b, uint32_t result) {
++  static std::atomic<uint32_t> shown{0};
++  if (shown.fetch_add(1) < 32)
++    XELOGW("Kinect identity: {}({:08X}, {:08X}) -> {:08X} (fix 99b)", call, a, b, result);
++}
+ // Fix 57: every title whose executable requires Kinect (was Dragon Ball Z's title ID).
+ bool VirtualNuiMode() {
+   return xbox360ps5::motion::enabled.load() && KinectRequiredTitle(kernel_state());
+@@ -514,10 +520,83 @@ dword_result_t XamUserNuiEnableBiometric_entry(dword_t user_index,
+   if (xbox360ps5::motion::enabled.load() && !motion_reported.exchange(true))
+     XELOGW("Motion research: XamUserNuiEnableBiometric called; guest sensor remains unavailable; {}", xbox360ps5::motion::Status());
+ #endif
+-  return X_E_INVALIDARG;
++  // Xbox360PS5 fix 99b (issue 15): Kinect Sports enables the picked player's biometric data
++  // (829D75FC) and checks the result; a Kinect ID with nothing stored accepts it.
++  KinectIdentityLog("XamUserNuiEnableBiometric", uint32_t(user_index), uint32_t(enable), 0);
++  return X_ERROR_SUCCESS;
+ }
+ DECLARE_XAM_EXPORT1(XamUserNuiEnableBiometric, kNone, kStub);
+ 
++// Xbox360PS5 fix 99b (issue 15): the Kinect ID (NUI Identity) calls Kinect Sports makes as the
++// player is picked, until now undefined externs (an undefined extern returns without setting r3:
++// the game took its own first argument for the result), and the system calls around them. As
++// a Kinect ID that works with nothing stored: no biometric data to read (ERROR_NOT_FOUND, size
++// 0), writing it succeeds (and is dropped), the camera's elevation is accepted, the title cache
++// and the Live upload queue are not there. Each is logged (the first 32 calls).
++dword_result_t XamReadBiometricData_entry(dword_t user, lpdword_t version_ptr, dword_t buffer_ptr,
++                                          lpdword_t size_ptr, dword_t overlapped_ptr) {
++  if (size_ptr) *size_ptr = 0;
++  KinectIdentityLog("XamReadBiometricData", uint32_t(user), buffer_ptr, X_ERROR_NOT_FOUND);
++  return X_ERROR_NOT_FOUND;
++}
++DECLARE_XAM_EXPORT1(XamReadBiometricData, kNone, kStub);
++
++dword_result_t XamWriteBiometricData_entry(dword_t user, lpdword_t version_ptr, dword_t buffer_ptr,
++                                           lpdword_t size_ptr, dword_t overlapped_ptr) {
++  KinectIdentityLog("XamWriteBiometricData", uint32_t(user), size_ptr ? uint32_t(*size_ptr) : 0,
++                    X_ERROR_SUCCESS);
++  return X_ERROR_SUCCESS;
++}
++DECLARE_XAM_EXPORT1(XamWriteBiometricData, kNone, kStub);
++
++dword_result_t XamNuiCameraElevationSetAngle_entry(dword_t angle, dword_t flags) {
++  KinectIdentityLog("XamNuiCameraElevationSetAngle", uint32_t(angle), uint32_t(flags), 0);
++  return X_ERROR_SUCCESS;
++}
++DECLARE_XAM_EXPORT1(XamNuiCameraElevationSetAngle, kNone, kStub);
++
++dword_result_t XamCacheOpenFile_entry(dword_t a1, dword_t a2, dword_t a3, dword_t a4) {
++  KinectIdentityLog("XamCacheOpenFile", uint32_t(a1), uint32_t(a2), X_ERROR_FILE_NOT_FOUND);
++  return X_ERROR_FILE_NOT_FOUND;
++}
++DECLARE_XAM_EXPORT1(XamCacheOpenFile, kNone, kStub);
++
++dword_result_t XamCacheCloseFile_entry(dword_t a1) {
++  KinectIdentityLog("XamCacheCloseFile", uint32_t(a1), 0, 0);
++  return X_ERROR_SUCCESS;
++}
++DECLARE_XAM_EXPORT1(XamCacheCloseFile, kNone, kStub);
++
++dword_result_t XamCacheReset_entry(dword_t a1) {
++  KinectIdentityLog("XamCacheReset", uint32_t(a1), 0, 0);
++  return X_ERROR_SUCCESS;
++}
++DECLARE_XAM_EXPORT1(XamCacheReset, kNone, kStub);
++
++dword_result_t XamXlfsInitializeUploadQueue_entry(dword_t a1, dword_t a2) {
++  KinectIdentityLog("XamXlfsInitializeUploadQueue", uint32_t(a1), uint32_t(a2), X_E_FAIL);
++  return X_E_FAIL;
++}
++DECLARE_XAM_EXPORT1(XamXlfsInitializeUploadQueue, kNone, kStub);
++
++dword_result_t XamXlfsUninitializeUploadQueue_entry(dword_t a1) {
++  KinectIdentityLog("XamXlfsUninitializeUploadQueue", uint32_t(a1), 0, 0);
++  return X_ERROR_SUCCESS;
++}
++DECLARE_XAM_EXPORT1(XamXlfsUninitializeUploadQueue, kNone, kStub);
++
++dword_result_t XamXlfsMountUploadQueueInstance_entry(dword_t a1, dword_t a2) {
++  KinectIdentityLog("XamXlfsMountUploadQueueInstance", uint32_t(a1), uint32_t(a2), X_E_FAIL);
++  return X_E_FAIL;
++}
++DECLARE_XAM_EXPORT1(XamXlfsMountUploadQueueInstance, kNone, kStub);
++
++dword_result_t XamXlfsUnmountUploadQueueInstance_entry(dword_t a1) {
++  KinectIdentityLog("XamXlfsUnmountUploadQueueInstance", uint32_t(a1), 0, 0);
++  return X_ERROR_SUCCESS;
++}
++DECLARE_XAM_EXPORT1(XamXlfsUnmountUploadQueueInstance, kNone, kStub);
++
+ struct X_NUI_PLAYER_ENGAGEMENT_UPDATE {
+   uint8_t data[0x1C];
+ };
