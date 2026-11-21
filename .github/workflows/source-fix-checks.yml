@@ -85,6 +85,7 @@ on:
       - 'tools/check-system-heap.cpp'
       - 'tools/check-enumerator-release.cpp'
       - 'tools/check-enum-trace.cpp'
+      - 'tools/check-wait-reg-wakeup.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
