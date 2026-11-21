@@ -36,7 +36,8 @@ import sys
 from pathlib import Path
 
 # Used with fullmatch only: re's $ also matches before a trailing newline.
-VERSION_RE = re.compile(r'[0-9]+\.[0-9]+\.[0-9]+')
+# X.Y.Z, or X.Y.Z.W for a hotfix (1.0.4.1; W from 1 to 999), as assemble.py's RELEASE_VERSION.
+VERSION_RE = re.compile(r'[0-9]+\.[0-9]+\.[0-9]+(?:\.[1-9][0-9]{0,2})?')
 BRANCH_PREFIX = 'release/source-'
 SHA_RE = re.compile(r'[0-9a-f]{40}')
 ASSET_NAME_RE = re.compile(r'[A-Za-z0-9._+-]+')
@@ -66,7 +67,7 @@ def version_from_ref(ref):
 
 def check_version(version):
     if not isinstance(version, str) or not VERSION_RE.fullmatch(version):
-        raise Refused(f'version {version!r} is not X.Y.Z (digits only, e.g. 1.0.3)')
+        raise Refused(f'version {version!r} is not X.Y.Z or X.Y.Z.W (digits only, e.g. 1.0.3 or 1.0.4.1)')
     return version
 
 

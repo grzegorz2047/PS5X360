@@ -52,6 +52,11 @@ def check_version():
             assert guard.version_from_ref(ref) == '1.0.3'
             continue
         assert refused(guard.version_from_ref, ref), ref
+    # A hotfix: X.Y.Z.W (1.0.4.1); W from 1 to 999 without a leading zero, nothing after it.
+    assert guard.version_from_ref('refs/heads/release/source-1.0.4.1') == '1.0.4.1'
+    assert guard.check_version('1.0.4.999') == '1.0.4.999'
+    for bad in ('1.0.4.0', '1.0.4.01', '1.0.4.1000', '1.0.4.1.1', '1.0.4.', '1.0.4.x'):
+        assert refused(guard.check_version, bad), bad
     assert refused(guard.check_version, '1.0.3 ')
     assert refused(guard.check_version, None)
     # re's $ matches before a trailing newline: a version, tag or sha with one is refused.

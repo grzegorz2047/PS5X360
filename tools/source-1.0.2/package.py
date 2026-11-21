@@ -85,13 +85,13 @@ UPSTREAM = build_package.UPSTREAM
 ZIP_TIME = build_package.ZIP_TIME
 sha256 = build_package.sha256
 
-VERSION_RE = re.compile(r'[0-9]+\.[0-9]+\.[0-9]+')
+VERSION_RE = re.compile(r'[0-9]+\.[0-9]+\.[0-9]+(?:\.[1-9][0-9]{0,2})?')  # X.Y.Z or a hotfix X.Y.Z.W
 # sce_sys/param.json contentVersion, "NN.NNN.NNN". The console and the homebrew catalogs compare it
 # with the installed app's to tell an outdated install, so each release needs a higher one.
 CONTENT_VERSION_RE = re.compile(r'[0-9]{2}\.[0-9]{3}\.[0-9]{3}')
 # contentVersion of every PS5X360Reloaded release already published: v1.0.3 kept the official
 # package's value. A new release's contentVersion must be higher than all of them.
-SHIPPED_CONTENT_VERSIONS = {'1.0.3': '00.001.000'}
+SHIPPED_CONTENT_VERSIONS = {'1.0.3': '00.001.000', '1.0.4': '01.004.000'}
 # A test build's label (BUILD_VERSION 1.0.3_candidate_N). A bare "candidate_" is not enough:
 # Mesa's own strings contain it (intersection_candidate_aabb_opaque, candidate_infos).
 CANDIDATE_LABEL_RE = re.compile(rb'[0-9]+\.[0-9]+\.[0-9]+_candidate')
@@ -155,18 +155,22 @@ def fail(message):
 
 def check_version(version):
     if not VERSION_RE.fullmatch(version or ''):
-        fail(f'version {version!r} is not X.Y.Z (a release, not a candidate label)')
+        fail(f'version {version!r} is not X.Y.Z or X.Y.Z.W (a release, not a candidate label)')
     return version
 
 
 def content_version(version):
     """sce_sys/param.json contentVersion of release X.Y.Z: "%02d.%03d.000" % (X, Y * 100 + Z), so
-    1.0.4 is 01.004.000 and 1.2.15 is 01.215.000. Strictly increasing with the version while
-    X <= 99, Y <= 9 and Z <= 99; another version stops the packaging instead of wrapping around."""
-    major, minor, patch = (int(part) for part in check_version(version).split('.'))
-    if major > 99 or minor > 9 or patch > 99:
-        fail(f'version {version} does not fit contentVersion NN.NNN.000 (X <= 99, Y <= 9, Z <= 99)')
-    return f'{major:02d}.{minor * 100 + patch:03d}.000'
+    1.0.4 is 01.004.000 and 1.2.15 is 01.215.000; of a hotfix X.Y.Z.W the third field is W, so
+    1.0.4.1 is 01.004.001, above 1.0.4 and below 1.0.5. Strictly increasing with the version while
+    X <= 99, Y <= 9, Z <= 99 and W <= 999; another version stops the packaging instead of
+    wrapping around."""
+    parts = [int(part) for part in check_version(version).split('.')]
+    major, minor, patch = parts[:3]
+    hotfix = parts[3] if len(parts) == 4 else 0
+    if major > 99 or minor > 9 or patch > 99 or hotfix > 999:
+        fail(f'version {version} does not fit contentVersion NN.NNN.NNN (X <= 99, Y <= 9, Z <= 99, W <= 999)')
+    return f'{major:02d}.{minor * 100 + patch:03d}.{hotfix:03d}'
 
 
 def check_content_version(value, base_value):

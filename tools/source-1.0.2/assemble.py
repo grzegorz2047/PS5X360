@@ -147,8 +147,9 @@ TITLE_LAYERS = [
     ('port/ps5_resolver.cpp', 'v1.0.2/port/port-src/ps5_resolver.cpp'),
     ('port/phone_camera_tls.cpp', 'v1.0.2/port/phone-folder/phone_camera_tls.cpp'),
 ]
-# A release's version: plain X.Y.Z, ASCII digits (no candidate label, no "v", nothing after it).
-RELEASE_VERSION = re.compile(r'[0-9]+\.[0-9]+\.[0-9]+')
+# A release's version: plain X.Y.Z, ASCII digits (no candidate label, no "v", nothing after it), or
+# X.Y.Z.W for a hotfix of X.Y.Z (1.0.4.1; W from 1 to 999, no leading zero).
+RELEASE_VERSION = re.compile(r'[0-9]+\.[0-9]+\.[0-9]+(?:\.[1-9][0-9]{0,2})?')
 # Any version: it becomes a C string literal and a CMake compile definition, so no quotes,
 # backslashes, spaces or semicolons (a test build's 1.0.3_candidate_37 is fine).
 ANY_VERSION = re.compile(r'[0-9A-Za-z][0-9A-Za-z._+-]{0,63}')
@@ -485,7 +486,7 @@ def resolve_version(argument, environment, build_version=HERE / 'BUILD_VERSION',
     if not version:
         version, source = '1.0.2', 'default'
     if release and not RELEASE_VERSION.fullmatch(version):
-        sys.exit(f'release build: version {version!r} ({source}) is not X.Y.Z')
+        sys.exit(f'release build: version {version!r} ({source}) is not X.Y.Z or X.Y.Z.W')
     if not ANY_VERSION.fullmatch(version):
         sys.exit(f'version {version!r} ({source}) has characters a C string or CMake cannot take')
     return version, source

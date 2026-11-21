@@ -37,7 +37,7 @@ CANDIDATE_VERSION = re.compile(rb'[0-9]+\.[0-9]+\.[0-9]+[._-]?candidate[0-9A-Za-
 
 def version_problems(version):
     if not RELEASE_VERSION.fullmatch(version or ''):
-        return [f'version {version!r} is not a release version X.Y.Z']
+        return [f'version {version!r} is not a release version X.Y.Z or X.Y.Z.W']
     return []
 
 

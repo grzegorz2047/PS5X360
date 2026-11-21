@@ -87,7 +87,11 @@ def check_versions(tmp):
     assert stops(rv, None, None, plain, release=True)              # nor is a plain file: say it
     assert stops(rv, None, None, missing, release=True)            # nor the 1.0.2 fallback
     assert stops(rv, '1.0.3_candidate_37', '1.0.3', candidate, release=True)  # --version wins, and fails
-    for junk in ('1.0.3_candidate_37', '1.0.3-candidate', 'v1.0.3', '1.0', '1', '1.0.3.1', '1.0.3-rc1',
+    # A hotfix X.Y.Z.W is a release (1.0.4.1); W = 0, a leading zero or a fifth part are not.
+    assert rv('1.0.4.1', None, candidate, release=True) == ('1.0.4.1', '--version')
+    for junk in ('1.0.4.0', '1.0.4.01', '1.0.4.1000', '1.0.4.1.1'):
+        assert stops(rv, junk, None, missing, release=True), repr(junk)
+    for junk in ('1.0.3_candidate_37', '1.0.3-candidate', 'v1.0.3', '1.0', '1', '1.0.3-rc1',
                  '1.0.3 x', '1.0.3\n1', '1.0.3\n\n1.0.4', '1..3', '.1.0.3', '1.0.3.', 'a.b.c',
                  '\uff11.0.3', '1.0.\u0663', '1.0.3"', "1.0.3'", '1.0.3;', '1.0.3/'):
         assert stops(rv, junk, None, missing, release=True), repr(junk)
