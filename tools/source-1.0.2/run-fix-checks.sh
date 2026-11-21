@@ -96,6 +96,7 @@ checks=(
   check-leaving-notice.cpp         # fix 93b
   check-boot-notice.cpp            # fix 93c
   check-bug-report-entries.cpp     # fix 93d
+  check-recent-calls.cpp           # fix 93e
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -159,6 +160,7 @@ declare -A fix_of=(
   [check-leaving-notice.cpp]=93b
   [check-boot-notice.cpp]=93c
   [check-bug-report-entries.cpp]=93d
+  [check-recent-calls.cpp]=93e
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))

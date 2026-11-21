@@ -357,8 +357,9 @@ void CheckTree() {
   Expect(Has(main, "std::strcmp(option.key, \"bug_report\") != 0"), "(f) the in-game guide leaves the row out");
   Expect(Has(main, "if (xbox360ps5::bug_report::Active()) xe::logging::KeepRecentLines(true);"),
          "(f) recent system calls are kept in a session");
-  Expect(Has(Between(main, "hang_watch_thread.reset();  // fix 47", "xe::ui::controller_keyboard::Cancel();"),
-             "xe::logging::WriteRecentLines();"),
+  // Fix 93e writes them to a file of their own (TakeRecentLines) instead of the log.
+  const std::string loop_end = Between(main, "hang_watch_thread.reset();  // fix 47", "xe::ui::controller_keyboard::Cancel();");
+  Expect(Has(loop_end, "xe::logging::WriteRecentLines();") || Has(loop_end, "xe::logging::TakeRecentLines()"),
          "(f) and written when the game loop ends");
   Expect(Has(main, "xbox360ps5::bug_report::AtBoot(bug_report_state, !switch_pending.host_path.empty())"),
          "(f) a title switch goes on with the session");
