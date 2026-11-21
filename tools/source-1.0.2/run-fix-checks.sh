@@ -78,6 +78,7 @@ checks=(
   check-xma-unwatch.cpp            # fix 67
   check-deferred-watches.cpp       # fix 68
   check-xctd-query.cpp             # fix 90 (1.0.5)
+  check-disc-sector-pad.cpp        # fix 92 (1.0.5)
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -120,6 +121,7 @@ declare -A fix_of=(
   [check-xma-unwatch.cpp]=67
   [check-deferred-watches.cpp]=68
   [check-xctd-query.cpp]=90
+  [check-disc-sector-pad.cpp]=92
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))

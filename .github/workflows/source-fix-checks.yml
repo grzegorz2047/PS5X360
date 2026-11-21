@@ -75,6 +75,7 @@ on:
       - 'tools/check-xma-unwatch.cpp'
       - 'tools/check-deferred-watches.cpp'
       - 'tools/check-xctd-query.cpp'
+      - 'tools/check-disc-sector-pad.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

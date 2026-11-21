@@ -205,6 +205,7 @@ also listed here.
 | 67 (`67-xma-clear-unwatch`) | Ninja Gaiden II (issue #11): an XMA context clear no longer faults inside the fault handler (the memory watch on the context is lifted first), so the nested faults fix 65 handled, and their log lines, are gone | host-checked (`tools/check-xma-unwatch.cpp`); console: next combined candidate (26) |
 | 68 (`68-deferred-watches`) | Call of Duty: Modern Warfare 2: the memory just uploaded to video is protected once per batch of work, merged into runs and checked by content, instead of one ~37 us protection call per upload (~5600 a second); a per-game setting, "Deferred memory watches" (off by default; on in MW2's preset), with a summary line of the calls saved | host-checked (`tools/check-deferred-watches.cpp`); console: 1.0.4_candidate_27 |
 | 90 (`90-xctd-query`) | 1.0.5: Kinect Sports and other titles using xcompress transparent decoding get the kernel's answer to "is this file XCTD compressed" (1 for files starting with `0x0FF512ED`, 0 otherwise) instead of a failed query; titles that ask are named in the log | host-checked (`tools/check-xctd-query.cpp`); console: `1.0.5_candidate_7`; the trace of compressed files and LDI calls in `1.0.5_candidate_9` |
+| 92 (`92-disc-sector-pad`) | 1.0.5: a disc read that stops at a file's end inside a 2 KiB sector gets the rest of the sector, as a console's sector read (Kinect Sports' one-segment XCTD bundle 4F45161E, after which it crashed) | host-checked (`tools/check-disc-sector-pad.cpp`); console: `1.0.5-work-fix92` |
 
 ## Comparison with the official executable
 
