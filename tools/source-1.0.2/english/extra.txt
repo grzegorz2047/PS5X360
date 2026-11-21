@@ -223,6 +223,10 @@ Saves and settings were not copied from PS5X360: a folder could not be checked (
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Esta unidade tem as pastas PS5X360/saves e PS5X360Reloaded/saves. É usada a PS5X360Reloaded/saves; a pasta antiga ficou como estava:
 # Fix 52: the library's details line names the disc of a set (the same key in every section).
 Disc %u = Disco %u
+# Fix 94: a game of several discs is one library entry; its sheet chooses the disc (the same keys in every section).
+Disc = Disco
+Disc %u of %u = Disco %u de %u
+Choose the disc = Escolher o disco
 # Fix 60 (issue #12): the empty library names the other folders it scans (the same key in every section).
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = ou em /data/xbox360/, ou numa pasta xbox360 na raiz de um disco USB ou M.2.
 Kinect game = Jogo de Kinect
@@ -270,6 +274,10 @@ Saves were not copied from PS5X360: this app already has saves of its own. = Os 
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Os jogos guardados e as definições não foram copiados do PS5X360: não foi possível verificar uma pasta (o registo indica o motivo). O próximo arranque tenta novamente.
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Esta unidade tem as pastas PS5X360/saves e PS5X360Reloaded/saves. É usada a PS5X360Reloaded/saves; a pasta antiga ficou como estava:
 Disc %u = Disco %u
+# Fix 94: a game of several discs is one library entry; its sheet chooses the disc (the same keys in every section).
+Disc = Disco
+Disc %u of %u = Disco %u de %u
+Choose the disc = Escolher o disco
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = ou em /data/xbox360/, ou numa pasta xbox360 na raiz de um disco USB ou M.2.
 Kinect game = Jogo Kinect
 \srequires Kinect. Turn on Camera motion for this game? = \srequer o Kinect. Ativar o Camera motion para este jogo?
@@ -316,6 +324,10 @@ Saves were not copied from PS5X360: this app already has saves of its own. = Las
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Las partidas guardadas y los ajustes no se han copiado de PS5X360: no se ha podido comprobar una carpeta (el registro indica el motivo). El próximo inicio lo intentará de nuevo.
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Esta unidad tiene las carpetas PS5X360/saves y PS5X360Reloaded/saves. Se usa PS5X360Reloaded/saves; la carpeta antigua se ha dejado como estaba:
 Disc %u = Disco %u
+# Fix 94: a game of several discs is one library entry; its sheet chooses the disc (the same keys in every section).
+Disc = Disco
+Disc %u of %u = Disco %u de %u
+Choose the disc = Elegir el disco
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = o en /data/xbox360/, o en una carpeta xbox360 en la raíz de un disco USB o M.2.
 Kinect game = Juego de Kinect
 \srequires Kinect. Turn on Camera motion for this game? = \srequiere Kinect. ¿Activar Camera motion para este juego?
@@ -362,6 +374,10 @@ Saves were not copied from PS5X360: this app already has saves of its own. = Las
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Las partidas guardadas y la configuración no se copiaron de PS5X360: no se pudo comprobar una carpeta (el registro indica el motivo). El próximo inicio lo intentará de nuevo.
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Esta unidad tiene las carpetas PS5X360/saves y PS5X360Reloaded/saves. Se usa PS5X360Reloaded/saves; la carpeta antigua se dejó como estaba:
 Disc %u = Disco %u
+# Fix 94: a game of several discs is one library entry; its sheet chooses the disc (the same keys in every section).
+Disc = Disco
+Disc %u of %u = Disco %u de %u
+Choose the disc = Elegir el disco
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = o en /data/xbox360/, o en una carpeta xbox360 en la raíz de un disco USB o M.2.
 Kinect game = Juego de Kinect
 \srequires Kinect. Turn on Camera motion for this game? = \srequiere Kinect. ¿Activar Camera motion para este juego?
@@ -408,6 +424,10 @@ Saves were not copied from PS5X360: this app already has saves of its own. = Spi
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Spielstände und Einstellungen wurden nicht aus PS5X360 kopiert: Ein Ordner konnte nicht geprüft werden (das Protokoll nennt den Grund). Der nächste Start versucht es erneut.
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Dieses Laufwerk hat PS5X360/saves und PS5X360Reloaded/saves. PS5X360Reloaded/saves wird verwendet; der alte Ordner wurde nicht verändert:
 Disc %u = Disc %u
+# Fix 94: a game of several discs is one library entry; its sheet chooses the disc (the same keys in every section).
+Disc = Disc
+Disc %u of %u = Disc %u von %u
+Choose the disc = Disc wählen
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = oder in /data/xbox360/ oder in einen Ordner xbox360 im Hauptverzeichnis eines USB- oder M.2-Laufwerks.
 Kinect game = Kinect-Spiel
 \srequires Kinect. Turn on Camera motion for this game? = \sbenötigt Kinect. Camera motion für dieses Spiel einschalten?
@@ -454,6 +474,10 @@ Saves were not copied from PS5X360: this app already has saves of its own. = Les
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Les sauvegardes et les réglages n'ont pas été copiés depuis PS5X360 : un dossier n'a pas pu être vérifié (le journal indique pourquoi). Le prochain démarrage réessaiera.
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Ce périphérique contient PS5X360/saves et PS5X360Reloaded/saves. PS5X360Reloaded/saves est utilisé ; l'ancien dossier a été laissé tel quel :
 Disc %u = Disque %u
+# Fix 94: a game of several discs is one library entry; its sheet chooses the disc (the same keys in every section).
+Disc = Disque
+Disc %u of %u = Disque %u sur %u
+Choose the disc = Choisir le disque
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = ou dans /data/xbox360/, ou dans un dossier xbox360 à la racine d'un disque USB ou M.2.
 Kinect game = Jeu Kinect
 \srequires Kinect. Turn on Camera motion for this game? = \snécessite Kinect. Activer Camera motion pour ce jeu ?
@@ -500,6 +524,10 @@ Saves were not copied from PS5X360: this app already has saves of its own. = I s
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Salvataggi e impostazioni non sono stati copiati da PS5X360: non è stato possibile controllare una cartella (il registro indica il motivo). Il prossimo avvio riproverà.
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Questa unità contiene PS5X360/saves e PS5X360Reloaded/saves. Viene usata PS5X360Reloaded/saves; la vecchia cartella è stata lasciata com'era:
 Disc %u = Disco %u
+# Fix 94: a game of several discs is one library entry; its sheet chooses the disc (the same keys in every section).
+Disc = Disco
+Disc %u of %u = Disco %u di %u
+Choose the disc = Scegli il disco
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = oppure in /data/xbox360/ o in una cartella xbox360 nella radice di un'unità USB o M.2.
 Kinect game = Gioco Kinect
 \srequires Kinect. Turn on Camera motion for this game? = \srichiede Kinect. Attivare Camera motion per questo gioco?
@@ -546,6 +574,10 @@ Saves were not copied from PS5X360: this app already has saves of its own. = PS5
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = PS5X360 からセーブデータと設定をコピーできませんでした：フォルダーを確認できませんでした（理由はログに記録されています）。次回の起動時に再試行します。
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = このドライブには PS5X360/saves と PS5X360Reloaded/saves の両方があります。PS5X360Reloaded/saves を使用し、古いフォルダーはそのままにしました:
 Disc %u = ディスク %u
+# Fix 94: a game of several discs is one library entry; its sheet chooses the disc (the same keys in every section).
+Disc = ディスク
+Disc %u of %u = ディスク %u/%u
+Choose the disc = ディスクを選ぶ
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = または /data/xbox360/、あるいは USB / M.2 ドライブ直下の xbox360 フォルダー。
 Kinect game = Kinect ゲーム
 \srequires Kinect. Turn on Camera motion for this game? = \sには Kinect が必要です。このゲームで Camera motion をオンにしますか？
@@ -592,6 +624,10 @@ Saves were not copied from PS5X360: this app already has saves of its own. = PS5
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = PS5X360에서 저장 데이터와 설정을 복사하지 못했습니다: 폴더를 확인할 수 없었습니다(로그에 이유가 기록됨). 다음 시작 시 다시 시도합니다.
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = 이 드라이브에 PS5X360/saves와 PS5X360Reloaded/saves가 모두 있습니다. PS5X360Reloaded/saves를 사용하며 이전 폴더는 그대로 두었습니다:
 Disc %u = 디스크 %u
+# Fix 94: a game of several discs is one library entry; its sheet chooses the disc (the same keys in every section).
+Disc = 디스크
+Disc %u of %u = 디스크 %u/%u
+Choose the disc = 디스크 선택
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = 또는 /data/xbox360/ 이나 USB / M.2 드라이브 최상위의 xbox360 폴더.
 Kinect game = Kinect 게임
 \srequires Kinect. Turn on Camera motion for this game? = \s에는 Kinect가 필요합니다. 이 게임에서 Camera motion을 켜시겠습니까?
@@ -638,6 +674,10 @@ Saves were not copied from PS5X360: this app already has saves of its own. = Opg
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Opgeslagen spellen en instellingen zijn niet gekopieerd uit PS5X360: een map kon niet worden gecontroleerd (het logboek noemt de reden). De volgende start probeert het opnieuw.
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Dit station heeft zowel PS5X360/saves als PS5X360Reloaded/saves. PS5X360Reloaded/saves wordt gebruikt; de oude map is ongewijzigd gelaten:
 Disc %u = Schijf %u
+# Fix 94: a game of several discs is one library entry; its sheet chooses the disc (the same keys in every section).
+Disc = Schijf
+Disc %u of %u = Schijf %u van %u
+Choose the disc = Schijf kiezen
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = of in /data/xbox360/, of in een map xbox360 in de hoofdmap van een USB- of M.2-schijf.
 Kinect game = Kinect-game
 \srequires Kinect. Turn on Camera motion for this game? = \svereist Kinect. Camera motion voor deze game inschakelen?
@@ -684,6 +724,10 @@ Saves were not copied from PS5X360: this app already has saves of its own. = Zap
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Zapisy i ustawienia nie zostały skopiowane z PS5X360: nie udało się sprawdzić folderu (log podaje powód). Następne uruchomienie spróbuje ponownie.
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Na tym dysku są foldery PS5X360/saves i PS5X360Reloaded/saves. Używany jest PS5X360Reloaded/saves; stary folder pozostawiono bez zmian:
 Disc %u = Płyta %u
+# Fix 94: a game of several discs is one library entry; its sheet chooses the disc (the same keys in every section).
+Disc = Płyta
+Disc %u of %u = Płyta %u z %u
+Choose the disc = Wybierz płytę
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = albo do /data/xbox360/, albo do folderu xbox360 w katalogu głównym dysku USB lub M.2.
 Kinect game = Gra na Kinecta
 \srequires Kinect. Turn on Camera motion for this game? = \swymaga Kinecta. Włączyć Camera motion dla tej gry?
@@ -730,6 +774,10 @@ Saves were not copied from PS5X360: this app already has saves of its own. = С�
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Сохранения и настройки не скопированы из PS5X360: не удалось проверить папку (причина указана в журнале). При следующем запуске будет новая попытка.
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = На этом диске есть и PS5X360/saves, и PS5X360Reloaded/saves. Используется PS5X360Reloaded/saves; старая папка оставлена без изменений:
 Disc %u = Диск %u
+# Fix 94: a game of several discs is one library entry; its sheet chooses the disc (the same keys in every section).
+Disc = Диск
+Disc %u of %u = Диск %u из %u
+Choose the disc = Выбрать диск
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = или в /data/xbox360/, или в папку xbox360 в корне USB- или M.2-накопителя.
 Kinect game = Игра для Kinect
 \srequires Kinect. Turn on Camera motion for this game? = \sтребует Kinect. Включить Camera motion для этой игры?
@@ -776,6 +824,10 @@ Saves were not copied from PS5X360: this app already has saves of its own. = Kay
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Kayıtlar ve ayarlar PS5X360'tan kopyalanmadı: bir klasör denetlenemedi (nedeni günlükte yazıyor). Bir sonraki başlatmada yeniden denenecek.
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Bu sürücüde hem PS5X360/saves hem de PS5X360Reloaded/saves var. PS5X360Reloaded/saves kullanılıyor; eski klasör olduğu gibi bırakıldı:
 Disc %u = Disk %u
+# Fix 94: a game of several discs is one library entry; its sheet chooses the disc (the same keys in every section).
+Disc = Disk
+Disc %u of %u = Disk %u / %u
+Choose the disc = Diski seç
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = ya da /data/xbox360/ içine veya bir USB ya da M.2 sürücüsünün kökündeki xbox360 klasörüne.
 Kinect game = Kinect oyunu
 \srequires Kinect. Turn on Camera motion for this game? = \sKinect gerektirir. Bu oyun için Camera motion açılsın mı?
@@ -822,6 +874,10 @@ Saves were not copied from PS5X360: this app already has saves of its own. = 未
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = 未从 PS5X360 复制存档和设置：无法检查某个文件夹（原因见日志）。下次启动时将重试。
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = 此驱动器上同时有 PS5X360/saves 和 PS5X360Reloaded/saves。将使用 PS5X360Reloaded/saves；旧文件夹保持不变：
 Disc %u = 光盘 %u
+# Fix 94: a game of several discs is one library entry; its sheet chooses the disc (the same keys in every section).
+Disc = 光盘
+Disc %u of %u = 光盘 %u/%u
+Choose the disc = 选择光盘
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = 或 /data/xbox360/，或 USB / M.2 驱动器根目录下的 xbox360 文件夹。
 Kinect game = Kinect 游戏
 \srequires Kinect. Turn on Camera motion for this game? = \s需要 Kinect。要为此游戏开启 Camera motion 吗？
@@ -868,6 +924,10 @@ Saves were not copied from PS5X360: this app already has saves of its own. = 未
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = 未從 PS5X360 複製存檔和設定：無法檢查某個資料夾（原因見記錄）。下次啟動時將重試。
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = 此磁碟機上同時有 PS5X360/saves 和 PS5X360Reloaded/saves。將使用 PS5X360Reloaded/saves；舊資料夾保持不變：
 Disc %u = 光碟 %u
+# Fix 94: a game of several discs is one library entry; its sheet chooses the disc (the same keys in every section).
+Disc = 光碟
+Disc %u of %u = 光碟 %u/%u
+Choose the disc = 選擇光碟
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = 或 /data/xbox360/，或 USB / M.2 磁碟機根目錄下的 xbox360 資料夾。
 Kinect game = Kinect 遊戲
 \srequires Kinect. Turn on Camera motion for this game? = \s需要 Kinect。要為此遊戲開啟 Camera motion 嗎？
