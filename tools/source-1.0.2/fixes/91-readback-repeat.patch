@@ -146,7 +146,7 @@ index b4ac0ad..7d85106 100644
  }  // namespace vulkan
  }  // namespace gpu
 diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
-index 1f508ca..522f8ff 100644
+index 1f508ca..f316ebb 100644
 --- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
 +++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
 @@ -12,6 +12,13 @@
@@ -199,7 +199,7 @@ index 1f508ca..522f8ff 100644
  #if XE_PLATFORM_PS5
    if (frame_cost_query_pool_ != VK_NULL_HANDLE) {  // fix 49
      GetVulkanDevice()->functions().vkDestroyQueryPool(
-@@ -3918,6 +3942,129 @@ bool AutoReadbackAllowed() {
+@@ -3918,6 +3942,135 @@ bool AutoReadbackAllowed() {
    }();
    return allowed;
  }
@@ -257,6 +257,12 @@ index 1f508ca..522f8ff 100644
 +      }
 +      if (rules.occasional_own) {
 +        XELOGW("Readback keys:   occasional own (every occasional key gets its own copy)");
++      }
++      for (uint32_t listed : rules.nocopy) {
++        XELOGW("Readback keys:   nocopy {:08X} (its fast copy kept out of guest memory)", listed);
++      }
++      if (rules.nocopy_unread) {
++        XELOGW("Readback keys:   nocopy unread (fast copies only for keys the CPU reads)");
 +      }
 +    }
 +  }
@@ -329,7 +335,7 @@ index 1f508ca..522f8ff 100644
  // A folder for the bytes of small resolves (XBOX360PS5_DUMP_RESOLVES), or null.
  const char* ResolveDumpFolder() {
  #if XE_PLATFORM_PS5
-@@ -3974,6 +4121,11 @@ bool VulkanCommandProcessor::IssueCopy() {
+@@ -3974,6 +4127,11 @@ bool VulkanCommandProcessor::IssueCopy() {
    if (auto_readback) {
      readback_mode = ReadbackResolveMode::kFast;
    }
@@ -341,7 +347,7 @@ index 1f508ca..522f8ff 100644
    const bool show_resolve = ShowResolve(written_length);
    const DrawsSinceResolve draws = draws_since_resolve_;
    draws_since_resolve_ = DrawsSinceResolve();
-@@ -4135,8 +4287,49 @@ bool VulkanCommandProcessor::IssueCopy() {
+@@ -4135,8 +4293,50 @@ bool VulkanCommandProcessor::IssueCopy() {
  
      uint64_t resolve_key =
          MakeReadbackResolveKey(written_address, written_length);
@@ -377,10 +383,11 @@ index 1f508ca..522f8ff 100644
 +        watch_summary = now;
 +        XELOGW(
 +            "Readback read watches, last 30 s: armed {}, reads seen {} (dropped {}), keys the CPU "
-+            "reads {} (fix 91g)",
++            "reads {}, fast copies kept out of guest memory {} (fix 91g/h)",
 +            readback_watches_armed_, readback_read_fires_.exchange(0), readback_read_drops_.exchange(0),
-+            readback_keys_flagged_);
++            readback_keys_flagged_, readback_copies_left_out_);
 +        readback_watches_armed_ = 0;
++        readback_copies_left_out_ = 0;
 +      }
 +    }
      ReadbackBuffer& rb = readback_buffers_[resolve_key];
@@ -391,7 +398,7 @@ index 1f508ca..522f8ff 100644
  
      // Xbox360PS5 (fix 35): an unused or the oldest slot, never the newest one
      // the guest can be given (readback_slots.h); 1.0.2 flipped two slots once
-@@ -4144,9 +4337,28 @@ bool VulkanCommandProcessor::IssueCopy() {
+@@ -4144,9 +4344,28 @@ bool VulkanCommandProcessor::IssueCopy() {
      const uint64_t readback_completed =
          auto_readback ? completion_timeline_.UpdateAndGetCompletedSubmission()
                        : GetCompletedSubmission();
@@ -422,7 +429,7 @@ index 1f508ca..522f8ff 100644
      uint32_t size = AlignReadbackBufferSize(readback_length);
  
      // Allocate/resize write buffer if needed
-@@ -4233,6 +4445,8 @@ bool VulkanCommandProcessor::IssueCopy() {
+@@ -4233,6 +4452,8 @@ bool VulkanCommandProcessor::IssueCopy() {
        rb.sizes[write_index] = size;
        rb.valid_sizes[write_index] = 0;
        rb.submissions[write_index] = 0;
@@ -431,7 +438,7 @@ index 1f508ca..522f8ff 100644
        rb.host_coherent[write_index] =
            (vulkan_device->memory_types().host_coherent &
             (uint32_t(1) << memory_type_index)) != 0;
-@@ -4243,8 +4457,10 @@ bool VulkanCommandProcessor::IssueCopy() {
+@@ -4243,8 +4464,10 @@ bool VulkanCommandProcessor::IssueCopy() {
      const int newest_copy =
          readback_mode == ReadbackResolveMode::kFast
              ? readback_slots::ChooseRead(rb.submissions, rb.valid_sizes,
@@ -442,7 +449,7 @@ index 1f508ca..522f8ff 100644
                                           readback_completed, auto_readback)
              : -1;
      uint32_t read_index =
-@@ -4252,6 +4468,14 @@ bool VulkanCommandProcessor::IssueCopy() {
+@@ -4252,6 +4475,14 @@ bool VulkanCommandProcessor::IssueCopy() {
      bool read_cache_miss = readback_mode == ReadbackResolveMode::kFast &&
                             (newest_copy < 0 ||
                              rb.buffers[read_index] == VK_NULL_HANDLE);
@@ -457,7 +464,7 @@ index 1f508ca..522f8ff 100644
  
      if (is_scaled) {
        // Scaled path: downscale on the GPU, then copy the 1x data to the
-@@ -4481,6 +4705,8 @@ bool VulkanCommandProcessor::IssueCopy() {
+@@ -4481,6 +4712,8 @@ bool VulkanCommandProcessor::IssueCopy() {
      // Stamp after the copy: scaled-buffer growth may end a submission above.
      rb.submissions[write_index] = GetCurrentSubmission();
      rb.valid_sizes[write_index] = readback_length;
@@ -466,10 +473,33 @@ index 1f508ca..522f8ff 100644
  
      if (readback_mode != ReadbackResolveMode::kFast) {
        // Wait for GPU to finish (accurate but slow)
-@@ -4547,6 +4773,19 @@ bool VulkanCommandProcessor::IssueCopy() {
+@@ -4545,8 +4778,40 @@ bool VulkanCommandProcessor::IssueCopy() {
+       if (MapReadbackMemory(rb.memories[read_index],
+                             rb.host_coherent[read_index], &mapped_data)) {
          // Memory accessibility already checked at the start of this function.
-         memory::vastcpy(memory_->TranslatePhysical(written_address),
-                         static_cast<uint8_t*>(mapped_data), readback_length);
+-        memory::vastcpy(memory_->TranslatePhysical(written_address),
+-                        static_cast<uint8_t*>(mapped_data), readback_length);
++        // Fix 91h (issue 14): "nocopy" in readback-keys.txt keeps a key's fast-mode copy (a
++        // resolve or more late) out of guest memory: Tekken Tag Tournament 2's costume target
++        // 0F05C000 is not read by the CPU (1.0.5-work-fix91g's read watch), so the stale copy may
++        // reach the GPU through guest memory. "nocopy unread" does that for every key the CPU
++        // has not been seen reading; the read watch below stays armed to find the ones it reads.
++        const bool leave_out =
++            readback_mode == ReadbackResolveMode::kFast && !auto_readback &&
++            xbox360ps5::readback_keys::NoCopy(g_readback_rules, written_address, rb.cpu_reads);
++        if (leave_out) {
++          ++readback_copies_left_out_;
++          static uint32_t left_out_shown = 0;
++          if (left_out_shown < 16) {
++            ++left_out_shown;
++            XELOGW("Readback: the fast copy of the key {:08X} ({} bytes) kept out of guest memory "
++                   "(fix 91h)",
++                   written_address, readback_length);
++          }
++        } else {
++          memory::vastcpy(memory_->TranslatePhysical(written_address),
++                          static_cast<uint8_t*>(mapped_data), readback_length);
++        }
 +        // Fix 91: a one-shot read watch on the copy, to learn whether the CPU reads it (re-armed
 +        // every 600 frames while it does not). The copy above goes through the physical view,
 +        // which the watch does not cover.
@@ -487,10 +517,10 @@ index 1f508ca..522f8ff 100644
            const uint8_t* bytes = static_cast<const uint8_t*>(mapped_data);
            uint32_t nonzero = 0;
 diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
-index d393ff6..0ee6007 100644
+index d393ff6..c3b0334 100644
 --- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
 +++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
-@@ -908,7 +908,27 @@ class VulkanCommandProcessor final : public CommandProcessor {
+@@ -908,7 +908,28 @@ class VulkanCommandProcessor final : public CommandProcessor {
      uint64_t submissions[readback_slots::kCount] = {};
      bool host_coherent[readback_slots::kCount] = {};
      uint64_t last_used_frame = 0;
@@ -514,16 +544,17 @@ index d393ff6..0ee6007 100644
 +  // reads dropped (ring full), watches armed and keys flagged (GPU command thread).
 +  std::atomic<uint32_t> readback_read_fires_{0}, readback_read_drops_{0};
 +  uint32_t readback_watches_armed_ = 0, readback_keys_flagged_ = 0;
++  uint32_t readback_copies_left_out_ = 0;  // fix 91h: fast copies kept out of guest memory
 +  static void ReadbackReadCallback(void* context, uint32_t physical_address, uint32_t length);
    // Map: (written_address << 32 | written_length) -> ReadbackBuffer
    std::unordered_map<uint64_t, ReadbackBuffer> readback_buffers_;
  
 diff --git a/include/xbox360ps5/readback_keys.hpp b/include/xbox360ps5/readback_keys.hpp
 new file mode 100644
-index 0000000..5210d54
+index 0000000..aaaf158
 --- /dev/null
 +++ b/include/xbox360ps5/readback_keys.hpp
-@@ -0,0 +1,136 @@
+@@ -0,0 +1,160 @@
 +// SPDX-License-Identifier: MIT
 +// Fix 91 diagnostic (issue 14, 1.0.5-work-fix91e): the resolve readback mode per key, from a file
 +// the user writes over FTP between runs, for finding which resolve Tekken Tag Tournament 2's
@@ -561,6 +592,10 @@ index 0000000..5210d54
 +  // or not the CPU is seen reading it (the simpler rule, for measuring its cost).
 +  std::vector<uint32_t> watch;
 +  bool occasional_own = false;
++  // 1.0.5-work-fix91h: "nocopy <address>" leaves that key's fast-mode copy out of guest memory;
++  // "nocopy unread" leaves out the copies of every key the CPU has not been seen reading.
++  std::vector<uint32_t> nocopy;
++  bool nocopy_unread = false;
 +};
 +
 +inline bool ParseMode(const std::string& word, Mode* mode) {
@@ -590,6 +625,19 @@ index 0000000..5210d54
 +    std::string first, second, extra;
 +    if (!(words >> first)) continue;  // empty
 +    Mode mode;
++    if (first == "nocopy") {
++      uint32_t address = 0;
++      if (!(words >> second) || (words >> extra)) {
++        ++rules.not_understood;
++      } else if (second == "unread") {
++        rules.nocopy_unread = true;
++      } else if (ParseNumber(second.rfind("0x", 0) == 0 ? second.substr(2) : second, 16, &address)) {
++        rules.nocopy.push_back(address);
++      } else {
++        ++rules.not_understood;
++      }
++      continue;
++    }
 +    if (first == "watch" || first == "occasional") {
 +      uint32_t address = 0;
 +      const bool ok =
@@ -653,6 +701,13 @@ index 0000000..5210d54
 +  for (uint32_t watched : rules.watch)
 +    if (watched == address) return true;
 +  return false;
++}
++// Whether a key's fast-mode copy stays out of guest memory (fix 91h): listed, or "nocopy
++// unread" and the CPU not seen reading it.
++inline bool NoCopy(const Rules& rules, uint32_t address, bool cpu_reads) {
++  for (uint32_t listed : rules.nocopy)
++    if (listed == address) return true;
++  return rules.nocopy_unread && !cpu_reads;
 +}
 +
 +inline const char* Name(Mode mode) {

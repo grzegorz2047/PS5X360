@@ -83,6 +83,20 @@ int main() {
     const rk::Rules bad = rk::Parse("watch\nwatch zz\nwatch 0F05C000 full\noccasional\noccasional maybe\n");
     CHECK(bad.not_understood == 5 && bad.watch.empty() && !bad.occasional_own);
   }
+  // 1.0.5-work-fix91h: fast copies kept out of guest memory, for one key or for every key the
+  // CPU is not seen reading.
+  {
+    const rk::Rules one = rk::Parse("nocopy 0F05C000\n");
+    CHECK(one.not_understood == 0 && one.nocopy.size() == 1 && !one.nocopy_unread);
+    CHECK(rk::NoCopy(one, 0x0F05C000, false) && rk::NoCopy(one, 0x0F05C000, true));  // listed: always
+    CHECK(!rk::NoCopy(one, 0x100AD000, false));
+    const rk::Rules unread = rk::Parse("nocopy unread\n");
+    CHECK(unread.nocopy_unread && unread.nocopy.empty());
+    CHECK(rk::NoCopy(unread, 0x0F05C000, false) && !rk::NoCopy(unread, 0x100AD000, true));  // read: copied
+    CHECK(!rk::NoCopy(rk::Parse(""), 0x0F05C000, false));
+    const rk::Rules bad = rk::Parse("nocopy\nnocopy zz\nnocopy 0F05C000 full\n");
+    CHECK(bad.not_understood == 3 && bad.nocopy.empty() && !bad.nocopy_unread);
+  }
 
   const std::string cp = ReadText(".deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc");
   if (cp.empty()) {
@@ -108,6 +122,16 @@ int main() {
     CHECK(cp.find("xbox360ps5::readback_keys::Watched(g_readback_rules, written_address);  // fix 91g") !=
           std::string::npos);
     CHECK(cp.find("(rb.cpu_reads || g_readback_rules.occasional_own)") != std::string::npos);
+    // Fix 91h: the copy left out only in the fast mode (never the automatic copy), counted, and
+    // the read watch still armed after it.
+    const size_t leave = cp.find("xbox360ps5::readback_keys::NoCopy(g_readback_rules, written_address, rb.cpu_reads);");
+    const size_t copy = cp.find("memory::vastcpy(memory_->TranslatePhysical(written_address),");
+    const size_t arm = cp.find("memory_->EnablePhysicalMemoryAccessCallbacks(written_address, readback_length, false,");
+    CHECK(leave != std::string::npos && leave < copy && copy < arm && arm != std::string::npos);
+    CHECK(cp.find("readback_mode == ReadbackResolveMode::kFast && !auto_readback &&\n"
+                  "            xbox360ps5::readback_keys::NoCopy(") != std::string::npos);
+    CHECK(cp.find("++readback_copies_left_out_;") != std::string::npos);
+    CHECK(cp.find("fast copies kept out of guest memory {} (fix 91g/h)") != std::string::npos);
     std::printf("tree: the readback mode per key from readback-keys.txt, and the keys logged\n");
   }
   if (failures) {
