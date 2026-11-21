@@ -11,7 +11,7 @@
 //      the previous part, and a write made after the part was published but before its second
 //      draw is not the second draw's (it belongs to a later part);
 //  (b) the assembled tree: ExecutePrimaryBuffer starts a part before its first packet (on the
-//      console), FilterUnwatched answers a unit checked in this part before hashing it and stamps
+//      console; a counter in frame_cost.hpp, since the base command processor compiles that code too), FilterUnwatched answers a unit checked in this part before hashing it and stamps
 //      a unit when it checks it, the stamps are sized with the other per-unit arrays, and the
 //      summary counts the answers.
 // Run from the assembled tree's root (run-fix-checks.sh).
@@ -90,13 +90,13 @@ void CheckTree() {
   const std::string G = ".deps/xenia-canary/src/xenia/gpu/";
   const std::string pm4 = Read(G + "pm4_command_processor_implement.h");
   const size_t fn = pm4.find("uint32_t COMMAND_PROCESSOR::ExecutePrimaryBuffer(uint32_t read_index,");
-  const size_t start = pm4.find("#if XE_PLATFORM_PS5\n  shared_memory_->BeginCommandChunk();  // fix 87\n#endif", fn);
+  const size_t start = pm4.find("#if XE_PLATFORM_PS5\n  ++xbox360ps5::frame_cost::command_chunk_epoch;  // fix 87: a new part of the ring\n#endif", fn);
   const size_t first = pm4.find("if (!COMMAND_PROCESSOR::ExecutePacket()) {", fn);
   Expect(fn != std::string::npos && start != std::string::npos && start < first, "a part starts before its first packet, on the console");
   const std::string sm = Read(G + "shared_memory.cc");
   const size_t filter = sm.find("unsigned int SharedMemory::FilterUnwatched(");
-  const size_t skip = sm.find("if (UnitBit(unwatched_bits_, unit) && unit_chunk_[unit] == chunk_epoch_) {", filter);
-  const size_t stamp = sm.find("unit_chunk_[unit] = chunk_epoch_;", skip);
+  const size_t skip = sm.find("if (UnitBit(unwatched_bits_, unit) && unit_chunk_[unit] == chunk) {", filter);
+  const size_t stamp = sm.find("unit_chunk_[unit] = chunk;", skip);
   const size_t hash = sm.find("const uint64_t hash = XXH3_64bits(", skip);
   Expect(filter != std::string::npos && skip != std::string::npos && stamp < hash && hash != std::string::npos,
          "FilterUnwatched answers a unit checked in this part before hashing, and stamps a unit it checks");
@@ -105,8 +105,10 @@ void CheckTree() {
   Expect(sm.find("Performance unwatched (fix 87): {} requests answered by an earlier check in the same part of the ring") !=
              std::string::npos,
          "the summary counts them");
-  const std::string h = Read(G + "shared_memory.h");
-  Expect(h.find("void BeginCommandChunk() { ++chunk_epoch_; }") != std::string::npos, "a new part");
+  const std::string fc = Read("include/xbox360ps5/frame_cost.hpp");
+  Expect(fc.find("inline uint32_t command_chunk_epoch = 1;") != std::string::npos &&
+             sm.find("const uint32_t chunk = xbox360ps5::frame_cost::command_chunk_epoch;", filter) < skip,
+         "the parts counted where both the command processor and shared memory see them");
 }
 
 }  // namespace
