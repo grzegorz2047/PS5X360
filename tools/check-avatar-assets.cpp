@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Fix 93 (issue 15): XamAvatarGetAssetsResultSize gives room for an empty XAVATAR_ASSETS while
+// Fix 99 (issue 15): XamAvatarGetAssetsResultSize gives room for an empty XAVATAR_ASSETS while
 // the avatar asset calls are stubs, and XamAvatarGetAssets clears the set's header before it
 // fails (include/xbox360ps5/avatar_assets.hpp).
 //
@@ -68,7 +68,7 @@ int main() {
   if (xam.empty()) {
     std::printf("no assembled tree here; the stubs not checked\n");
   } else {
-    CHECK(xam.find("#include \"xbox360ps5/avatar_assets.hpp\"  // fix 93") != std::string::npos);
+    CHECK(xam.find("#include \"xbox360ps5/avatar_assets.hpp\"  // fix 99") != std::string::npos);
     const size_t size = xam.find("dword_result_t XamAvatarGetAssetsResultSize_entry(");
     const size_t get = xam.find("dword_result_t XamAvatarGetAssets_entry(");
     CHECK(size != std::string::npos && get != std::string::npos && size < get);
@@ -77,7 +77,7 @@ int main() {
     CHECK(size_body.find("*gpu_resource_buffer_size_ptr = xbox360ps5::avatar_assets::kGpuBytes;") !=
           std::string::npos);
     CHECK(size_body.find("*result_buffer_size_ptr = 0;") == std::string::npos);
-    CHECK(size_body.find("(fix 93)") != std::string::npos);
+    CHECK(size_body.find("(fix 99)") != std::string::npos);
     const std::string get_body = xam.substr(get, 900);
     const size_t clear = get_body.find("xbox360ps5::avatar_assets::kClearedBytes);");
     const size_t fail = get_body.find("X_ERROR_FUNCTION_FAILED");
