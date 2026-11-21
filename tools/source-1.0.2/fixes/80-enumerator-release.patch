@@ -73,7 +73,7 @@ diff --git a/.deps/xenia-canary/src/xenia/kernel/xenumerator.cc b/.deps/xenia-ca
    extra_size_ = extra_size;
 +  {
 +    auto global_lock = xe::global_critical_region::AcquireDirect();
-+    OwnedEnumerators()[guest_object()] = this;  // fix 80
++    OwnedEnumerators()[this->guest_object()] = this;  // fix 80
 +  }
    return X_STATUS_SUCCESS;
  }

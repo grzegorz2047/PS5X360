@@ -93,7 +93,7 @@ void CheckEnumerator() {
   const size_t create = cc.find("auto native_object = CreateNative(sizeof(X_KENUMERATOR) + extra_size);", init);
   const size_t close = cc.find("guest_object->close_message = close_message;", create);
   const size_t user = cc.find("guest_object->user_index = user_index;", create);
-  const size_t record = cc.find("OwnedEnumerators()[guest_object()] = this;  // fix 80", create);
+  const size_t record = cc.find("OwnedEnumerators()[this->guest_object()] = this;  // fix 80", create);
   const size_t ret = cc.find("return X_STATUS_SUCCESS;", create);
   Expect(init != std::string::npos && create != std::string::npos && close < record && user < record && record != std::string::npos &&
              record < ret,
