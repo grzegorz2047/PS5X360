@@ -90,6 +90,7 @@ on:
       - 'tools/check-arming-one-lock.cpp'
       - 'tools/check-default-app-relaunch.cpp'
       - 'tools/check-draw-lock-deferred.cpp'
+      - 'tools/check-global-lock-callers.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
