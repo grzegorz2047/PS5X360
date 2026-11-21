@@ -1,5 +1,5 @@
 diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
-index 7d3377f..d2c54ef 100644
+index 7d3377f..1367e37 100644
 --- a/src/canary_game_main.cpp
 +++ b/src/canary_game_main.cpp
 @@ -505,12 +505,14 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
@@ -14,7 +14,7 @@ index 7d3377f..d2c54ef 100644
    std::string label, value;
    const xbox360ps5::Option* option = nullptr;
    int category = -1;
-+  bool apart = false;  // Fix 93d: an action set apart from the options (a divider and a mark).
++  bool apart = false;  // Fix 93d: an action set apart from the options: a button below the list.
  };
  struct GuideState {
    bool open = false;
@@ -32,26 +32,49 @@ index 7d3377f..d2c54ef 100644
    return items;
  }
  // Fix 93b: what happens while a game is left, over everything, with dots turning beside it
-@@ -758,8 +767,17 @@ class Guide final : public xe::ui::ImGuiDialog {
-       const int a = int(255 * content);
-       list->AddLine(at(page_left + strip + slide_x, y + 62), at(page_right + slide_x, y + 62), fade(170, 175, 181, a), 1.5f * scale);
-       const ImU32 ink = lit ? fade(255, 255, 255, a) : fade(44, 48, 54, a);
-+      float label_x = page_left + strip + 24 + slide_x;
-+      if (items[size_t(n)].apart) {
-+        // Fix 93d: a divider above it and a round "!" mark before it.
-+        list->AddLine(at(page_left + strip + slide_x, y + 1), at(page_right + slide_x, y + 1), fade(200, 120, 40, a), 3.0f * scale);
-+        const ImU32 mark = lit ? fade(255, 255, 255, a) : fade(200, 120, 40, a);
-+        list->AddCircle(at(label_x + 14, y + 31), 14 * scale, mark, 20, 2.5f * scale);
-+        list->AddText(large, 24 * scale, at(label_x + 10, y + 18), mark, "!");
-+        label_x += 40;
-+      }
-       list->AddText(large, (state_.page == 0 ? 34 : 30) * scale,
--                    at(page_left + strip + 24 + slide_x, y + (state_.page == 0 ? 12 : 15)), ink, items[size_t(n)].label.c_str());
-+                    at(label_x, y + (state_.page == 0 ? 12 : 15)), ink, items[size_t(n)].label.c_str());
-       if (!items[size_t(n)].value.empty()) {
-         const ImVec2 size = medium->CalcTextSizeA(28 * scale, 4096.0f, 0.0f, items[size_t(n)].value.c_str());
-         list->AddText(medium, 28 * scale, ImVec2((page_right - 24 + slide_x) * scale - size.x, (y + 16) * scale),
-@@ -3009,9 +3027,14 @@ int main(int argc, char** argv) {
+@@ -731,10 +740,14 @@ class Guide final : public xe::ui::ImGuiDialog {
+     // The list moves inside its own area only.
+     list->PushClipRect(at(page_left + strip, top), at(page_right, bottom), true);
+     const auto items = GuideItems(state_.page, settings_, state_.category);
++    // Fix 93d: an action set apart (the restart with logs for a bug report) is a button below the
++    // list, not one of its rows: the rows are the others.
++    const bool button = !items.empty() && items.back().apart;
++    const int listed = int(items.size()) - (button ? 1 : 0);
+     // The settings page is longer than the panel: it scrolls with the focus.
+     const int first_row = state_.page == 0 ? 0
+-        : std::clamp(state_.row - kGuideRows / 2, 0, std::max(0, int(items.size()) - kGuideRows));
+-    const int last_row = state_.page == 0 ? int(items.size()) : std::min(int(items.size()), first_row + kGuideRows);
++        : std::clamp(state_.row - kGuideRows / 2, 0, std::max(0, listed - kGuideRows));
++    const int last_row = state_.page == 0 ? listed : std::min(listed, first_row + kGuideRows);
+     if (state_.page == 1) {
+       char position[24];
+       std::snprintf(position, sizeof(position), "%d / %d", state_.row + 1, int(items.size()));
+@@ -766,6 +779,24 @@ class Guide final : public xe::ui::ImGuiDialog {
+                       lit ? fade(255, 255, 255, a) : fade(90, 96, 104, a), items[size_t(n)].value.c_str());
+       }
+     }
++    if (button) {
++      // Fix 93d: centred below the list, quiet: a grey outline, a round "!" mark, no fill and none
++      // of the list's green; focused, a stronger outline, a light fill and dark text.
++      const bool focused = state_.row == listed;
++      const int a = int(255 * content);
++      const char* label = items.back().label.c_str();
++      const ImVec2 size = medium->CalcTextSizeA(26 * scale, 4096.0f, 0.0f, label);
++      const float width = size.x / scale + 46 + 48, height = 52;
++      const float x = (page_left + strip + page_right) / 2 - width / 2 + slide_x;
++      const float y = top + std::min(listed - first_row, kGuideRows) * 63.0f + 24;
++      const ImU32 ink = focused ? fade(44, 48, 54, a) : fade(120, 126, 134, a);
++      if (focused) list->AddRectFilled(at(x, y), at(x + width, y + height), fade(226, 228, 231, a), 12 * scale);
++      list->AddRect(at(x, y), at(x + width, y + height), focused ? fade(70, 76, 84, a) : fade(150, 155, 162, a), 12 * scale, 0,
++                    (focused ? 3.0f : 2.0f) * scale);
++      list->AddCircle(at(x + 37, y + 26), 13 * scale, ink, 20, 2.0f * scale);
++      list->AddText(medium, 22 * scale, at(x + 33, y + 14), ink, "!");
++      list->AddText(medium, 26 * scale, at(x + 70, y + 12), ink, label);
++    }
+     list->PopClipRect();
+     if (!game_.empty()) {
+       const std::string running = Tr("Playing: ") + game_;
+@@ -3009,9 +3040,14 @@ int main(int argc, char** argv) {
          }
          // Fix 93: logs for a bug report are for this start; the setting turns itself off now, so
          // the next start is an ordinary one. A title switch of the session goes on with it.
@@ -69,7 +92,7 @@ index 7d3377f..d2c54ef 100644
            bug_report_state = xbox360ps5::bug_report::Begin(chosen.name, log_id, int64_t(std::time(nullptr)));
            xbox360ps5::bug_report::active.store(true);
          }
-@@ -3138,6 +3161,7 @@ int main(int argc, char** argv) {
+@@ -3138,6 +3174,7 @@ int main(int argc, char** argv) {
          publish_web(settings_title, game_name);
          ApplyPicture(settings, emulator.graphics_system()->presenter());
          bool trigger_was = true, swallow = false, quit = false;
@@ -77,7 +100,7 @@ index 7d3377f..d2c54ef 100644
          // The library over the running game ("Go to the library (the game stays open)" in the guide).
          bool library_open = false, close_library = false, create_seen = false;
          XELOGW("Controller: asked for the system's buttons (Create as BACK), answer {:08X}", unsigned(ps5x360_pad_privilege_answer));
-@@ -3396,6 +3420,25 @@ int main(int argc, char** argv) {
+@@ -3396,6 +3433,25 @@ int main(int argc, char** argv) {
                    changed = false;
                    measure_at = std::chrono::steady_clock::now() + std::chrono::seconds(4);
                    break;
@@ -103,7 +126,7 @@ index 7d3377f..d2c54ef 100644
                  case GuideAction::network: {
                    // Fix 22: Offline, System Link, Online, switched on a thread of its own.
                    namespace net = xbox360ps5::guide_network;
-@@ -3687,7 +3730,8 @@ int main(int argc, char** argv) {
+@@ -3687,7 +3743,8 @@ int main(int argc, char** argv) {
          // Fix 93b: from here to the restart the screen says what happens, and keeps moving while
          // the steps below run (leaving_notice.hpp); the last frame stays through the restart.
          namespace leaving = xbox360ps5::leaving_notice;

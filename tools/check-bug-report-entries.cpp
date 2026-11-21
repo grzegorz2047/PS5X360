@@ -9,7 +9,8 @@
 //  (b) the general settings sheet: a 15th row after the others, toggled and saved, drawn apart;
 //  (c) a game's Settings tab: a row after its subjects for an identified game, toggling the
 //      game's own value (saved in its file), drawn apart, with its explanation;
-//  (d) the guide: under System's options an action set apart (a divider and a mark), Cross only,
+//  (d) the guide: below System's options a quiet button (grey outline, a "!" mark, centred, not a
+//      row of the list; a stronger outline when focused), Cross only,
 //      writing this game's own value (the general one without a title ID) and launch-once.txt,
 //      then restarting with "Restarting the game...";
 //  (e) a game's start takes the game's own value or the general one, and clears both;
@@ -95,8 +96,20 @@ void CheckGame() {
   Expect(Has(items, "GuideItem restart{GuideAction::bug_report_restart, Tr(\"Restart this game with logs for a bug report\"), \"\"};") &&
              Has(items, "restart.apart = true;"),
          "(d) at the end of System's list, set apart");
-  const std::string draw = Between(main, "if (items[size_t(n)].apart) {", "label_x += 40;");
-  Expect(Has(draw, "list->AddLine(") && Has(draw, "list->AddCircle(") && Has(draw, "\"!\""), "(d) drawn with a divider and a mark");
+  // The user's choice: a quiet button below the list, centred, not a row of it.
+  Expect(Has(main, "const bool button = !items.empty() && items.back().apart;") &&
+             Has(main, "const int listed = int(items.size()) - (button ? 1 : 0);") &&
+             Has(main, "std::max(0, listed - kGuideRows)") && Has(main, "std::min(listed, first_row + kGuideRows)"),
+         "(d) the rows are the others; the action is not one of them (no green focus bar on it)");
+  const std::string draw = Between(main, "    if (button) {", "list->PopClipRect();");
+  Expect(Has(draw, "const bool focused = state_.row == listed;") &&
+             Has(draw, "const float x = (page_left + strip + page_right) / 2 - width / 2 + slide_x;") &&
+             Has(draw, "top + std::min(listed - first_row, kGuideRows) * 63.0f + 24"),
+         "(d) a button centred below the list");
+  Expect(Has(draw, "list->AddRect(") && Has(draw, "list->AddCircle(") && Has(draw, "\"!\"") &&
+             Has(draw, "focused ? fade(70, 76, 84, a) : fade(150, 155, 162, a)") &&
+             !Has(draw, "fade(118, 188, 62") && !Has(draw, "fade(200, 120, 40"),
+         "(d) grey outline and a \"!\" mark, stronger when focused, none of the green or orange");
   const std::string action = Between(main, "case GuideAction::bug_report_restart:", "case GuideAction::network: {");
   Expect(Has(action, "if (!(pressed & 0x4000)) break;"), "(d) Cross only");
   Expect(Has(action, "overrides[\"bug_report\"] = 1;") && Has(action, "xbox360ps5::SaveGameOverrides(settings_title, overrides);") &&

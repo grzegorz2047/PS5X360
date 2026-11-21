@@ -136,10 +136,10 @@ index 2013602..723b4c1 100644
  // process draws (console: "Returning to the menu...", black, then the menu). What was shown is
  // written before LoadExec ("kind=<n>\nat=<ms since 1970>\n", leaving-notice.txt in the title's
 diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
-index d2c54ef..5c06f1c 100644
+index 1367e37..ceb9eec 100644
 --- a/src/canary_game_main.cpp
 +++ b/src/canary_game_main.cpp
-@@ -3733,13 +3733,27 @@ int main(int argc, char** argv) {
+@@ -3746,13 +3746,27 @@ int main(int argc, char** argv) {
          leaving::Show(restart ? (restart_same_game ? leaving::Kind::restart_game : leaving::Kind::menu)  // fix 93d
                                : leaving::Kind::closing);
          const auto paint_notice = [&context, &window] { context.Tick(); window.Paint(); };
@@ -172,7 +172,7 @@ index d2c54ef..5c06f1c 100644
          }
          xe::ui::controller_keyboard::Cancel();
          // Publish cancellation and signal any keyboard fence while the drawer
-@@ -3758,6 +3772,12 @@ int main(int argc, char** argv) {
+@@ -3771,6 +3785,12 @@ int main(int argc, char** argv) {
          // Fix 22: a network change from the guide uses the emulator; let it finish first.
          leaving::WhilePainting([] { xbox360ps5::guide_network::WaitIdle(std::chrono::seconds(25)); },
                                 paint_notice);  // fix 93b
