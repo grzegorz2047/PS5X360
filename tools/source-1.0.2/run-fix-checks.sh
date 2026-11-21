@@ -92,6 +92,7 @@ checks=(
   check-arming-one-lock.cpp        # fix 84
   check-default-app-relaunch.cpp   # fix 85
   check-draw-lock-deferred.cpp     # fix 86
+  check-event-writes.cpp           # fix 96
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -148,6 +149,7 @@ declare -A fix_of=(
   [check-arming-one-lock.cpp]=84
   [check-default-app-relaunch.cpp]=85
   [check-draw-lock-deferred.cpp]=86
+  [check-event-writes.cpp]=96
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))

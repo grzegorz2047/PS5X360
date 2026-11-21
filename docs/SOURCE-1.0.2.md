@@ -220,6 +220,7 @@ also listed here.
 | 84 (`84-arming-one-lock`) | a 1.0.5 performance fix: arming a write watch takes the global lock once for the four views of physical memory instead of once each (Modern Warfare 2: 21 ms/s of lock waits for a view with nothing to protect) | host-checked (`tools/check-arming-one-lock.cpp`); console: Modern Warfare 2, Battlefield 3 |
 | 85 (`85-default-app-relaunch`) | Red Dead Redemption went back to the launcher after choosing the storage device: `XamLoaderLaunchTitle` with an empty name (the title's own executable again) was taken for the dashboard; it now starts the same game again | host-checked (`tools/check-default-app-relaunch.cpp`); console: Red Dead Redemption |
 | 86 (`86-draw-lock-deferred`) | a 1.0.5 performance fix: draws no longer take the global lock for their vertex buffers with "Optimized video memory" off (Modern Warfare 2: about 256,000 lock acquisitions a second, 128 ms/s waiting) | host-checked (`tools/check-draw-lock-deferred.cpp`); console: Modern Warfare 2, Battlefield 3 with memory_boost off |
+| 96 (`96-event-writes`) | a 1.0.5 diagnostic: the summary splits EVENT_WRITE* by opcode and event type, with each opcode's own time (Red Dead Redemption: 233,490 a second, 64.5 ms/s) | host-checked (`tools/check-event-writes.cpp`); console: Red Dead Redemption, the events line |
 
 ## Comparison with the official executable
 
