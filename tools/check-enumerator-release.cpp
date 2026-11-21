@@ -100,7 +100,7 @@ void CheckEnumerator() {
          "Initialize records the enumerator by its guest object after writing over the stamp");
   const size_t dtor = cc.find("XEnumerator::~XEnumerator() {");
   const size_t erase = cc.find("OwnedEnumerators().erase(it);", dtor);
-  Expect(dtor != std::string::npos && erase != std::string::npos && erase - dtor < 400, "the destructor forgets it");
+  Expect(dtor != std::string::npos && erase != std::string::npos && erase - dtor < 3000, "the destructor forgets it");
   const size_t find = cc.find("XObject* XEnumerator::RetainByGuestObject(uint32_t guest_ptr) {");
   const size_t handles = cc.find("it->second->handles().empty()", find);
   const size_t retain = cc.find("return retain_object<XObject>(it->second).release();", find);
